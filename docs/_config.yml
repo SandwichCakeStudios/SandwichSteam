@@ -1,0 +1,22 @@
+title: Sandwich Steam
+description: Steam for Unreal Engine 5, made friendly. Blueprint and C++.
+remote_theme: just-the-docs/just-the-docs
+url: https://sandwichcakestudios.github.io
+baseurl: /SandwichSteam
+
+# Page links end in .html so images can use plain relative paths (works on GitHub and on the site).
+permalink: /:path/:basename:output_ext
+
+search_enabled: true
+heading_anchors: true
+
+aux_links:
+  "View on GitHub": https://github.com/SandwichCakeStudios/SandwichSteam
+aux_links_new_tab: true
+
+footer_content: "Copyright &copy; 2026 Sandwich Cake Studios. MIT License. Not affiliated with Valve or Epic Games."
+
+# Working files that must not appear on the site
+exclude:
+  - SHOT-LIST.md
+  - README.md

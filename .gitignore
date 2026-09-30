@@ -1,0 +1,24 @@
+# --- Unreal build output ---
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+*.sln
+*.suo
+*.VC.db
+*.opensdf
+*.sdf
+
+# --- Private working files, never published ---
+/Documents/
+/Examples/
+/.claude/
+/CLAUDE.md
+/.mcp.json
+/.claudeignore
+
+# --- GitHub Pages (Jekyll) local build ---
+docs/_site/
+docs/.jekyll-cache/
+docs/Gemfile.lock
