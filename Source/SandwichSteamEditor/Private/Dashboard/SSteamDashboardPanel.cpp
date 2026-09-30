@@ -62,7 +62,7 @@ void SSteamDashboardPanel::Construct(const FArguments& /*InArgs*/)
 			]
 			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
 			[
-				SNew(STextBlock).Text(LOCTEXT("Title", "Open Steam Dashboard")).Font(FAppStyle::GetFontStyle("HeadingExtraSmallText"))
+				SNew(STextBlock).Text(LOCTEXT("Title", "Steam Dashboard")).Font(FAppStyle::GetFontStyle("HeadingExtraSmallText"))
 			]
 		]
 		// Body: nav | page | status
@@ -128,7 +128,7 @@ namespace SandwichSteam::Editor
 		{
 			const TSharedRef<SDockTab> Tab = SNew(SDockTab)
 				.TabRole(ETabRole::NomadTab)
-				.Label(LOCTEXT("DashboardTabLabel", "Open Steam Dashboard"))
+				.Label(LOCTEXT("DashboardTabLabel", "Steam Dashboard"))
 				.OnCanCloseTab_Lambda([]()
 				{
 					for (const FSteamDashboardPage& Page : GetDashboardPages())
@@ -145,7 +145,7 @@ namespace SandwichSteam::Editor
 				];
 			return Tab;
 		}))
-		.SetDisplayName(LOCTEXT("DashboardTabDisplayName", "Open Steam Dashboard"))
+		.SetDisplayName(LOCTEXT("DashboardTabDisplayName", "Steam Dashboard"))
 		.SetTooltipText(LOCTEXT("DashboardTabTooltip", "One place for Steam setup, the App Definition and publishing."))
 		.SetMenuType(ETabSpawnerMenuType::Hidden)
 		.SetIcon(FSlateIcon(FSteamToolStyle::GetStyleSetName(), "SandwichSteam.Icon16"));

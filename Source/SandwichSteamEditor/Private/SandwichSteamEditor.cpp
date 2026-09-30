@@ -120,7 +120,7 @@ void FSandwichSteamEditorModule::RegisterMenus()
 
 	Section.AddMenuEntry(
 		"SandwichSteamDashboard",
-		LOCTEXT("DashboardLabel", "Open Steam Dashboard"),
+		LOCTEXT("DashboardLabel", "Steam Dashboard"),
 		LOCTEXT("DashboardTooltip", "One place for Steam setup, the App Definition and publishing."),
 		ToolIcon,
 		FUIAction(FExecuteAction::CreateStatic(&SandwichSteam::Editor::SandwichSteamDashboard)));

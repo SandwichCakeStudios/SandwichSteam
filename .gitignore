@@ -16,6 +16,7 @@ DerivedDataCache/
 /.claude/
 /CLAUDE.md
 /.mcp.json
+/.gitignore
 /.claudeignore
 
 # --- GitHub Pages (Jekyll) local build ---

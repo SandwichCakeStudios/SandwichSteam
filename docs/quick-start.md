@@ -23,9 +23,9 @@ By the end of this page you will have unlocked a real Steam achievement from a B
 
 ## 1. Open the Steam Dashboard
 
-Go to **Tools > Sandwich Steam > Open Steam Dashboard**.
+Go to **Tools > Sandwich Steam > Steam Dashboard**.
 
-<!-- SHOT 10: Tools menu with Sandwich Steam > Open Steam Dashboard highlighted -->
+<!-- SHOT 10: Tools menu with Sandwich Steam > Steam Dashboard highlighted -->
 ![Opening the Steam Dashboard from the Tools menu](assets/img/quickstart/10-open-dashboard.png)
 
 The dashboard has three parts: a page list on the left, the selected page in the middle, and on the right a **Setup status** card with a coloured dot per check, plus an **Actions** card. Red means "fix me". Hover a row to read the full explanation. Our goal is to get everything green.

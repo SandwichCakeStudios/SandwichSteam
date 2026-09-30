@@ -15,7 +15,7 @@ Most problems are one of these:
 
 1. **Is the Steam client running and logged in?** It must be, every time you test.
 2. **Are you using Play > Standalone Game?** Steam does not run in Play In Editor. Nodes report *Unavailable* there. This is normal.
-3. **Is the Dashboard green?** Open **Tools > Sandwich Steam > Open Steam Dashboard**, click **Re-check** and look at the Setup status card.
+3. **Is the Dashboard green?** Open **Tools > Sandwich Steam > Steam Dashboard**, click **Re-check** and look at the Setup status card.
 
 <!-- SHOT 30: Dashboard Setup status card with one red row (e.g. DefaultEngine.ini) and its Fix button -->
 ![A red Setup status row with a Fix button](assets/img/troubleshooting/30-status-red.png)

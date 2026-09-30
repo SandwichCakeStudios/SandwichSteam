@@ -13,7 +13,7 @@ class SVerticalBox;
 template <typename OptionType> class SComboBox;
 
 /**
- * Tools > Open Steam Publish. Three pages: Publish (branch, dry run, publish, steps, progress, live log), Setup (depots,
+ * Tools > Steam Publish. Three pages: Publish (branch, dry run, publish, steps, progress, live log), Setup (depots,
  * branches and packaging in a details view, saved as you edit - SteamCMD path and account are on the dashboard's SteamCMD
  * page instead) and History (the uploads of this project). All work is done by FSteamPublishJob.
  */
@@ -94,7 +94,7 @@ private:
 
 namespace SandwichSteam::Editor
 {
-	/** Registers and removes the Open Steam Publish tab (Tools menu entry calls OpenPublishTab). */
+	/** Registers and removes the Steam Publish tab (Tools menu entry calls OpenPublishTab). */
 	void RegisterPublishTab();
 	void UnregisterPublishTab();
 	void OpenPublishTab();

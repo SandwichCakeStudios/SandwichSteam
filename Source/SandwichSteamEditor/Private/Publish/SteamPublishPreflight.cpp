@@ -135,7 +135,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 		const TArray<FSteamValidationCheck> Setup = FSteamProjectValidator::Run();
 		if (Setup.ContainsByPredicate([](const FSteamValidationCheck& Check) { return Check.Severity == ESteamCheckSeverity::Error; }))
 		{
-			Checks.Add(MakeCheck(TEXT("Validator"), ESteamCheckSeverity::Error, LOCTEXT("Validator", "Steam setup"), LOCTEXT("ValidatorDetail", "The Steam setup has errors. Fix them on the Steam Dashboard's status panel (Tools > Sandwich Steam > Open Steam Dashboard).")));
+			Checks.Add(MakeCheck(TEXT("Validator"), ESteamCheckSeverity::Error, LOCTEXT("Validator", "Steam setup"), LOCTEXT("ValidatorDetail", "The Steam setup has errors. Fix them on the Steam Dashboard's status panel (Tools > Sandwich Steam > Steam Dashboard).")));
 		}
 
 		if (bUpload)

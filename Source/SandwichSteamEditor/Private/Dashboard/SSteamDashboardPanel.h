@@ -9,7 +9,7 @@ class SWidgetSwitcher;
 struct FSteamDashboardPage;
 
 /**
- * Tools > Open Steam Dashboard. Left nav built from the dashboard page registry, the selected page in the center,
+ * Tools > Steam Dashboard. Left nav built from the dashboard page registry, the selected page in the center,
  * and a persistent SSteamStatusPanel on the right. Adding a page never requires a change here; see
  * Dashboard/SteamDashboardRegistry.h.
  */
@@ -30,7 +30,7 @@ private:
 
 namespace SandwichSteam::Editor
 {
-	/** Registers and removes the Open Steam Dashboard tab (Tools menu entry calls SandwichSteamDashboard). */
+	/** Registers and removes the Steam Dashboard tab (Tools menu entry calls SandwichSteamDashboard). */
 	void RegisterDashboardTab();
 	void UnregisterDashboardTab();
 	void SandwichSteamDashboard();

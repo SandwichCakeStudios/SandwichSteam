@@ -172,7 +172,7 @@ void SSteamPublishPanel::Construct(const FArguments& InArgs)
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot().AutoHeight()
 				[
-					SNew(STextBlock).Text(LOCTEXT("Title", "Open Steam Publish")).Font(FSteamToolStyle::ScaleFont(FAppStyle::GetFontStyle("HeadingExtraSmallText"), 1.5f))
+					SNew(STextBlock).Text(LOCTEXT("Title", "Steam Publish")).Font(FSteamToolStyle::ScaleFont(FAppStyle::GetFontStyle("HeadingExtraSmallText"), 1.5f))
 				]
 				+ SVerticalBox::Slot().AutoHeight()
 				[
@@ -883,7 +883,7 @@ namespace SandwichSteam::Editor
 			const TSharedRef<SSteamPublishPanel> Panel = SNew(SSteamPublishPanel);
 			const TSharedRef<SDockTab> Tab = SNew(SDockTab)
 				.TabRole(ETabRole::NomadTab)
-				.Label(LOCTEXT("TabLabel", "Open Steam Publish"))
+				.Label(LOCTEXT("TabLabel", "Steam Publish"))
 				.OnCanCloseTab_Lambda([WeakPanel = TWeakPtr<SSteamPublishPanel>(Panel)]()
 				{
 					const TSharedPtr<SSteamPublishPanel> Pinned = WeakPanel.Pin();
@@ -894,7 +894,7 @@ namespace SandwichSteam::Editor
 				];
 			return Tab;
 		}))
-		.SetDisplayName(LOCTEXT("TabDisplayName", "Open Steam Publish"))
+		.SetDisplayName(LOCTEXT("TabDisplayName", "Steam Publish"))
 		.SetTooltipText(LOCTEXT("TabTooltip", "Package the game and upload it to Steam."))
 		.SetMenuType(ETabSpawnerMenuType::Hidden)
 		.SetIcon(FSlateIcon(FSteamToolStyle::GetStyleSetName(), "SandwichSteam.Publish16"));

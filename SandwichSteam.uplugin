@@ -11,6 +11,7 @@
 	"MarketplaceURL": "",
 	"SupportURL": "https://github.com/SandwichCakeStudios/SandwichSteam/issues",
 	"EngineVersion": "5.8.0",
+	"FabURL": "com.epicgames.launcher://ue/Fab/product/a72543a4-8ba7-48d9-98a8-6e479616c894",
 	"CanContainContent": false,
 	"Installed": false,
 	"Modules": [

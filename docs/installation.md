@@ -167,9 +167,9 @@ When it says **BUILD SUCCESSFUL**, copy `C:\Builds\SandwichSteam` into any proje
    <!-- SHOT 01: Edit > Plugins window with "Sandwich Steam" found by search and enabled -->
    ![Sandwich Steam in the Plugins window](assets/img/install/01-plugins-window.png)
 
-2. Look at the **Tools** menu. You should see **Sandwich Steam > Open Steam Dashboard**.
+2. Look at the **Tools** menu. You should see **Sandwich Steam > Steam Dashboard**.
 
-   <!-- SHOT 07: The Tools menu open, with the Sandwich Steam submenu and "Open Steam Dashboard" visible -->
+   <!-- SHOT 07: The Tools menu open, with the Sandwich Steam submenu and "Steam Dashboard" visible -->
    ![Tools menu with the Sandwich Steam entry](assets/img/install/07-tools-menu.png)
 
 3. Right-click in any Blueprint and search for `Steam`. You should see nodes such as **Unlock Steam Achievement**.

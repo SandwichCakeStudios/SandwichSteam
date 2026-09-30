@@ -22,7 +22,7 @@ public:
 	virtual ~FSandwichSteamEditorModule() override;
 
 private:
-	/** Adds Tools > Sandwich Steam > Open Steam Dashboard. */
+	/** Adds Tools > Sandwich Steam > Steam Dashboard. */
 	void RegisterMenus();
 
 	/** Details customizations for the settings and the App Definition asset. */

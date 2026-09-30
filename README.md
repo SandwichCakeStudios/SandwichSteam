@@ -34,7 +34,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 | **Tags, not magic strings** | Achievements, stats and leaderboards are chosen from a Gameplay Tag dropdown. Raw Steam names work too. |
 | **Built-in test panel** | Press one console command in a running game to see live Steam data and try every feature. |
 
-<!-- SHOT 41: The Steam Dashboard window (Tools > Sandwich Steam > Open Steam Dashboard) with the status column visible -->
+<!-- SHOT 41: The Steam Dashboard window (Tools > Sandwich Steam > Steam Dashboard) with the status column visible -->
 ![The Steam Dashboard](docs/assets/img/readme/41-dashboard.png)
 
 ## What is inside
@@ -66,7 +66,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 
 1. Download this repository (**Code > Download ZIP**) and copy the folder into `YourProject/Plugins/SandwichSteam`.
 2. Open your project. When Unreal asks to rebuild the missing modules, click **Yes**.
-3. Open **Tools > Sandwich Steam > Open Steam Dashboard** and follow the green checks.
+3. Open **Tools > Sandwich Steam > Steam Dashboard** and follow the green checks.
 4. Press **Play > Standalone Game** (Steam does not run in Play In Editor) and type `Steam.Test.Toggle` in the console.
 
 Full walkthrough: **[Quick Start: your first achievement in 10 minutes](https://sandwichcakestudios.github.io/SandwichSteam/quick-start.html)**
