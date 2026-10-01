@@ -68,6 +68,9 @@ struct FSteamCmdCommandLine
 	/** Uploads through the app build script. */
 	static FString BuildUpload(const FString& Username, const FString& AppVdfPath);
 
+	/** "+login <user> +app_info_update 1 +app_info_print <AppId> +quit": prints the app's KeyValues (depots, branches, ...). */
+	static FString BuildAppInfoPrint(const FString& Username, int32 AppId);
+
 	/** Interactive login for the terminal (password and Steam Guard are typed by the user there). */
 	static FString BuildTerminalLogin(const FString& Username);
 };

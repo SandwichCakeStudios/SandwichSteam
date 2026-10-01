@@ -51,6 +51,9 @@ private:
 	void StartJob(const FSteamPublishOptions& Options);
 	bool IsBranchSetLive(const FString& Branch) const;
 
+	/** Shows what the run will do (steps, build settings, depots, pre-flight warnings) and returns true when the user confirms. */
+	bool ConfirmRun(const FSteamPublishOptions& Options) const;
+
 	void HandleLog(const FString& Line, ESteamLogSeverity Severity);
 	void HandleStepChanged(ESteamPublishStepId Step, ESteamPublishStepState State);
 	void HandleProgress(float Progress);

@@ -93,7 +93,8 @@ Sandwich Steam is young. This table is honest about what has been tested.
 | Steam Input | Builds and unit tests pass. **Not yet tested with a real controller** |
 | DLC | Works with the test app. **Not yet tested with a real DLC App ID** |
 | Editor Dashboard, App Definition, SteamCMD download | Tested on Windows |
-| Publish Tool (packaging, real upload) | **Not yet verified** with a real App ID |
+| Publish Tool (packaging, real upload, Cancel) | Tested on Windows with a real App ID |
+| Dashboard Setup page, confirm window | Tested on Windows |
 
 Found a problem? Please [open an issue](https://github.com/SandwichCakeStudios/SandwichSteam/issues/new/choose).
 

@@ -20,7 +20,7 @@ namespace SandwichSteam::Publish
 	/** Scripts, SteamCMD output and history. Setting "Publish Directory", else <Data Directory>/Publish (default Saved/SandwichSteam/Publish). */
 	FString GetPublishDir();
 
-	/** Setting "Staging Directory" (default Saved/StagedBuilds), absolute. */
+	/** Setting "Staging Directory", else <Data Directory>/StagedBuilds (default Saved/SandwichSteam/StagedBuilds), absolute. */
 	FString GetStagingDir();
 
 	/** Staged folder name UAT uses for the platform (Windows, Mac, Linux). */
@@ -28,6 +28,9 @@ namespace SandwichSteam::Publish
 
 	/** Absolute, forward slash content root of the depot. Relative paths start at the project folder; empty = <Staging Directory>/<Platform>. */
 	FString ResolveContentRoot(const FSteamPublishDepot& Depot);
+
+	/** The build description with its tokens ({Project}, {Config}, {Branch}, {Date}) filled in, as the app script gets it. */
+	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName);
 
 	/** Writes the app and depot scripts for the enabled depots. Returns false with OutError when the settings cannot produce a valid build. */
 	bool WriteVdfFiles(const USteamPublishSettings& Settings, const FString& BranchName, FVdfFiles& OutFiles, FString& OutError);

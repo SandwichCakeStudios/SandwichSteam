@@ -1,14 +1,14 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "Publish/SteamPublishActions.h"
-#include "Containers/Ticker.h"
 #include "Editor.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "HAL/PlatformProcess.h"
 #include "SandwichSteamEditor.h"
-#include "Publish/SteamCmdRunner.h"
+#include "Publish/SteamCmdOutputParser.h"
+#include "Publish/SteamCmdSetupService.h"
 #include "Publish/SteamPublishSettings.h"
 #include "Publish/SteamPublishVdf.h"
 #include "Styling/AppStyle.h"
@@ -122,8 +122,6 @@ namespace
 		}
 		return TOptional<FString>();
 	}
-
-	TSharedPtr<FSteamCmdRunner> LoginTestRunner;
 }
 
 namespace SandwichSteam::Editor
@@ -155,12 +153,12 @@ namespace SandwichSteam::Editor
 		Notify(FText::Format(LOCTEXT("DryRunDone", "Wrote {0} and {1} depot script(s). Nothing was uploaded."), FText::FromString(Files.AppVdfPath), Files.DepotVdfPaths.Num()), SNotificationItem::CS_Success, 10.f);
 	}
 
-	void SandwichSteamCmdLoginTerminal()
+	bool SandwichSteamCmdLoginTerminal()
 	{
 		FString Exe, User;
 		if (!GetSteamCmdSetup(Exe, User))
 		{
-			return;
+			return false;
 		}
 
 		const FString SteamCmdArgs = FSteamCmdCommandLine::BuildTerminalLogin(User);
@@ -170,90 +168,22 @@ namespace SandwichSteam::Editor
 		// "start" gives the console its own window; cmd /k keeps it open after SteamCMD ends.
 		const FString Params = FString::Printf(TEXT("/c start \"SteamCMD login\" cmd /k \"\"%s\" %s\""), *WindowsExe, *SteamCmdArgs);
 		FPlatformProcess::CreateProc(TEXT("cmd.exe"), *Params, false, true, true, nullptr, 0, nullptr, nullptr);
-		Notify(LOCTEXT("TerminalOpened", "A terminal opened. Enter your password and Steam Guard code there, wait for \"OK\", then type quit. Then use Test login."), SNotificationItem::CS_Success, 12.f);
+		Notify(LOCTEXT("TerminalOpened", "A terminal opened. Enter your password and Steam Guard code there, wait for \"OK\", then type quit. The login is checked when you come back to the editor."), SNotificationItem::CS_Success, 12.f);
 #else
 		const FString Command = FString::Printf(TEXT("\"%s\" %s"), *Exe, *SteamCmdArgs);
 		FPlatformApplicationMisc::ClipboardCopy(*Command);
 		Notify(LOCTEXT("TerminalCopied", "Command copied to the clipboard. Run it in a terminal, enter password and Steam Guard code, wait for \"OK\", then type quit."), SNotificationItem::CS_Success, 12.f);
 #endif
+		return true;
 	}
 
 	void TestSteamCmdLogin()
 	{
-		if (LoginTestRunner.IsValid() && LoginTestRunner->IsRunning())
-		{
-			Notify(LOCTEXT("TestRunning", "A login test is already running."), SNotificationItem::CS_Fail);
-			return;
-		}
-
-		FString Exe, User;
-		if (!GetSteamCmdSetup(Exe, User))
-		{
-			return;
-		}
-
-		LoginTestRunner = MakeShared<FSteamCmdRunner>();
-		const TWeakPtr<FSteamCmdRunner> WeakRunner = LoginTestRunner;
-
-		LoginTestRunner->OnEvent().AddLambda([WeakRunner](const FSteamCmdEvent& Event)
-		{
-			if (Event.Type == ESteamCmdEventType::Line)
-			{
-				UE_LOG(LogSandwichSteamEditor, Log, TEXT("steamcmd: %s"), *Event.Text);
-			}
-			else if (Event.Type == ESteamCmdEventType::GuardEmailRequested || Event.Type == ESteamCmdEventType::GuardMobileRequested)
-			{
-				const bool bMobile = Event.Type == ESteamCmdEventType::GuardMobileRequested;
-				// Next tick: the dialog is modal and must not run inside the event delivery.
-				FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakRunner, bMobile](float)
-				{
-					if (const TSharedPtr<FSteamCmdRunner> Runner = WeakRunner.Pin())
-					{
-						const TOptional<FString> Code = PromptGuardCode(bMobile);
-						if (Code.IsSet())
-						{
-							Runner->SubmitGuardCode(Code.GetValue());
-						}
-						else
-						{
-							Runner->Cancel();
-						}
-					}
-					return false;
-				}));
-			}
-		});
-
-		LoginTestRunner->OnFinished().AddLambda([](const FSteamCmdResult& Result)
-		{
-			switch (Result.Outcome)
-			{
-			case ESteamCmdOutcome::Success:
-				Notify(Result.bLoggedIn ? LOCTEXT("TestOk", "SteamCMD login works.") : LOCTEXT("TestOkNoLine", "SteamCMD finished without errors, but no login line was seen. Check the log."), SNotificationItem::CS_Success);
-				break;
-			case ESteamCmdOutcome::NeedsPassword:
-				Notify(LOCTEXT("TestPassword", "SteamCMD has no cached login. Use \"Open login terminal\" and log in once."), SNotificationItem::CS_Fail, 10.f);
-				break;
-			case ESteamCmdOutcome::LoginFailed:
-				Notify(FText::Format(LOCTEXT("TestLoginFailed", "Steam login failed: {0}"), FText::FromString(Result.Message)), SNotificationItem::CS_Fail, 10.f);
-				break;
-			case ESteamCmdOutcome::Canceled:
-				Notify(LOCTEXT("TestCanceled", "Login test cancelled."), SNotificationItem::CS_Fail);
-				break;
-			default:
-				Notify(FText::Format(LOCTEXT("TestFailed", "SteamCMD failed (exit code {0}). {1}"), Result.ReturnCode, FText::FromString(Result.Message)), SNotificationItem::CS_Fail, 10.f);
-				break;
-			}
-		});
-
 		FString Error;
-		if (!LoginTestRunner->Start(Exe, FSteamCmdCommandLine::BuildLoginCheck(User), Error))
+		if (!FSteamCmdSetupService::Get().StartLoginCheck(/*bInteractive*/ true, Error))
 		{
 			Notify(FText::FromString(Error), SNotificationItem::CS_Fail);
-			LoginTestRunner.Reset();
-			return;
 		}
-		Notify(LOCTEXT("TestStarted", "Testing the SteamCMD login (a first run may update SteamCMD)..."), SNotificationItem::CS_Pending, 4.f);
 	}
 }
 

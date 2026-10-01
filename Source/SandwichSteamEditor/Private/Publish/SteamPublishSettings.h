@@ -151,7 +151,7 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Folders", meta = (RelativeToGameDir))
 	FDirectoryPath PublishDirectory;
 
-	/** Where the packager stages the game and where depots without their own content root look. One sub folder per platform (Windows, Mac, Linux). Empty = Saved/StagedBuilds. */
+	/** Where the packager stages the game and where depots without their own content root look. One sub folder per platform (Windows, Mac, Linux). Relative paths start at the project folder. Empty = <Data Directory>/StagedBuilds (Sandwich Steam settings; default Saved/SandwichSteam/StagedBuilds). */
 	UPROPERTY(EditAnywhere, Config, Category = "Folders", meta = (RelativeToGameDir))
 	FDirectoryPath StagingDirectory;
 

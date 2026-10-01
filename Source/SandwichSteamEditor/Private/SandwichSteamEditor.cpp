@@ -11,10 +11,12 @@
 #include "PropertyEditorModule.h"
 #include "Publish/SSteamCmdSetupPage.h"
 #include "Publish/SSteamPublishPanel.h"
+#include "Publish/SteamCmdSetupService.h"
 #include "Publish/SteamPublishSettings.h"
 #include "Publish/SteamPublishSettingsCustomization.h"
 #include "Sdk/SteamDashboardSdkPage.h"
 #include "Settings/SteamToolSettingsCustomization.h"
+#include "Setup/SSteamSetupPage.h"
 #include "Style/SteamToolStyle.h"
 #include "ToolMenus.h"
 #include "UObject/UnrealType.h"
@@ -39,6 +41,7 @@ void FSandwichSteamEditorModule::StartupModule()
 	RegisterDetailCustomizations();
 	SandwichSteam::Editor::RegisterPublishTab();
 	SandwichSteam::Editor::RegisterDashboardTab();
+	SandwichSteam::Editor::RegisterSetupDashboardPage();
 	SandwichSteam::Editor::RegisterSteamworksSdkDashboardPage();
 	SandwichSteam::Editor::RegisterAppDefinitionDashboardPage();
 	SandwichSteam::Editor::RegisterSteamCmdDashboardPage();
@@ -64,7 +67,9 @@ void FSandwichSteamEditorModule::ShutdownModule()
 	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("SteamCmd"));
 	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("AppDefinition"));
 	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("SteamworksSdk"));
+	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("Setup"));
 	SandwichSteam::Editor::UnregisterDashboardTab();
+	FSteamCmdSetupService::Shutdown();
 	SandwichSteam::Editor::UnregisterPublishTab();
 
 	UToolMenus::UnRegisterStartupCallback(this);
@@ -124,6 +129,17 @@ void FSandwichSteamEditorModule::RegisterMenus()
 		LOCTEXT("DashboardTooltip", "One place for Steam setup, the App Definition and publishing."),
 		ToolIcon,
 		FUIAction(FExecuteAction::CreateStatic(&SandwichSteam::Editor::SandwichSteamDashboard)));
+
+	// Main editor toolbar: the "User" toolbar is the one meant for plugin buttons. Toolbar buttons draw at 20px; the publish icon reads better there.
+	const FSlateIcon ToolBarIcon(FSteamToolStyle::GetStyleSetName(), "SandwichSteam.Publish20");
+	UToolMenu* ToolBar = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.User");
+	FToolMenuSection& ToolBarSection = ToolBar->FindOrAddSection("SandwichSteam");
+	ToolBarSection.AddEntry(FToolMenuEntry::InitToolBarButton(
+		"SandwichSteamDashboardToolBar",
+		FUIAction(FExecuteAction::CreateStatic(&SandwichSteam::Editor::SandwichSteamDashboard)),
+		LOCTEXT("DashboardToolBarLabel", "Steam"),
+		LOCTEXT("DashboardToolBarTooltip", "Open the Steam Dashboard."),
+		ToolBarIcon));
 }
 
 #undef LOCTEXT_NAMESPACE

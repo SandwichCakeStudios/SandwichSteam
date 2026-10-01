@@ -31,6 +31,12 @@ struct FSteamDashboardPage
 	 * running job asks the user to cancel first, the same way its own standalone tab would).
 	 */
 	TFunction<bool()> CanClose;
+
+	/**
+	 * Optional. Polled by the nav every frame, so keep it cheap (read a cached flag). False hides the nav button; the
+	 * dashboard then opens on, or moves to, the first visible page. Null = always visible.
+	 */
+	TFunction<bool()> IsVisible;
 };
 
 namespace SandwichSteam::Editor

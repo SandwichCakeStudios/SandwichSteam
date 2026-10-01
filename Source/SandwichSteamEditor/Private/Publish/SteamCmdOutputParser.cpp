@@ -208,6 +208,12 @@ FString FSteamCmdCommandLine::BuildUpload(const FString& Username, const FString
 	return FString::Printf(TEXT("+@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 +login %s +run_app_build \"%s\" +quit"), *Username, *AppVdfPath);
 }
 
+FString FSteamCmdCommandLine::BuildAppInfoPrint(const FString& Username, int32 AppId)
+{
+	// app_info_update 1 forces a fresh fetch; without it SteamCMD may print a stale or empty cached entry.
+	return FString::Printf(TEXT("+@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 +login %s +app_info_update 1 +app_info_print %d +quit"), *Username, AppId);
+}
+
 FString FSteamCmdCommandLine::BuildTerminalLogin(const FString& Username)
 {
 	return FString::Printf(TEXT("+login %s"), *Username);

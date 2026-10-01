@@ -21,10 +21,20 @@ public:
 
 	void Construct(const FArguments& InArgs);
 
+	/** Shows the page with this id. False when no such page is registered or it is hidden. */
+	bool SelectPage(FName PageId);
+
 private:
 	TSharedRef<SWidget> MakeNavButton(int32 PageIndex, const FSteamDashboardPage& Page);
 
+	bool IsPageVisible(int32 PageIndex) const;
+
+	/** ActivePage, or the first visible page when ActivePage is hidden. */
+	int32 GetDisplayedPage() const;
+
 	int32 ActivePage = 0;
+	TArray<FName> PageIds;
+	TArray<TFunction<bool()>> PageVisibility;
 	TSharedPtr<SWidgetSwitcher> Pages;
 };
 
@@ -34,4 +44,7 @@ namespace SandwichSteam::Editor
 	void RegisterDashboardTab();
 	void UnregisterDashboardTab();
 	void SandwichSteamDashboard();
+
+	/** Opens (or brings to front) the dashboard and shows the page with this id, e.g. "Publish". */
+	void OpenDashboardPage(FName PageId);
 }

@@ -25,6 +25,9 @@ namespace
 	const FName DashboardTabName(TEXT("SandwichSteamDashboardTab"));
 	constexpr float NavWidth = 240.f;
 	constexpr float StatusWidth = 340.f;
+
+	/** The open dashboard (it is a nomad tab, so there is at most one), for OpenDashboardPage. */
+	TWeakPtr<SSteamDashboardPanel> OpenPanel;
 }
 
 void SSteamDashboardPanel::Construct(const FArguments& /*InArgs*/)
@@ -32,15 +35,22 @@ void SSteamDashboardPanel::Construct(const FArguments& /*InArgs*/)
 	const TArray<FSteamDashboardPage> DashboardPages = SandwichSteam::Editor::GetDashboardPages();
 
 	const TSharedRef<SVerticalBox> Nav = SNew(SVerticalBox);
-	SAssignNew(Pages, SWidgetSwitcher).WidgetIndex_Lambda([this]() { return ActivePage; });
+	SAssignNew(Pages, SWidgetSwitcher).WidgetIndex_Lambda([this]() { return GetDisplayedPage(); });
 
 	for (int32 Index = 0; Index < DashboardPages.Num(); ++Index)
 	{
 		const FSteamDashboardPage& Page = DashboardPages[Index];
+		PageIds.Add(Page.Id);
+		PageVisibility.Add(Page.IsVisible);
 
-		Nav->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
+		Nav->AddSlot().AutoHeight()
 		[
-			MakeNavButton(Index, Page)
+			SNew(SBox)
+			.Padding(FMargin(0.f, 0.f, 0.f, 4.f))
+			.Visibility_Lambda([this, Index]() { return IsPageVisible(Index) ? EVisibility::Visible : EVisibility::Collapsed; })
+			[
+				MakeNavButton(Index, Page)
+			]
 		];
 
 		Pages->AddSlot()
@@ -102,7 +112,7 @@ TSharedRef<SWidget> SSteamDashboardPanel::MakeNavButton(int32 PageIndex, const F
 {
 	return SNew(SCheckBox)
 		.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-		.IsChecked_Lambda([this, PageIndex]() { return ActivePage == PageIndex ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+		.IsChecked_Lambda([this, PageIndex]() { return GetDisplayedPage() == PageIndex ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 		.OnCheckStateChanged_Lambda([this, PageIndex](ECheckBoxState) { ActivePage = PageIndex; })
 		[
 			SNew(SHorizontalBox)
@@ -120,12 +130,47 @@ TSharedRef<SWidget> SSteamDashboardPanel::MakeNavButton(int32 PageIndex, const F
 		];
 }
 
+bool SSteamDashboardPanel::IsPageVisible(int32 PageIndex) const
+{
+	return PageVisibility.IsValidIndex(PageIndex) && (!PageVisibility[PageIndex] || PageVisibility[PageIndex]());
+}
+
+int32 SSteamDashboardPanel::GetDisplayedPage() const
+{
+	if (IsPageVisible(ActivePage))
+	{
+		return ActivePage;
+	}
+	for (int32 Index = 0; Index < PageVisibility.Num(); ++Index)
+	{
+		if (IsPageVisible(Index))
+		{
+			return Index;
+		}
+	}
+	return ActivePage;
+}
+
+bool SSteamDashboardPanel::SelectPage(FName PageId)
+{
+	const int32 Index = PageIds.IndexOfByKey(PageId);
+	if (!IsPageVisible(Index))
+	{
+		return false;
+	}
+	ActivePage = Index;
+	return true;
+}
+
 namespace SandwichSteam::Editor
 {
 	void RegisterDashboardTab()
 	{
 		FGlobalTabmanager::Get()->RegisterNomadTabSpawner(DashboardTabName, FOnSpawnTab::CreateLambda([](const FSpawnTabArgs&)
 		{
+			const TSharedRef<SSteamDashboardPanel> Panel = SNew(SSteamDashboardPanel);
+			OpenPanel = Panel;
+
 			const TSharedRef<SDockTab> Tab = SNew(SDockTab)
 				.TabRole(ETabRole::NomadTab)
 				.Label(LOCTEXT("DashboardTabLabel", "Steam Dashboard"))
@@ -141,7 +186,7 @@ namespace SandwichSteam::Editor
 					return true;
 				})
 				[
-					SNew(SSteamDashboardPanel)
+					Panel
 				];
 			return Tab;
 		}))
@@ -162,6 +207,15 @@ namespace SandwichSteam::Editor
 	void SandwichSteamDashboard()
 	{
 		FGlobalTabmanager::Get()->TryInvokeTab(DashboardTabName);
+	}
+
+	void OpenDashboardPage(FName PageId)
+	{
+		SandwichSteamDashboard();
+		if (const TSharedPtr<SSteamDashboardPanel> Panel = OpenPanel.Pin())
+		{
+			Panel->SelectPage(PageId);
+		}
 	}
 }
 

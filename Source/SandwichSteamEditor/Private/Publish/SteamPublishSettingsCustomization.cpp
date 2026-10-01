@@ -6,6 +6,7 @@
 #include "DetailWidgetRow.h"
 #include "HAL/FileManager.h"
 #include "Publish/SteamCmdOutputParser.h"
+#include "Publish/SteamCmdSetupService.h"
 #include "Publish/SteamPublishActions.h"
 #include "Publish/SteamPublishSettings.h"
 #include "Publish/SteamPublishVdf.h"
@@ -147,8 +148,8 @@ void FSteamPublishUserSettingsCustomization::CustomizeDetails(IDetailLayoutBuild
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 			[
 				MakeButton(LOCTEXT("OpenTerminal", "Open login terminal"),
-					LOCTEXT("OpenTerminalTip", "Opens a terminal running steamcmd +login <user>. Type your password and Steam Guard code there once; SteamCMD caches the login."),
-					[]() { SandwichSteam::Editor::SandwichSteamCmdLoginTerminal(); })
+					LOCTEXT("OpenTerminalTip", "Opens a terminal running steamcmd +login <user>. Type your password and Steam Guard code there once; SteamCMD caches the login. The login is checked when you come back to the editor."),
+					[]() { FSteamCmdSetupService::Get().BeginTerminalLogin(); })
 			]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 			[

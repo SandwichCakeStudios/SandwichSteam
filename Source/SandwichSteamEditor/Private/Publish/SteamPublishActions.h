@@ -14,10 +14,11 @@ namespace SandwichSteam::Editor
 
 	/**
 	 * Opens a terminal running "steamcmd +login <user>" for the one-time password and Steam Guard step (Windows).
-	 * On other platforms the command is copied to the clipboard.
+	 * On other platforms the command is copied to the clipboard. False (with a notification) when the SteamCMD path or account is missing.
+	 * Prefer FSteamCmdSetupService::BeginTerminalLogin, which also checks the login once the editor is focused again.
 	 */
-	void SandwichSteamCmdLoginTerminal();
+	bool SandwichSteamCmdLoginTerminal();
 
-	/** Runs "steamcmd +login <user> +quit" with the cached login and reports the result. A Steam Guard prompt opens a dialog. */
+	/** Runs "steamcmd +login <user> +quit" with the cached login (FSteamCmdSetupService) and reports the result. A Steam Guard prompt opens a dialog. */
 	void TestSteamCmdLogin();
 }

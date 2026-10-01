@@ -42,9 +42,8 @@ namespace SandwichSteam::Publish
 		const FString Custom = USteamPublishSettings::Get()->StagingDirectory.Path.TrimStartAndEnd();
 		if (Custom.IsEmpty())
 		{
-			// ProjectSavedDir() can itself be relative to the engine base dir ("../../../Proj/Saved/"); resolve it as such,
-			// never against ProjectDir(), or the ".." climb past the drive root and SteamCMD rejects the path.
-			FString Staging = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("StagedBuilds"));
+			// Everything the tool writes lives under the Data Directory (default Saved/SandwichSteam). GetDataDirectory() is already absolute.
+			FString Staging = USteamToolSettings::Get()->GetDataDirectory() / TEXT("StagedBuilds");
 			FPaths::NormalizeDirectoryName(Staging);
 			return Staging;
 		}
@@ -72,6 +71,16 @@ namespace SandwichSteam::Publish
 			Root = GetStagingDir() / GetStagedFolderName(Depot.Platform);
 		}
 		return FSteamVdfWriter::NormalizePath(MakeAbsolute(Root));
+	}
+
+	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName)
+	{
+		TMap<FString, FString> Tokens;
+		Tokens.Add(TEXT("Project"), FApp::GetProjectName());
+		Tokens.Add(TEXT("Config"), StaticEnum<ESteamPublishConfig>()->GetNameStringByValue(static_cast<int64>(Settings.PackageConfig)));
+		Tokens.Add(TEXT("Branch"), BranchName);
+		Tokens.Add(TEXT("Date"), FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M")));
+		return FSteamVdfWriter::FormatDescription(Settings.BuildDescriptionTemplate, Tokens);
 	}
 
 	bool WriteVdfFiles(const USteamPublishSettings& Settings, const FString& BranchName, FVdfFiles& OutFiles, FString& OutError)
@@ -137,13 +146,7 @@ namespace SandwichSteam::Publish
 			return false;
 		}
 
-		FString ConfigName = StaticEnum<ESteamPublishConfig>()->GetNameStringByValue(static_cast<int64>(Settings.PackageConfig));
-		TMap<FString, FString> Tokens;
-		Tokens.Add(TEXT("Project"), FApp::GetProjectName());
-		Tokens.Add(TEXT("Config"), ConfigName);
-		Tokens.Add(TEXT("Branch"), BranchName);
-		Tokens.Add(TEXT("Date"), FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M")));
-		App.Description = FSteamVdfWriter::FormatDescription(Settings.BuildDescriptionTemplate, Tokens);
+		App.Description = FormatBuildDescription(Settings, BranchName);
 
 		const FString Dir = GetPublishDir();
 		OutFiles.BuildOutputDir = FSteamVdfWriter::NormalizePath(Dir / TEXT("Output"));

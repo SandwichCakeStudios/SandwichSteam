@@ -51,7 +51,7 @@ public:
 	int32 SteamAppId = 480;
 
 	/** Where the tool writes its files: the schema export (Steam.Stats.ExportSchema), read again by Import from Steam, and the publish scripts. */
-	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (RelativeToGameDir, ToolTip = "Folder for files the tool writes: the schema export that Import from Steam reads, and the publish scripts. Relative paths start at the project folder. Empty = Saved/SandwichSteam."))
+	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (RelativeToGameDir, ToolTip = "Folder for everything the tool writes: the schema export that Import from Steam reads, SteamCMD, the publish scripts, logs and history, and the staged builds. Relative paths start at the project folder. Empty = Saved/SandwichSteam."))
 	FDirectoryPath DataDirectory;
 
 	/** Features listed here are not created at runtime. Empty means every feature is enabled. */

@@ -8,7 +8,10 @@
 #include "Misc/MessageDialog.h"
 #include "Modules/ModuleManager.h"
 #include "PropertyEditorModule.h"
+#include "Dom/JsonObject.h"
+#include "Publish/SteamAppInfoData.h"
 #include "Publish/SteamCmdDownloadJob.h"
+#include "Publish/SteamCmdSetupService.h"
 #include "Publish/SteamPublishSettings.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
@@ -92,7 +95,8 @@ namespace
 	/**
 	 * Status line, Download SteamCMD button (progress bar + step text while running, Cancel) and the moved
 	 * "Your account" details view. Rebuilds nothing on a timer: the status line and details view read live state
-	 * through TAttribute/lambdas, same idiom as the App Definition page's row counts.
+	 * through TAttribute/lambdas, same idiom as the App Definition page's row counts. The jobs themselves live in
+	 * FSteamCmdSetupService (shared with the Setup page); this page runs them in Confirm mode and asks before applying.
 	 */
 	class SSteamCmdSetupPage : public SCompoundWidget
 	{
@@ -103,6 +107,10 @@ namespace
 		void Construct(const FArguments& /*InArgs*/)
 		{
 			UserDetails = MakeUserDetailsView();
+
+			FSteamCmdSetupService& Service = FSteamCmdSetupService::Get();
+			Service.OnDownloadFinished().AddSP(this, &SSteamCmdSetupPage::HandleDownloadFinished);
+			Service.OnAppInfoFinished().AddSP(this, &SSteamCmdSetupPage::HandleAppInfoFinished);
 
 			ChildSlot
 			[
@@ -138,17 +146,34 @@ namespace
 									+ SHorizontalBox::Slot().AutoWidth()
 									[
 										MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelTip", "Stops the running download or extraction."),
-											[this]() { if (Job.IsValid()) { Job->Cancel(); } },
+											[]() { FSteamCmdSetupService::Get().CancelDownload(); },
 											TAttribute<bool>::CreateLambda([this]() { return IsRunning(); }))
+										]
+									+ SHorizontalBox::Slot().AutoWidth().Padding(12.f, 0.f, 0.f, 0.f)
+									[
+										SNew(SButton)
+										.ToolTipText(LOCTEXT("AppInfoTip", "Runs SteamCMD app_info_print for the App ID with the cached login and saves the result as JSON in the Publish directory (AppInfo folder). Then offers to add the depots and branches to the Publish settings. Needs the SteamCMD path and Steam account below, and a login cached by the Publish tool."))
+										.IsEnabled_Lambda([this]() { return !IsRunning(); })
+										.OnClicked_Lambda([this]()
+										{
+											OnAppInfoClicked();
+											return FReply::Handled();
+										})
+										[
+											SNew(STextBlock)
+											.Text_Lambda([this]() { return IsAppInfoRunning() ? LOCTEXT("AppInfoCancel", "Cancel Fetch App Info") : LOCTEXT("AppInfo", "Fetch App Info"); })
+											.Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
+										]
 									]
 								]
 								+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 8.f, 0.f, 0.f)
 								[
 									SNew(SBox).HeightOverride(6.f).Visibility_Lambda([this]() { return IsRunning() ? EVisibility::Visible : EVisibility::Collapsed; })
 									[
-										SNew(SProgressBar).Percent_Lambda([this]() -> TOptional<float>
+										SNew(SProgressBar).Percent_Lambda([]() -> TOptional<float>
 										{
-											return ProgressValue >= 0.f ? TOptional<float>(ProgressValue) : TOptional<float>();
+											const float Progress = FSteamCmdSetupService::Get().GetDownloadProgress();
+											return Progress >= 0.f ? TOptional<float>(Progress) : TOptional<float>();
 										})
 									]
 								]
@@ -158,7 +183,7 @@ namespace
 									.Visibility_Lambda([this]() { return IsRunning() ? EVisibility::Visible : EVisibility::Collapsed; })
 									.Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
 									.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-									.Text_Lambda([this]() { return StepText; })
+									.Text_Lambda([]() { return FSteamCmdSetupService::Get().GetDownloadStep(); })
 								]
 							]
 						]
@@ -178,66 +203,69 @@ namespace
 			];
 		}
 
-		virtual ~SSteamCmdSetupPage() override
-		{
-			if (Job.IsValid() && Job->IsRunning())
-			{
-				Job->Cancel();
-			}
-		}
-
-		/** False while a download runs and the user declines to cancel it. Cancels the run when they accept. */
-		bool CanCloseTab()
-		{
-			if (!IsRunning())
-			{
-				return true;
-			}
-			const EAppReturnType::Type Answer = FMessageDialog::Open(EAppMsgType::YesNo,
-				LOCTEXT("CloseWhileRunning", "A SteamCMD download is still running. Cancel it and close the tab?"));
-			if (Answer == EAppReturnType::Yes)
-			{
-				Job->Cancel();
-				return true;
-			}
-			return false;
-		}
-
 	private:
-		bool IsRunning() const { return Job.IsValid() && Job->IsRunning(); }
+		static bool IsRunning() { return FSteamCmdSetupService::Get().IsDownloading(); }
+		static bool IsAppInfoRunning() { return FSteamCmdSetupService::Get().IsFetchingAppInfo(); }
 
-		void OnDownloadClicked()
+		void OnAppInfoClicked()
 		{
-			if (IsRunning())
+			FSteamCmdSetupService& Service = FSteamCmdSetupService::Get();
+			// One button: Fetch App Info, and Cancel Fetch App Info while it runs.
+			if (Service.IsFetchingAppInfo())
+			{
+				Service.CancelAppInfoFetch();
+				return;
+			}
+
+			SandwichSteam::Editor::ConfirmAndFetchAppInfo(ESteamCmdTaskMode::Confirm);
+		}
+
+		/** The service already notified the result. Fetches started by the Setup page (Automatic) were applied there. */
+		void HandleAppInfoFinished(bool bSuccess, const FString& FilePath, const TSharedPtr<FJsonObject>& AppInfoJson, ESteamCmdTaskMode Mode)
+		{
+			if (!bSuccess || Mode != ESteamCmdTaskMode::Confirm)
 			{
 				return;
 			}
-			ProgressValue = -1.f;
-			StepText = FText::GetEmpty();
 
-			Job = MakeShared<FSteamCmdDownloadJob>();
-			Job->OnProgress().AddSP(this, &SSteamCmdSetupPage::HandleProgress);
-			Job->OnFinished().AddSP(this, &SSteamCmdSetupPage::HandleFinished);
-
+			USteamPublishSettings* Settings = GetMutableDefault<USteamPublishSettings>();
+			const int32 AppId = Settings->GetAppId();
+			FSteamAppInfoData Data;
 			FString Error;
-			if (!Job->Start(Error))
+			if (!FSteamAppInfo::Extract(AppInfoJson, AppId, Data, Error))
 			{
 				Notify(FText::FromString(Error), SNotificationItem::CS_Fail);
-				Job.Reset();
+				return;
 			}
+
+			// Always asked, even when nothing is new: the dialog doubles as the summary of what Steam has.
+			const FSteamAppInfoMerge Merge = FSteamAppInfo::Preview(*Settings, Data);
+			const FText Question = FText::Format(LOCTEXT("ApplyAppInfoQuestion",
+				"Steam lists {0} depot(s) and {1} branch(es) for app {2}.\n\nNew depots: {3}\nNew branches: {4}\n\nAdd them to Sandwich Steam - Publish (Depots, Branches)? Existing entries are kept as they are.\n\nSaved to {5}"),
+				Data.Depots.Num(), Data.Branches.Num(), AppId,
+				FText::FromString(Merge.NewDepotIds.IsEmpty() ? TEXT("none") : FString::JoinBy(Merge.NewDepotIds, TEXT(", "), [](int32 Id) { return FString::FromInt(Id); })),
+				FText::FromString(Merge.NewBranches.IsEmpty() ? TEXT("none") : FString::Join(Merge.NewBranches, TEXT(", "))),
+				FText::FromString(FilePath));
+			if (FMessageDialog::Open(EAppMsgType::YesNo, Question) != EAppReturnType::Yes)
+			{
+				return;
+			}
+
+			FSteamAppInfo::Apply(*Settings, Data);
+			Settings->TryUpdateDefaultConfigFile();
+			Notify(FText::Format(LOCTEXT("AppliedAppInfo", "Added {0} depot(s) and {1} branch(es) to the Publish settings."), Merge.NewDepotIds.Num(), Merge.NewBranches.Num()), SNotificationItem::CS_Success);
 		}
 
-		void HandleProgress(float Progress, const FText& StepLabel)
+		void OnDownloadClicked()
 		{
-			ProgressValue = Progress;
-			StepText = StepLabel;
+			SandwichSteam::Editor::ConfirmAndDownloadSteamCmd(ESteamCmdTaskMode::Confirm);
 		}
 
-		void HandleFinished(bool bSuccess, const FText& Message, const FString& InstalledExePath)
+		/** The service already notified the result. Downloads started by the Setup page (Automatic) set the path there. */
+		void HandleDownloadFinished(bool bSuccess, const FString& InstalledExePath, ESteamCmdTaskMode Mode, bool bPathApplied)
 		{
-			Notify(Message, bSuccess ? SNotificationItem::CS_Success : SNotificationItem::CS_Fail);
-
-			if (bSuccess && !InstalledExePath.IsEmpty())
+			bool bRefresh = bPathApplied;
+			if (bSuccess && Mode == ESteamCmdTaskMode::Confirm && !InstalledExePath.IsEmpty())
 			{
 				const FText Question = FText::Format(LOCTEXT("ApplyPathQuestion", "SteamCMD installed at {0}. Set it as the SteamCMD path in Sandwich Steam - Publish (User)?"), FText::FromString(InstalledExePath));
 				if (FMessageDialog::Open(EAppMsgType::YesNo, Question) == EAppReturnType::Yes)
@@ -245,18 +273,16 @@ namespace
 					USteamPublishUserSettings* User = GetMutableDefault<USteamPublishUserSettings>();
 					User->SteamCmdPath.FilePath = InstalledExePath;
 					User->SaveConfig();
-					if (UserDetails.IsValid())
-					{
-						UserDetails->ForceRefresh();
-					}
+					bRefresh = true;
 				}
+			}
+			if (bRefresh && UserDetails.IsValid())
+			{
+				UserDetails->ForceRefresh();
 			}
 		}
 
-		TSharedPtr<FSteamCmdDownloadJob> Job;
 		TSharedPtr<IDetailsView> UserDetails;
-		float ProgressValue = -1.f;
-		FText StepText;
 	};
 }
 
@@ -264,24 +290,14 @@ namespace SandwichSteam::Editor
 {
 	void RegisterSteamCmdDashboardPage()
 	{
-		const TSharedRef<TWeakPtr<SSteamCmdSetupPage>> PageRef = MakeShared<TWeakPtr<SSteamCmdSetupPage>>();
-
 		FSteamDashboardPage Page;
 		Page.Id = TEXT("SteamCmd");
 		Page.Label = LOCTEXT("PageLabel", "SteamCMD");
 		Page.Icon = FSlateIcon(FSteamToolStyle::GetStyleSetName(), "SandwichSteam.Icon16");
 		Page.Order = 20;
-		Page.BuildContent = [PageRef]() -> TSharedRef<SWidget>
-		{
-			const TSharedRef<SSteamCmdSetupPage> Panel = SNew(SSteamCmdSetupPage);
-			*PageRef = Panel;
-			return Panel;
-		};
-		Page.CanClose = [PageRef]()
-		{
-			const TSharedPtr<SSteamCmdSetupPage> Panel = PageRef->Pin();
-			return !Panel.IsValid() || Panel->CanCloseTab();
-		};
+		Page.BuildContent = []() -> TSharedRef<SWidget> { return SNew(SSteamCmdSetupPage); };
+		// The jobs belong to the shared service: closing the tab while one runs asks to cancel it.
+		Page.CanClose = []() { return FSteamCmdSetupService::Get().ConfirmCancelForClose(); };
 
 		RegisterDashboardPage(MoveTemp(Page));
 	}

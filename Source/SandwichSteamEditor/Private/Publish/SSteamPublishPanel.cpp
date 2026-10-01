@@ -2,6 +2,7 @@
 
 #include "Publish/SSteamPublishPanel.h"
 #include "Containers/Ticker.h"
+#include "Dashboard/SteamConfirmDialog.h"
 #include "Dashboard/SteamDashboardRegistry.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
@@ -759,19 +760,161 @@ void SSteamPublishPanel::OnPublishClicked(bool bDryRun, bool bSkipUpload)
 		return;
 	}
 
-	if (!bDryRun && !bSkipUpload)
+	if (!ConfirmRun(Options))
 	{
-		const bool bLive = IsBranchSetLive(Options.Branch);
-		const FText Question = bLive
-			? FText::Format(LOCTEXT("ConfirmLive", "Package and upload a new build and set it live on branch '{0}' right away?"), FText::FromString(Options.Branch))
-			: LOCTEXT("ConfirmUpload", "Package and upload a new build to Steam? It will not be set live.");
-		if (FMessageDialog::Open(EAppMsgType::YesNo, Question) != EAppReturnType::Yes)
-		{
-			return;
-		}
+		StatusText = LOCTEXT("RunCancelled", "Cancelled. Nothing was started.");
+		StatusSeverity = ESteamCheckSeverity::Info;
+		return;
 	}
 
 	StartJob(Options);
+}
+
+bool SSteamPublishPanel::ConfirmRun(const FSteamPublishOptions& Options) const
+{
+	const USteamPublishSettings* Settings = USteamPublishSettings::Get();
+	const USteamPublishUserSettings* User = USteamPublishUserSettings::Get();
+	const bool bUpload = !Options.bDryRun && !Options.bSkipUpload;
+	const bool bPackage = !Options.bDryRun && !Options.bSkipPackaging;
+	const bool bLive = bUpload && IsBranchSetLive(Options.Branch);
+	const FText BranchText = Options.Branch.IsEmpty() ? LOCTEXT("NoBranchValue", "(none)") : FText::FromString(Options.Branch);
+	const FText ConfigText = StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Settings->PackageConfig));
+	const FText Runs = LOCTEXT("StepRuns", "Runs");
+	const FText Skipped = LOCTEXT("StepSkipped", "Skipped");
+
+	FSteamConfirmRequest Request;
+	Request.Icon = FSteamToolStyle::Get().GetBrush("SandwichSteam.Publish40");
+	Request.Footer = LOCTEXT("ConfirmFooter", "The run can take several minutes. Cancel it at any time from the Publish page; the full log is written to the publish directory.");
+
+	// Mode: title, what it does, the one consequence that matters most.
+	if (Options.bDryRun)
+	{
+		Request.Title = LOCTEXT("ConfirmDryTitle", "Confirm dry run");
+		Request.Intro = LOCTEXT("ConfirmDryIntro", "Writes the app and depot build scripts from your settings so you can inspect them. Nothing is packaged and nothing is uploaded.");
+		Request.BannerMark = ESteamConfirmMark::Ok;
+		Request.BannerText = LOCTEXT("ConfirmDryBanner", "Safe: only build script files are written.");
+		Request.ConfirmLabel = LOCTEXT("ConfirmDryButton", "Write build scripts");
+	}
+	else if (Options.bSkipUpload)
+	{
+		Request.Title = LOCTEXT("ConfirmTestTitle", "Confirm test build");
+		Request.Intro = LOCTEXT("ConfirmTestIntro", "Runs the whole pipeline except the upload, so you can check that packaging works before spending an upload.");
+		Request.BannerMark = ESteamConfirmMark::Ok;
+		Request.BannerText = LOCTEXT("ConfirmTestBanner", "Nothing is uploaded to Steam.");
+		Request.ConfirmLabel = LOCTEXT("ConfirmTestButton", "Start test build");
+	}
+	else
+	{
+		Request.Title = LOCTEXT("ConfirmPublishTitle", "Confirm publish");
+		Request.Intro = LOCTEXT("ConfirmPublishIntro", "Packages the game and uploads a new build to Steam with SteamCMD. Check the settings below once more.");
+		if (bLive)
+		{
+			Request.BannerMark = ESteamConfirmMark::Warning;
+			Request.BannerText = FText::Format(LOCTEXT("ConfirmLiveBanner", "Goes live on branch '{0}' as soon as the upload finishes."), BranchText);
+			Request.ConfirmLabel = LOCTEXT("ConfirmLiveButton", "Publish and set live");
+			FSteamConfirmOption& Acknowledge = Request.Options.AddDefaulted_GetRef();
+			Acknowledge.Id = TEXT("AcknowledgeLive");
+			Acknowledge.Label = FText::Format(LOCTEXT("AcknowledgeLive", "I understand players on '{0}' get this build right away."), BranchText);
+			Acknowledge.bRequired = true;
+		}
+		else
+		{
+			Request.BannerMark = ESteamConfirmMark::Info;
+			Request.BannerText = LOCTEXT("ConfirmNotLiveBanner", "Uploads a new build but does not set it live. Set it live later on the partner site (SteamPipe > Builds).");
+			Request.ConfirmLabel = LOCTEXT("ConfirmPublishButton", "Publish");
+		}
+	}
+
+	// What will happen, in order, with the steps this mode skips greyed out.
+	{
+		FSteamConfirmSection& Steps = Request.AddSection(LOCTEXT("SectionSteps", "What will happen"));
+		const bool bPre = !Options.bDryRun && !Settings->PreSteps.IsEmpty();
+		const bool bPost = !Options.bDryRun && !Settings->PostSteps.IsEmpty();
+
+		Steps.AddRow(FSteamPublishJob::GetStepLabel(ESteamPublishStepId::PreSteps), bPre ? Runs : Skipped,
+			bPre ? FText::Format(LOCTEXT("PreNote", "{0} command(s) from the Build settings."), Settings->PreSteps.Num())
+				: (Options.bDryRun ? LOCTEXT("PreDryNote", "Not part of a dry run.") : LOCTEXT("PreNoneNote", "No pre steps are set up.")),
+			bPre ? ESteamConfirmMark::Info : ESteamConfirmMark::Idle);
+
+		FText PackageNote = LOCTEXT("PackageDryNote", "Not part of a dry run.");
+		if (Options.bSkipPackaging && !Options.bDryRun)
+		{
+			PackageNote = LOCTEXT("PackageSkipNote", "\"Upload staged build\" is checked: the folder that is already staged is used as it is.");
+		}
+		else if (bPackage)
+		{
+			PackageNote = FText::Format(LOCTEXT("PackageNote", "UAT BuildCookRun, {0}. Live Coding is {1} while packaging."), ConfigText,
+				Options.bDisableLiveCoding ? LOCTEXT("LiveCodingPaused", "paused") : LOCTEXT("LiveCodingKept", "left as it is"));
+		}
+		Steps.AddRow(FSteamPublishJob::GetStepLabel(ESteamPublishStepId::Package), bPackage ? Runs : Skipped, PackageNote,
+			bPackage ? ESteamConfirmMark::Info : ESteamConfirmMark::Idle);
+
+		Steps.AddRow(FSteamPublishJob::GetStepLabel(ESteamPublishStepId::Vdf), Runs,
+			FText::Format(LOCTEXT("VdfNote", "app_build and depot_build scripts in {0}"), FText::FromString(SandwichSteam::Publish::GetPublishDir())),
+			ESteamConfirmMark::Info);
+
+		FText UploadNote = Options.bDryRun ? LOCTEXT("UploadDryNote", "Not part of a dry run.") : LOCTEXT("UploadTestNote", "Not part of a test build.");
+		if (bUpload)
+		{
+			UploadNote = FText::Format(LOCTEXT("UploadNote", "SteamCMD as {0}, cached login (no password is sent)."), FText::FromString(User->SteamUsername.TrimStartAndEnd()));
+		}
+		Steps.AddRow(FSteamPublishJob::GetStepLabel(ESteamPublishStepId::Upload), bUpload ? Runs : Skipped, UploadNote,
+			bUpload ? (bLive ? ESteamConfirmMark::Warning : ESteamConfirmMark::Info) : ESteamConfirmMark::Idle);
+
+		Steps.AddRow(FSteamPublishJob::GetStepLabel(ESteamPublishStepId::PostSteps), bPost ? Runs : Skipped,
+			bPost ? FText::Format(LOCTEXT("PostNote", "{0} command(s), after a successful run."), Settings->PostSteps.Num())
+				: (Options.bDryRun ? LOCTEXT("PostDryNote", "Not part of a dry run.") : LOCTEXT("PostNoneNote", "No post steps are set up.")),
+			bPost ? ESteamConfirmMark::Info : ESteamConfirmMark::Idle);
+	}
+
+	// The settings this run uses.
+	{
+		FSteamConfirmSection& Build = Request.AddSection(LOCTEXT("SectionBuild", "Build"));
+		Build.AddRow(LOCTEXT("RowAppId", "Steam App ID"), FText::AsNumber(Settings->GetAppId(), &FNumberFormattingOptions::DefaultNoGrouping()));
+		Build.AddRow(LOCTEXT("RowBranch", "Branch"), BranchText,
+			Options.Branch.IsEmpty() ? LOCTEXT("BranchNoneNote", "The build is uploaded without being set live anywhere.")
+				: (IsBranchSetLive(Options.Branch) ? LOCTEXT("BranchLiveNote", "Set live is on for this branch.") : LOCTEXT("BranchNotLiveNote", "Set live is off for this branch (or it is 'default', which Steam never sets live from SteamCMD).")));
+		Build.AddRow(LOCTEXT("RowConfig", "Configuration"), ConfigText);
+		Build.AddRow(LOCTEXT("RowTarget", "Target"), Settings->TargetName.IsEmpty() ? LOCTEXT("TargetDefault", "Project default") : FText::FromString(Settings->TargetName));
+		Build.AddRow(LOCTEXT("RowDescription", "Build description"), FText::FromString(SandwichSteam::Publish::FormatBuildDescription(*Settings, Options.Branch)),
+			FText::Format(LOCTEXT("DescriptionNote", "From the template \"{0}\". Shown on the partner site's builds page."), FText::FromString(Settings->BuildDescriptionTemplate)));
+		if (bUpload)
+		{
+			Build.AddRow(LOCTEXT("RowAccount", "Steam account"), FText::FromString(User->SteamUsername.TrimStartAndEnd()));
+		}
+		Build.AddRow(LOCTEXT("RowStaging", "Staging directory"), FText::FromString(SandwichSteam::Publish::GetStagingDir()));
+	}
+
+	// One row per enabled depot: what is uploaded from where.
+	{
+		FSteamConfirmSection& Depots = Request.AddSection(LOCTEXT("SectionDepots", "Depots"));
+		for (const FSteamPublishDepot& Depot : Settings->Depots)
+		{
+			if (!Depot.bEnabled)
+			{
+				continue;
+			}
+			const FString Root = SandwichSteam::Publish::ResolveContentRoot(Depot);
+			const bool bExists = IFileManager::Get().DirectoryExists(*Root);
+
+			FText Note = LOCTEXT("DepotReady", "Content folder found.");
+			ESteamConfirmMark Mark = ESteamConfirmMark::Ok;
+			if (!bExists)
+			{
+				// Packaging creates the folder; without it the upload has nothing to send.
+				Note = bPackage ? LOCTEXT("DepotCreated", "Created by packaging.") : LOCTEXT("DepotMissing", "The content folder does not exist yet. Package first.");
+				Mark = bPackage ? ESteamConfirmMark::Info : ESteamConfirmMark::Warning;
+			}
+			Depots.AddRow(FText::Format(LOCTEXT("DepotLabel", "{0} ({1})"), FText::AsNumber(Depot.DepotId, &FNumberFormattingOptions::DefaultNoGrouping()),
+					StaticEnum<ESteamPublishPlatform>()->GetDisplayNameTextByValue(static_cast<int64>(Depot.Platform))),
+				FText::FromString(Root), Note, Mark);
+		}
+	}
+
+	// Warnings from the pre-flight checks that just ran (errors never get here: the run stops before the dialog).
+	Request.Sections.Add(SandwichSteam::Editor::MakeChecksSection(LOCTEXT("SectionChecks", "Pre-flight checks"), Checks, /*bIssuesOnly*/ true));
+
+	return SandwichSteam::Editor::ShowConfirmDialog(Request).bConfirmed;
 }
 
 void SSteamPublishPanel::StartJob(const FSteamPublishOptions& Options)
