@@ -10,7 +10,7 @@ Achievements, stats, leaderboards, lobbies, voice chat, Steam Input, cloud saves
 Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instead of hand-editing config files.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Unreal Engine 5.8](https://img.shields.io/badge/Unreal%20Engine-5.8-black)
+![Unreal Engine 5.6 - 5.8](https://img.shields.io/badge/Unreal%20Engine-5.6%20--%205.8-black)
 ![Platform: Windows tested](https://img.shields.io/badge/Windows-tested-brightgreen)
 ![Mac / Linux: experimental](https://img.shields.io/badge/Mac%20%2F%20Linux-experimental-orange)
 
@@ -29,7 +29,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 |---|---|
 | **Blueprint first** | Every feature has Blueprint nodes with tooltips. No C++ needed to *use* the plugin. |
 | **Setup dashboard** | One editor window shows what is missing (App ID, config, data asset) and fixes it with a button. |
-| **No Steamworks SDK download** | It uses the Steamworks that ships with Unreal Engine. |
+| **No Steamworks SDK download** | It uses the Steamworks that ships with Unreal Engine ([see versions](#supported-engine-versions)). |
 | **Pick only what you need** | Each feature is its own module. Delete the folder of a feature you do not use. |
 | **Tags, not magic strings** | Achievements, stats and leaderboards are chosen from a Gameplay Tag dropdown. Raw Steam names work too. |
 | **Built-in test panel** | Press one console command in a running game to see live Steam data and try every feature. |
@@ -73,10 +73,22 @@ Full walkthrough: **[Quick Start: your first achievement in 10 minutes](https://
 
 ## Requirements
 
-- Unreal Engine **5.8**
+- Unreal Engine **5.6, 5.7 or 5.8** (see [Supported engine versions](#supported-engine-versions))
 - A C++ compiler for the one-time plugin build (Visual Studio with the *Game development with C++* workload on Windows)
 - The **Steam client**, running and logged in, when you test
 - Nothing to buy: you can develop against Valve's public test app **Spacewar (App ID 480)**
+
+## Supported engine versions
+
+Sandwich Steam uses the Steamworks SDK that ships with Unreal Engine, so the Steamworks version depends on your engine version.
+
+| Unreal Engine | Default Steamworks SDK |
+|---|---|
+| 5.8 | 1.64 (`Steamv164`) |
+| 5.7 | 1.61 (`Steamv161`) |
+| 5.6 | 1.57 (`Steamv157`) |
+
+Need a newer Steamworks version than your engine ships with? Epic explains how to download and add it in [Online Subsystem Steam: Downloading Steamworks](https://dev.epicgames.com/documentation/unreal-engine/online-subsystem-steam-interface-in-unreal-engine#downloadingsteamworks).
 
 ## Project status
 
@@ -85,6 +97,7 @@ Sandwich Steam is young. This table is honest about what has been tested.
 | Area | Status |
 |---|---|
 | Windows (Win64) | Tested |
+| Unreal Engine 5.6, 5.7 | Compiles, Steam Dashboard checked. Full feature testing is done on 5.8 |
 | macOS, Linux | **Experimental**: written for them, never run |
 | User, Utility, Overlay, Stats, Achievements, Leaderboards | Tested in a Standalone game |
 | Friends, Rich Presence, Cloud, Screenshots | Tested with one account (presence data checked on a second one) |
