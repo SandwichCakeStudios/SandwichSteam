@@ -2,18 +2,18 @@
 
 #include "SandwichSteam.h"
 #include "Core/SteamBackend.h"
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamLog.h"
 #include "Core/SteamToolSettings.h"
 #include "Debug/SteamConsoleCommands.h"
 #include "GameplayTagsManager.h"
 #include "Interfaces/IPluginManager.h"
-#include "Misc/CoreDelegates.h"
 
 void FSandwichSteamModule::StartupModule()
 {
 	RegisterTagIniSearchPath();
 
-	PostEngineInitHandle = FCoreDelegates::GetOnPostEngineInit().AddRaw(this, &FSandwichSteamModule::HandlePostEngineInit);
+	PostEngineInitHandle = SandwichSteam::Compat::OnPostEngineInit().AddRaw(this, &FSandwichSteamModule::HandlePostEngineInit);
 
 #if SANDWICHSTEAM_WITH_DEBUG
 	SandwichSteam::Debug::RegisterCoreCommands();
@@ -32,7 +32,7 @@ void FSandwichSteamModule::ShutdownModule()
 
 	if (PostEngineInitHandle.IsValid())
 	{
-		FCoreDelegates::GetOnPostEngineInit().Remove(PostEngineInitHandle);
+		SandwichSteam::Compat::OnPostEngineInit().Remove(PostEngineInitHandle);
 		PostEngineInitHandle.Reset();
 	}
 }

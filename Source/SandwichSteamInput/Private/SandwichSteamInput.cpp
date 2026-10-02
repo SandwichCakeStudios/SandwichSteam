@@ -1,13 +1,13 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "SandwichSteamInput.h"
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamLog.h"
 #include "Core/SteamToolSettings.h"
 #include "Data/SteamAppDefinition.h"
 #include "Debug/SteamDebugSection.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
-#include "Misc/CoreDelegates.h"
 #include "Misc/Parse.h"
 #include "SteamInputKeys.h"
 #include "SteamInputSubsystem.h"
@@ -153,7 +153,7 @@ void FSandwichSteamInputModule::StartupModule()
 	}
 	else
 	{
-		PostEngineInitHandle = FCoreDelegates::GetOnPostEngineInit().AddRaw(this, &FSandwichSteamInputModule::RegisterKeysFromSettings);
+		PostEngineInitHandle = SandwichSteam::Compat::OnPostEngineInit().AddRaw(this, &FSandwichSteamInputModule::RegisterKeysFromSettings);
 	}
 
 #if WITH_EDITOR
@@ -209,7 +209,7 @@ void FSandwichSteamInputModule::ShutdownModule()
 {
 	if (PostEngineInitHandle.IsValid())
 	{
-		FCoreDelegates::GetOnPostEngineInit().Remove(PostEngineInitHandle);
+		SandwichSteam::Compat::OnPostEngineInit().Remove(PostEngineInitHandle);
 		PostEngineInitHandle.Reset();
 	}
 

@@ -1,10 +1,10 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "Cook/SteamCookHelper.h"
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamToolSettings.h"
 #include "Data/SteamAppDefinition.h"
 #include "Engine/AssetManagerSettings.h"
-#include "Misc/CoreDelegates.h"
 #include "SandwichSteamEditor.h"
 
 namespace
@@ -23,7 +23,7 @@ namespace
 
 void FSteamCookHelper::Register()
 {
-	PostEngineInitHandle = FCoreDelegates::GetOnPostEngineInit().AddLambda([]()
+	PostEngineInitHandle = SandwichSteam::Compat::OnPostEngineInit().AddLambda([]()
 	{
 		EnsureAppDefinitionCooked();
 	});
@@ -35,7 +35,7 @@ void FSteamCookHelper::Unregister()
 {
 	if (PostEngineInitHandle.IsValid())
 	{
-		FCoreDelegates::GetOnPostEngineInit().Remove(PostEngineInitHandle);
+		SandwichSteam::Compat::OnPostEngineInit().Remove(PostEngineInitHandle);
 		PostEngineInitHandle.Reset();
 	}
 
