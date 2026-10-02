@@ -21,7 +21,7 @@ Sandwich Steam is a **source plugin**. That means Unreal has to *compile* it onc
 | **A C++ project** (has a `Source` folder and a `.sln` or Rider setup) | [Path 2](#path-2-c-project) |
 | **I want one build I can reuse in many projects** | [Path 3](#path-3-build-the-plugin-once-and-reuse-it) |
 
-You need **Unreal Engine 5.8**. Other versions are not supported.
+You need **Unreal Engine 5.6, 5.7 or 5.8**. Each engine version ships its own Steamworks SDK; see [Supported engine versions](https://github.com/SandwichCakeStudios/SandwichSteam#supported-engine-versions).
 
 ---
 
@@ -29,7 +29,7 @@ You need **Unreal Engine 5.8**. Other versions are not supported.
 
 Skip this if you already build C++ projects.
 
-1. Install **Visual Studio** (the free *Community* edition is fine). Use the Visual Studio version that Epic lists for UE 5.8 in their [setup guide](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine).
+1. Install **Visual Studio** (the free *Community* edition is fine). Use the Visual Studio version that Epic lists for your engine version in their [setup guide](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine).
 2. In the Visual Studio Installer, tick the workload **Game development with C++**.
 3. In the right-hand *Installation details* list, also tick **Unreal Engine installer** and **Unreal Engine test adapter** if they are not already ticked.
 4. Click **Install** and wait. It is a big download.

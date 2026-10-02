@@ -36,7 +36,7 @@ Most problems are one of these:
 
 - **"Missing Modules" dialog, then an error about a compiler or Windows SDK.** Install the Visual Studio workload from [Installation, Step 0](installation.html#step-0-install-a-compiler-windows), then reopen the project.
 - **The plugin is not found at all.** Check the folder layout: `Plugins/SandwichSteam/SandwichSteam.uplugin`. A folder inside a folder is the usual reason.
-- **The plugin was built for a different engine version.** Delete the plugin's `Binaries` and `Intermediate` folders and your project's, then reopen. Sandwich Steam supports **UE 5.8**.
+- **The plugin was built for a different engine version.** Delete the plugin's `Binaries` and `Intermediate` folders and your project's, then reopen. Sandwich Steam supports **UE 5.6, 5.7 and 5.8**.
 - **Still failing?** Open an [issue](https://github.com/SandwichCakeStudios/SandwichSteam/issues/new/choose) and paste the first error line from the build log (in Unreal: **Tools > Output Log**, or the Visual Studio *Output* window).
 
 ## Steam does nothing / every node says "Unavailable"
