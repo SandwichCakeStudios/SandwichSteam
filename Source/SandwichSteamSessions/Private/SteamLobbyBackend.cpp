@@ -207,11 +207,11 @@ bool FSteamLobbyBackend::CreateLobby(const FGameplayTag& ProfileTag, const FStea
 		}
 	}
 
-	const TWeakPtr<FSteamLobbyBackend> WeakThis = AsShared();
+	const TWeakPtr<FSteamLobbyBackend> WeakSelf = AsShared();
 	return TSteamCallResult<LobbyCreated_t>::Start(Raw->PendingCreate, Dispatcher, Call,
-		[WeakThis, InitialData = MoveTemp(InitialData), OnDone = MoveTemp(OnDone)](const LobbyCreated_t& Result, bool bIOFailure)
+		[WeakSelf, InitialData = MoveTemp(InitialData), OnDone = MoveTemp(OnDone)](const LobbyCreated_t& Result, bool bIOFailure)
 		{
-			const TSharedPtr<FSteamLobbyBackend> Backend = WeakThis.Pin();
+			const TSharedPtr<FSteamLobbyBackend> Backend = WeakSelf.Pin();
 			if (!Backend.IsValid())
 			{
 				return;
@@ -280,11 +280,11 @@ bool FSteamLobbyBackend::RequestLobbyList(const FSteamSessionSearchOptions& Opti
 		}
 	}
 
-	const TWeakPtr<FSteamLobbyBackend> WeakThis = AsShared();
+	const TWeakPtr<FSteamLobbyBackend> WeakSelf = AsShared();
 	return TSteamCallResult<LobbyMatchList_t>::Start(Raw->PendingList, Dispatcher, Matchmaking->RequestLobbyList(),
-		[WeakThis, OnDone = MoveTemp(OnDone)](const LobbyMatchList_t& Result, bool bIOFailure)
+		[WeakSelf, OnDone = MoveTemp(OnDone)](const LobbyMatchList_t& Result, bool bIOFailure)
 		{
-			const TSharedPtr<FSteamLobbyBackend> Backend = WeakThis.Pin();
+			const TSharedPtr<FSteamLobbyBackend> Backend = WeakSelf.Pin();
 			ISteamMatchmaking* Matchmaking = SteamMatchmaking();
 			if (!Backend.IsValid() || !Matchmaking)
 			{

@@ -34,10 +34,10 @@ void FSteamCallbackDispatcher::EnsureTickerScheduled()
 
 	TickerRegistrationCount.fetch_add(1, std::memory_order_relaxed);
 
-	const TWeakPtr<FSteamCallbackDispatcher, ESPMode::ThreadSafe> WeakThis = AsShared();
-	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis](float)
+	const TWeakPtr<FSteamCallbackDispatcher, ESPMode::ThreadSafe> WeakSelf = AsShared();
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakSelf](float)
 	{
-		if (const TSharedPtr<FSteamCallbackDispatcher, ESPMode::ThreadSafe> Self = WeakThis.Pin())
+		if (const TSharedPtr<FSteamCallbackDispatcher, ESPMode::ThreadSafe> Self = WeakSelf.Pin())
 		{
 			return Self->Tick();
 		}

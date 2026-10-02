@@ -32,23 +32,23 @@ bool FSteamProcessRunner::Start(const FString& Executable, const FString& Argume
 	bCancelRequested = false;
 
 	// The process thread calls these delegates; they only forward to the game thread.
-	const TWeakPtr<FSteamProcessRunner> WeakThis = AsShared();
+	const TWeakPtr<FSteamProcessRunner> WeakSelf = AsShared();
 	Process = MakeUnique<FInteractiveProcess>(Executable, Arguments, /*bInHidden*/ true, /*bInLongTime*/ true);
-	Process->OnOutput().BindLambda([WeakThis](const FString& Output)
+	Process->OnOutput().BindLambda([WeakSelf](const FString& Output)
 	{
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, Output]()
+		AsyncTask(ENamedThreads::GameThread, [WeakSelf, Output]()
 		{
-			if (const TSharedPtr<FSteamProcessRunner> Runner = WeakThis.Pin())
+			if (const TSharedPtr<FSteamProcessRunner> Runner = WeakSelf.Pin())
 			{
 				Runner->HandleOutput(Output);
 			}
 		});
 	});
-	Process->OnCompleted().BindLambda([WeakThis](int32 ReturnCode, bool bCanceled)
+	Process->OnCompleted().BindLambda([WeakSelf](int32 ReturnCode, bool bCanceled)
 	{
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, ReturnCode, bCanceled]()
+		AsyncTask(ENamedThreads::GameThread, [WeakSelf, ReturnCode, bCanceled]()
 		{
-			if (const TSharedPtr<FSteamProcessRunner> Runner = WeakThis.Pin())
+			if (const TSharedPtr<FSteamProcessRunner> Runner = WeakSelf.Pin())
 			{
 				Runner->HandleCompleted(ReturnCode, bCanceled);
 			}
@@ -56,11 +56,11 @@ bool FSteamProcessRunner::Start(const FString& Executable, const FString& Argume
 	});
 	// Cancel() ends the process on this path, not through OnCompleted: without this, HandleCompleted (and everything
 	// downstream - OnFinished, IsRunning() going false) would never run for a canceled process.
-	Process->OnCanceled().BindLambda([WeakThis]()
+	Process->OnCanceled().BindLambda([WeakSelf]()
 	{
-		AsyncTask(ENamedThreads::GameThread, [WeakThis]()
+		AsyncTask(ENamedThreads::GameThread, [WeakSelf]()
 		{
-			if (const TSharedPtr<FSteamProcessRunner> Runner = WeakThis.Pin())
+			if (const TSharedPtr<FSteamProcessRunner> Runner = WeakSelf.Pin())
 			{
 				Runner->HandleCanceled();
 			}

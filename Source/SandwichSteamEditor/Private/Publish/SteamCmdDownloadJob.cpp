@@ -231,19 +231,19 @@ void FSteamCmdDownloadJob::BeginDownload()
 	DownloadRequest->SetURL(DownloadUrl);
 	DownloadRequest->SetVerb(TEXT("GET"));
 
-	const TWeakPtr<FSteamCmdDownloadJob> WeakThis = AsShared();
+	const TWeakPtr<FSteamCmdDownloadJob> WeakSelf = AsShared();
 	// [verify] UE 5.8 http progress delegate: OnRequestProgress64(FHttpRequestPtr, uint64 BytesSent, uint64 BytesReceived).
 	// If this signature differs, fix it here; a wrong signature only loses the progress bar's fill during download, nothing else.
-	DownloadRequest->OnRequestProgress64().BindLambda([WeakThis](FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived)
+	DownloadRequest->OnRequestProgress64().BindLambda([WeakSelf](FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived)
 	{
-		if (const TSharedPtr<FSteamCmdDownloadJob> Job = WeakThis.Pin())
+		if (const TSharedPtr<FSteamCmdDownloadJob> Job = WeakSelf.Pin())
 		{
 			Job->HandleDownloadProgress(Request, BytesSent, BytesReceived);
 		}
 	});
-	DownloadRequest->OnProcessRequestComplete().BindLambda([WeakThis](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully)
+	DownloadRequest->OnProcessRequestComplete().BindLambda([WeakSelf](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully)
 	{
-		if (const TSharedPtr<FSteamCmdDownloadJob> Job = WeakThis.Pin())
+		if (const TSharedPtr<FSteamCmdDownloadJob> Job = WeakSelf.Pin())
 		{
 			Job->HandleDownloadComplete(Request, Response, bConnectedSuccessfully);
 		}
