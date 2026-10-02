@@ -22,7 +22,7 @@
  *
  * Usage:
  *   TSteamCallResult<LeaderboardFindResult_t>::Start(PendingFind, Dispatcher, SteamUserStats()->FindLeaderboard(Name),
- *       [WeakThis](const LeaderboardFindResult_t& Result, bool bIOFailure) { ... });
+ *       [WeakSelf](const LeaderboardFindResult_t& Result, bool bIOFailure) { ... });
  */
 template <typename TPayload>
 class TSteamCallResult

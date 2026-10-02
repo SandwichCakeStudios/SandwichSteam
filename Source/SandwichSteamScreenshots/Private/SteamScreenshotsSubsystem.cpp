@@ -202,15 +202,15 @@ void USteamScreenshotsSubsystem::HandleViewportCaptured(int32 Width, int32 Heigh
 	// Convert on a worker task (a 4K frame is 25 MB of pixels). The bitmap is copied because the engine reuses it.
 	// The result comes back through the dispatcher, which skips it when this subsystem is gone.
 	const uint32 Id = CaptureId;
-	const TWeakObjectPtr<USteamScreenshotsSubsystem> WeakThis(this);
+	const TWeakObjectPtr<USteamScreenshotsSubsystem> WeakSelf(this);
 	const TSharedPtr<FSteamCallbackDispatcher, ESPMode::ThreadSafe> Queue = Dispatcher;
-	Async(EAsyncExecution::ThreadPool, [Pixels = Bitmap, Width, Height, Id, WeakThis, Queue]() mutable
+	Async(EAsyncExecution::ThreadPool, [Pixels = Bitmap, Width, Height, Id, WeakSelf, Queue]() mutable
 	{
 		TArray<uint8> Rgb;
 		SandwichSteam::Screenshots::ConvertBgraToRgb(Pixels, Rgb);
 		Pixels.Empty();
 
-		Queue->EnqueueFor(WeakThis, [Id, Rgb = MoveTemp(Rgb), Width, Height](USteamScreenshotsSubsystem& Screenshots) mutable
+		Queue->EnqueueFor(WeakSelf, [Id, Rgb = MoveTemp(Rgb), Width, Height](USteamScreenshotsSubsystem& Screenshots) mutable
 		{
 			Screenshots.HandleConverted(Id, MoveTemp(Rgb), Width, Height);
 		});

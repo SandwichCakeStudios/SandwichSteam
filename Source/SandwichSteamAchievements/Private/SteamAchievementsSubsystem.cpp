@@ -533,9 +533,9 @@ FSteamResult USteamAchievementsSubsystem::RequestGlobalPercentages(FSteamAchieve
 		return FSteamResult::Success(); // A request is already running, this one shares its answer.
 	}
 
-	const bool bStarted = Backend->RequestGlobalPercentages([WeakThis = TWeakObjectPtr<USteamAchievementsSubsystem>(this)](bool bSuccess)
+	const bool bStarted = Backend->RequestGlobalPercentages([WeakSelf = TWeakObjectPtr<USteamAchievementsSubsystem>(this)](bool bSuccess)
 	{
-		if (USteamAchievementsSubsystem* Self = WeakThis.Get())
+		if (USteamAchievementsSubsystem* Self = WeakSelf.Get())
 		{
 			Self->HandlePercentagesReady(bSuccess);
 		}

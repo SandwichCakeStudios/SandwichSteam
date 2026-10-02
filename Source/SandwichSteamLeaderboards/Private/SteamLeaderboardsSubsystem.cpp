@@ -105,10 +105,10 @@ void USteamLeaderboardsSubsystem::ResolveHandle(FName Name, TFunction<void(const
 		return; // A lookup of this name is already running; the waiter is answered with it.
 	}
 
-	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakThis(this);
-	const FSteamLeaderboardsBackend::FFindDone OnFound = [WeakThis, Name](bool bIOFailure, bool bFound, uint64 Handle)
+	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakSelf(this);
+	const FSteamLeaderboardsBackend::FFindDone OnFound = [WeakSelf, Name](bool bIOFailure, bool bFound, uint64 Handle)
 	{
-		USteamLeaderboardsSubsystem* This = WeakThis.Get();
+		USteamLeaderboardsSubsystem* This = WeakSelf.Get();
 		if (!This)
 		{
 			return;
@@ -192,10 +192,10 @@ FSteamResult USteamLeaderboardsSubsystem::UploadScore(FName LeaderboardName, int
 			FText::Format(NSLOCTEXT("SandwichSteam", "LbTooManyDetails", "A score takes at most {0} detail values."), FText::AsNumber(SandwichSteam::Leaderboards::MaxDetails)));
 	}
 
-	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakThis(this);
-	ResolveHandle(LeaderboardName, [WeakThis, Score, Method, Details, OnComplete](const FSteamResult& Resolved, uint64 Handle)
+	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakSelf(this);
+	ResolveHandle(LeaderboardName, [WeakSelf, Score, Method, Details, OnComplete](const FSteamResult& Resolved, uint64 Handle)
 	{
-		USteamLeaderboardsSubsystem* This = WeakThis.Get();
+		USteamLeaderboardsSubsystem* This = WeakSelf.Get();
 		if (!This)
 		{
 			return;
@@ -275,10 +275,10 @@ FSteamResult USteamLeaderboardsSubsystem::DownloadEntries(FName LeaderboardName,
 		return FSteamResult::Success();
 	}
 
-	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakThis(this);
-	ResolveHandle(LeaderboardName, [WeakThis, Key, Normalized](const FSteamResult& Resolved, uint64 Handle)
+	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakSelf(this);
+	ResolveHandle(LeaderboardName, [WeakSelf, Key, Normalized](const FSteamResult& Resolved, uint64 Handle)
 	{
-		USteamLeaderboardsSubsystem* This = WeakThis.Get();
+		USteamLeaderboardsSubsystem* This = WeakSelf.Get();
 		if (!This)
 		{
 			return;
@@ -301,11 +301,11 @@ void USteamLeaderboardsSubsystem::StartDownload(uint64 Handle, const FSteamReque
 {
 	++DownloadCalls;
 
-	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakThis(this);
+	const TWeakObjectPtr<USteamLeaderboardsSubsystem> WeakSelf(this);
 	const bool bStarted = Backend.IsValid() && Backend->DownloadEntries(Handle, Query,
-		[WeakThis, Key](bool bSuccess, const TArray<FSteamLeaderboardEntry>& Entries)
+		[WeakSelf, Key](bool bSuccess, const TArray<FSteamLeaderboardEntry>& Entries)
 		{
-			USteamLeaderboardsSubsystem* This = WeakThis.Get();
+			USteamLeaderboardsSubsystem* This = WeakSelf.Get();
 			if (!This)
 			{
 				return;

@@ -188,10 +188,10 @@ FSteamResult USteamSessionsSubsystem::StartCreateLobby(const FGameplayTag& Profi
 	PendingLobbyCreate = OnComplete;
 	ActiveProfile = ProfileTag;
 	HostedSettings = Applied;
-	const TWeakObjectPtr<USteamSessionsSubsystem> WeakThis(this);
-	const bool bStarted = LobbyBackend->CreateLobby(ProfileTag, Applied, [WeakThis](const FSteamResult& Done, FSteamId Lobby)
+	const TWeakObjectPtr<USteamSessionsSubsystem> WeakSelf(this);
+	const bool bStarted = LobbyBackend->CreateLobby(ProfileTag, Applied, [WeakSelf](const FSteamResult& Done, FSteamId Lobby)
 	{
-		if (USteamSessionsSubsystem* Sessions = WeakThis.Get())
+		if (USteamSessionsSubsystem* Sessions = WeakSelf.Get())
 		{
 			Sessions->HandleLobbyEnterComplete(Done, Lobby, /*bWasCreate*/ true);
 		}
@@ -245,10 +245,10 @@ FSteamResult USteamSessionsSubsystem::JoinLobby(FSteamId LobbyId, FSteamLobbyOpD
 
 	Busy = EBusyOp::JoiningLobby;
 	PendingLobbyJoin = OnComplete;
-	const TWeakObjectPtr<USteamSessionsSubsystem> WeakThis(this);
-	const bool bStarted = LobbyBackend->JoinLobby(LobbyId, [WeakThis](const FSteamResult& Done, FSteamId Lobby)
+	const TWeakObjectPtr<USteamSessionsSubsystem> WeakSelf(this);
+	const bool bStarted = LobbyBackend->JoinLobby(LobbyId, [WeakSelf](const FSteamResult& Done, FSteamId Lobby)
 	{
-		if (USteamSessionsSubsystem* Sessions = WeakThis.Get())
+		if (USteamSessionsSubsystem* Sessions = WeakSelf.Get())
 		{
 			Sessions->HandleLobbyEnterComplete(Done, Lobby, /*bWasCreate*/ false);
 		}
@@ -290,16 +290,16 @@ FSteamResult USteamSessionsSubsystem::FindLobbies(const FSteamSessionSearchOptio
 
 	bFindingLobbies = true;
 	PendingLobbyFind = OnComplete;
-	const TWeakObjectPtr<USteamSessionsSubsystem> WeakThis(this);
+	const TWeakObjectPtr<USteamSessionsSubsystem> WeakSelf(this);
 	const FString NameFilter = Options.NameContains;
-	const bool bStarted = LobbyBackend->RequestLobbyList(Options, [WeakThis, NameFilter](const FSteamResult& Done, TArray<FSteamLobbyInfo>&& Lobbies)
+	const bool bStarted = LobbyBackend->RequestLobbyList(Options, [WeakSelf, NameFilter](const FSteamResult& Done, TArray<FSteamLobbyInfo>&& Lobbies)
 	{
 		if (!NameFilter.IsEmpty())
 		{
 			Lobbies.RemoveAll([&NameFilter](const FSteamLobbyInfo& Lobby) { return !Lobby.DisplayName.Contains(NameFilter); });
 		}
 
-		if (USteamSessionsSubsystem* Sessions = WeakThis.Get())
+		if (USteamSessionsSubsystem* Sessions = WeakSelf.Get())
 		{
 			Sessions->HandleLobbyListComplete(Done, MoveTemp(Lobbies));
 		}
