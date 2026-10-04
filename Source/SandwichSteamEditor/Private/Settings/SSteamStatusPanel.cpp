@@ -2,12 +2,7 @@
 
 #include "Settings/SSteamStatusPanel.h"
 #include "Core/SteamToolSettings.h"
-#include "Framework/Notifications/NotificationManager.h"
-#include "HAL/FileManager.h"
-#include "HAL/PlatformProcess.h"
 #include "ISettingsModule.h"
-#include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Style/SteamToolStyle.h"
@@ -18,7 +13,6 @@
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
-#include "Widgets/Notifications/SNotificationList.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -38,50 +32,6 @@ namespace
 			return TEXT("SandwichSteam.Status.Info");
 		default:
 			return TEXT("SandwichSteam.Status.Ok");
-		}
-	}
-
-	void ShowNotification(const FText& Text, SNotificationItem::ECompletionState State)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 6.0f;
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
-
-	/** Folder of the running editor executable (Engine/Binaries/<Platform> of the engine version in use). */
-	FString GetEditorBinariesDir()
-	{
-		return FPaths::ConvertRelativePathToFull(FPlatformProcess::BaseDir());
-	}
-
-	/** <Project>/Binaries/<Platform>: where the game executable of this project lives during development. */
-	FString GetProjectBinariesDir()
-	{
-		return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Binaries") / FPlatformProcess::GetBinariesSubdirectory());
-	}
-
-	/** Writes steam_appid.txt into Directory. Steam reads it when the game was not started by the Steam client. */
-	void CreateSteamAppIdFile(const FString& Directory)
-	{
-		const USteamToolSettings* Settings = USteamToolSettings::Get();
-		if (!Settings || Settings->SteamAppId <= 0)
-		{
-			ShowNotification(LOCTEXT("AppIdFileNoId", "Set a Steam App ID first."), SNotificationItem::CS_Fail);
-			return;
-		}
-
-		IFileManager::Get().MakeDirectory(*Directory, true);
-		const FString FilePath = Directory / TEXT("steam_appid.txt");
-		if (FFileHelper::SaveStringToFile(FString::FromInt(Settings->SteamAppId), *FilePath, FFileHelper::EEncodingOptions::ForceAnsi))
-		{
-			ShowNotification(FText::Format(LOCTEXT("AppIdFileDone", "Wrote {0}. For development only; never ship it."), FText::FromString(FilePath)), SNotificationItem::CS_Success);
-		}
-		else
-		{
-			ShowNotification(FText::Format(LOCTEXT("AppIdFileFailed", "Could not write {0}. Check that the folder is writable."), FText::FromString(FilePath)), SNotificationItem::CS_Fail);
 		}
 	}
 
@@ -193,24 +143,12 @@ void SSteamStatusPanel::Construct(const FArguments& /*InArgs*/)
 						Refresh();
 					})
 				]
-				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 0.f, 0.f, 4.f)
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[
 					MakeActionButton(LOCTEXT("ProjectSettings", "Project Settings..."), LOCTEXT("ProjectSettingsTip", "Opens Project Settings > Plugins > Sandwich Steam (App ID, Data Directory, Features)."), []()
 					{
 						SandwichSteamProjectSettings();
 					})
-				]
-				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 0.f, 0.f, 4.f)
-				[
-					MakeActionButton(LOCTEXT("AppIdFileEngine", "Create steam_appid.txt in Engine Binaries"),
-						FText::Format(LOCTEXT("AppIdFileEngineTip", "Writes steam_appid.txt into the folder of the running editor executable ({0}), so games started from the editor (Standalone) use your App ID. Applies to this engine version only. Development only."), FText::FromString(GetEditorBinariesDir())),
-						[]() { CreateSteamAppIdFile(GetEditorBinariesDir()); })
-				]
-				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
-				[
-					MakeActionButton(LOCTEXT("AppIdFileProject", "Create steam_appid.txt in Project Binaries"),
-						FText::Format(LOCTEXT("AppIdFileProjectTip", "Writes steam_appid.txt into {0}, next to the game executable of this project (development builds started outside Steam). Development only."), FText::FromString(GetProjectBinariesDir())),
-						[]() { CreateSteamAppIdFile(GetProjectBinariesDir()); })
 				]
 			]
 		]
