@@ -46,7 +46,7 @@ Most problems are one of these:
 | You pressed the normal **Play** button | Steam does not run in Play In Editor | Use **Play > Standalone Game** |
 | Steam client is closed | The plugin needs the running client | Start Steam and log in |
 | Steam **closes while the game runs** | Unreal's Steam integration ends the game when Steam quits | Keep Steam running |
-| `steam_appid.txt` missing | Steam cannot tell which game this is | Dashboard > **Create steam_appid.txt** |
+| Steam does not know which game this is | Normally Unreal writes `steam_appid.txt` itself (Standalone, Development builds) | Run **Configure Steam...** first; if it persists: Dashboard > **Advanced** > **steam_appid.txt** > **Create** |
 | Project not configured | `DefaultEngine.ini` lacks the Steam lines | Dashboard > **Configure Steam...** |
 
 Run `Steam.Core.Dump` in the game console. It tells you which of these is the reason.
@@ -62,6 +62,7 @@ Run `Steam.Core.Dump` in the game console. It tells you which of these is the re
 
 - Package as **Development** first. Then run `Steam.Stats.Dump`. If it says the App Definition was not found, open the dashboard and click **Add to cook** on the Steam App Definition row.
 - Put `steam_appid.txt` next to the packaged `.exe` **for testing only**, and remove it before releasing on Steam.
+- A **Shipping** build gets Steam only when it is started **from Steam** (the Play button, after uploading it to a branch). Double-clicking the Shipping `.exe` runs the game without Steam: multiplayer shows "Local network" and the overlay does not open. Shipping writes no log, so nothing tells you. To test outside Steam, use a **Development** build.
 
 ## The Steam overlay does not show
 

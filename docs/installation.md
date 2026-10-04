@@ -39,7 +39,7 @@ Skip this if you already build C++ projects.
 
 > **Why?** Unreal needs a compiler to turn the plugin's source code into something it can run. You will never open Visual Studio yourself in Path 1. Unreal uses it in the background.
 
-> **macOS / Linux:** the plugin is written for them but has never been run there. You are welcome to try, and to tell us how it went in an [issue](https://github.com/SandwichCakeStudios/SandwichSteam/issues).
+> **macOS / Linux:** the plugin is written for them but has never been run there. You are welcome to try, and to tell us how it went in an [issue](https://github.com/SandwichCakeStudios/SandwichSteam/issues). On a Mac, the Steam overlay only works when the game is launched through the Steam client: add the build with *Add a Non-Steam Game to My Library* and start it from there.
 
 ---
 
