@@ -109,15 +109,21 @@ TArray<FSteamIniEntry> FSteamIniWriter::BuildGameEntries(bool bWithVoice)
 	return Entries;
 }
 
-TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, bool bWithSessions, bool bWithVoice)
+TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, bool bWithSessions, bool bWithVoice, bool bWithRelaunchOff)
 {
 	TArray<FSteamIniEntry> Entries = {
 		{ TEXT("OnlineSubsystem"), TEXT("DefaultPlatformService"), TEXT("Steam") },
 		{ TEXT("OnlineSubsystemSteam"), TEXT("bEnabled"), TEXT("true") },
-		{ TEXT("OnlineSubsystemSteam"), TEXT("SteamDevAppId"), FString::FromInt(SteamAppId) },
-		// Relaunching through Steam would restart the editor/standalone process; packaged builds turn it on themselves.
-		{ TEXT("OnlineSubsystemSteam"), TEXT("bRelaunchInSteam"), TEXT("false") }
+		{ TEXT("OnlineSubsystemSteam"), TEXT("SteamDevAppId"), FString::FromInt(SteamAppId) }
 	};
+
+	if (bWithRelaunchOff)
+	{
+		// Verified 2026-10-03 (Phase 14b): with true, a Standalone run asks Steam to relaunch the game and falls back to the
+		// NULL subsystem. A Shipping build is not affected either way: without UE_PROJECT_STEAMSHIPPINGID (a dedicated server
+		// macro that needs a source engine) it has no App ID to relaunch with, and players start it from Steam.
+		Entries.Add({ TEXT("OnlineSubsystemSteam"), TEXT("bRelaunchInSteam"), TEXT("false") });
+	}
 
 	if (bWithVoice)
 	{
@@ -132,7 +138,8 @@ TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, b
 		// Required for a client to create/join sessions (Valve's Online Subsystem Steam docs: without it Create Session
 		// does not work). The engine's SteamSockets plugin carries game traffic over Steam. The base ini already defines
 		// GameNetDriver with the IP driver and the first definition wins, so the array is cleared and rebuilt (the demo
-		// driver is kept for replays).
+		// driver is kept for replays). The IpNetDriver fallback only keeps the game starting: with bUseSteamNetworking the
+		// connect string is steam.<id>, which the IP driver cannot reach, so a fallback client cannot join a Steam host.
 		Entries.Append({
 			{ TEXT("OnlineSubsystemSteam"), TEXT("bInitServerOnClient"), TEXT("true") },
 			{ TEXT("OnlineSubsystemSteam"), TEXT("bUseSteamNetworking"), TEXT("true") },

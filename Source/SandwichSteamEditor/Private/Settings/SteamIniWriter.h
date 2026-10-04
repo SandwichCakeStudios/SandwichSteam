@@ -46,8 +46,9 @@ public:
 	 * The DefaultEngine.ini entries Sandwich Steam needs for the given Steam App ID.
 	 * With bWithSessions the SteamSockets net driver entries of the Sessions module are included.
 	 * With bWithVoice the Steam voice interface is switched on ([OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled).
+	 * With bWithRelaunchOff [OnlineSubsystemSteam] bRelaunchInSteam=false is included (USteamToolSettings::bWriteRelaunchInSteamOff).
 	 */
-	static TArray<FSteamIniEntry> BuildRequiredEntries(int32 SteamAppId, bool bWithSessions = false, bool bWithVoice = false);
+	static TArray<FSteamIniEntry> BuildRequiredEntries(int32 SteamAppId, bool bWithSessions = false, bool bWithVoice = false, bool bWithRelaunchOff = true);
 
 	/**
 	 * The DefaultGame.ini entries: with bWithVoice the game session asks for push to talk ([/Script/Engine.GameSession] bRequiresPushToTalk=true).

@@ -154,7 +154,7 @@ void SandwichSteam::Editor::ConfigureSteam()
 
 	TArray<FIniTarget> Targets;
 	Targets.AddDefaulted(2);
-	if (!LoadTarget(Targets[0], TEXT("DefaultEngine.ini"), FSteamIniWriter::BuildRequiredEntries(Settings->SteamAppId, WantsSessionsIni(), bVoice))
+	if (!LoadTarget(Targets[0], TEXT("DefaultEngine.ini"), FSteamIniWriter::BuildRequiredEntries(Settings->SteamAppId, WantsSessionsIni(), bVoice, Settings->bWriteRelaunchInSteamOff))
 		|| !LoadTarget(Targets[1], TEXT("DefaultGame.ini"), FSteamIniWriter::BuildGameEntries(bVoice)))
 	{
 		return;

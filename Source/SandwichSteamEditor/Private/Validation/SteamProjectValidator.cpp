@@ -113,7 +113,7 @@ namespace
 
 		const bool bVoice = SandwichSteam::Editor::WantsVoiceIni();
 		int32 Pending = 0;
-		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Ini, FSteamIniWriter::BuildRequiredEntries(AppId, SandwichSteam::Editor::WantsSessionsIni(), bVoice)))
+		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Ini, FSteamIniWriter::BuildRequiredEntries(AppId, SandwichSteam::Editor::WantsSessionsIni(), bVoice, Settings->bWriteRelaunchInSteamOff)))
 		{
 			Pending += Change.Change != ESteamIniChange::Unchanged ? 1 : 0;
 		}

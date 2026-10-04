@@ -54,6 +54,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (RelativeToGameDir, ToolTip = "Folder for everything the tool writes: the schema export that Import from Steam reads, SteamCMD, the publish scripts, logs and history, and the staged builds. Relative paths start at the project folder. Empty = Saved/SandwichSteam."))
 	FDirectoryPath DataDirectory;
 
+	/**
+	 * Configure Steam writes [OnlineSubsystemSteam] bRelaunchInSteam=false and the validator checks it. Off = the plugin neither
+	 * writes nor checks the key, and the project's own value is used.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (DisplayName = "Configure Steam Writes bRelaunchInSteam=false", ToolTip = "When on, Configure Steam writes bRelaunchInSteam=false into DefaultEngine.ini and the status panel checks it. With true, a Standalone run asks Steam to relaunch the game and falls back to the NULL Online Subsystem; a Shipping build is not affected either way. Turn off to manage the key yourself."))
+	bool bWriteRelaunchInSteamOff = true;
+
 	/** Features listed here are not created at runtime. Empty means every feature is enabled. */
 	UPROPERTY(Config, EditAnywhere, Category = "Features", meta = (Categories = "Steam.Feature", ToolTip = "Features listed here are turned off and cost nothing at runtime. Leave empty to enable all features."))
 	FGameplayTagContainer DisabledFeatures;

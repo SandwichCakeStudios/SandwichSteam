@@ -146,4 +146,32 @@ bool FSteamIniWriterVoiceTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIniWriterRelaunchTest, "SandwichSteam.Editor.IniWriter.Relaunch",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FSteamIniWriterRelaunchTest::RunTest(const FString& Parameters)
+{
+	const auto IsRelaunchEntry = [](const FSteamIniEntry& Entry)
+	{
+		return Entry.Section == TEXT("OnlineSubsystemSteam") && Entry.Key == TEXT("bRelaunchInSteam");
+	};
+
+	const TArray<FSteamIniEntry> Default = FSteamIniWriter::BuildRequiredEntries(480);
+	const FSteamIniEntry* Relaunch = Default.FindByPredicate(IsRelaunchEntry);
+	TestTrue(TEXT("Written by default, as false"), Relaunch && Relaunch->Value == TEXT("false"));
+
+	const TArray<FSteamIniEntry> Without = FSteamIniWriter::BuildRequiredEntries(480, /*bWithSessions*/ false, /*bWithVoice*/ false, /*bWithRelaunchOff*/ false);
+	TestFalse(TEXT("Optional: left out when turned off"), Without.ContainsByPredicate(IsRelaunchEntry));
+	TestEqual(TEXT("Only that entry is left out"), Without.Num(), Default.Num() - 1);
+
+	// Turned off, a project's own value is neither reported nor touched.
+	const FString Own = TEXT("[OnlineSubsystemSteam]\nbRelaunchInSteam=true\n");
+	for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Own, Without))
+	{
+		TestFalse(TEXT("The key is not in the diff"), IsRelaunchEntry(Change.Entry));
+	}
+	TestTrue(TEXT("The project's value is kept"), FSteamIniWriter::Apply(Own, Without).Contains(TEXT("bRelaunchInSteam=true")));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
