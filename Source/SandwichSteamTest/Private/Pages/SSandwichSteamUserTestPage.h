@@ -3,13 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/Texture2D.h"
 #include "Styling/SlateBrush.h"
 #include "Features/User/SteamUserTypes.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/SCompoundWidget.h"
 
 class SEditableTextBox;
-class UTexture2D;
 class USteamUserSubsystem;
 
 /** Test page for the User feature: persona, ownership, avatars (any user, any size) and the Web API ticket. */

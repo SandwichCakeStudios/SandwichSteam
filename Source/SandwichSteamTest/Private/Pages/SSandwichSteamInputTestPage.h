@@ -3,12 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/Texture2D.h"
 #include "Core/SteamResult.h"
 #include "Styling/SlateBrush.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/SCompoundWidget.h"
 
-class UTexture2D;
 class USteamInputSubsystem;
 
 /**

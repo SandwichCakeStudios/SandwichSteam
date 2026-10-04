@@ -4,6 +4,7 @@
 #include "Core/SteamGameplayTags.h"
 #include "Core/SteamLog.h"
 #include "Core/SteamToolSettings.h"
+#include "Subsystems/SubsystemCollection.h"
 
 bool USteamFeatureSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {

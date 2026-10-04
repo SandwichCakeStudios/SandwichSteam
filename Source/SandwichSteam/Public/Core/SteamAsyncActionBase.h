@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Containers/Ticker.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
+#include "Templates/SubclassOf.h"
 #include "Core/SteamResult.h"
 #include "SteamAsyncActionBase.generated.h"
 

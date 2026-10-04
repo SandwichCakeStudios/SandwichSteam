@@ -2,6 +2,7 @@
 
 #include "SandwichSteamTest.h"
 #include "SandwichSteamTestSubsystem.h"
+#include "Engine/World.h"
 
 namespace
 {
