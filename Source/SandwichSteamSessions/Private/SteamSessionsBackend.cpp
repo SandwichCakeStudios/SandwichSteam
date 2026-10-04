@@ -211,6 +211,7 @@ bool FSteamSessionsBackend::CreateSession(const FGameplayTag& ProfileTag, const 
 
 	if (IsRunningDedicatedServer())
 	{
+		// Dormant: dedicated servers are not supported (future content, Documents/Plans/Improvements.md 4.1).
 		// A dedicated server has no Steam user and no lobby: it registers a game server session.
 		Settings.bIsDedicated = true;
 		Settings.bUsesPresence = false;
@@ -219,6 +220,11 @@ bool FSteamSessionsBackend::CreateSession(const FGameplayTag& ProfileTag, const 
 		Settings.bAllowJoinViaPresence = false;
 		Settings.bAllowJoinViaPresenceFriendsOnly = false;
 		return Sessions->CreateSession(0, NAME_GameSession, Settings);
+	}
+
+	if (!Shape.bUsesPresence)
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam sessions: creating a session without presence. It is not found by Find Steam Sessions, and invites and Join Game do not work. Only for games that connect by their own address."));
 	}
 
 	return LocalUserId.IsValid() && Sessions->CreateSession(*LocalUserId, NAME_GameSession, Settings);

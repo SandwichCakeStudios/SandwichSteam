@@ -452,6 +452,12 @@ namespace
 				}
 			}
 
+			if (!Row.bUsesPresence)
+			{
+				// Without presence the OSS creates a game server session, not a lobby: the plugin's search only lists lobbies.
+				Context.AddWarning(FText::Format(NSLOCTEXT("SandwichSteam", "DefSessionNoPresence", "Session profile '{0}' has Uses Presence off: it is not found by Find Steam Sessions, and invites and Join Game do not work. Only for games that connect by their own address."), TagText));
+			}
+
 			ValidateSessionSettingsMap(Row.Settings, TagText, TEXT("Fixed Settings"), Context, Result);
 			ValidateSessionSettingsMap(Row.PlayerSettings, TagText, TEXT("Player Settings"), Context, Result);
 

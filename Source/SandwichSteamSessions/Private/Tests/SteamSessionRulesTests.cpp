@@ -77,6 +77,17 @@ bool FSteamSessionShapeTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("No presence means no lobby"), NoPresence.bUseLobbies);
 	TestFalse(TEXT("No presence means no join through presence"), NoPresence.bAllowJoinViaPresence);
 
+	// The search only lists lobbies, so presence and lobbies must always travel together (Phase 14c).
+	for (const ESteamSessionVisibility Visibility : { ESteamSessionVisibility::Public, ESteamSessionVisibility::FriendsOnly, ESteamSessionVisibility::Private })
+	{
+		for (const bool bPresence : { true, false })
+		{
+			const FSessionShape Shape = MakeShape(Visibility, 4, bPresence, true);
+			TestEqual(TEXT("Presence and lobbies are paired"), Shape.bUseLobbies, Shape.bUsesPresence);
+			TestEqual(TEXT("Presence comes from the request"), Shape.bUsesPresence, bPresence);
+		}
+	}
+
 	TestEqual(TEXT("Slots are clamped low"), MakeShape(ESteamSessionVisibility::Public, 0, true, true).PublicConnections, 1);
 	TestEqual(TEXT("Slots are clamped high"), MakeShape(ESteamSessionVisibility::Public, 9999, true, true).PublicConnections, 250);
 	return true;

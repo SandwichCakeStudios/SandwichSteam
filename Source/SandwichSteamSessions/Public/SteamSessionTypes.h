@@ -87,7 +87,7 @@ struct SANDWICHSTEAMSESSIONS_API FSteamSessionSettings
 	bool bAllowJoinInProgress = true;
 
 	/** Ignored when created from a profile: the profile decides. The applied value is reported back. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "Creates the session as a Steam lobby with presence, so friends see the game as joinable and invites work. Ignored when a session profile is used (designer only, the profile decides); the applied value is reported back."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "Creates the session as a Steam lobby with presence, so friends see the game as joinable and invites work. When off, the session is not found by Find Steam Sessions and invites and Join Game do not work. Ignored when a session profile is used (designer only, the profile decides); the applied value is reported back."))
 	bool bUsesPresence = true;
 
 	/** Extra key / value pairs. A session profile can fix some keys and limit which extra ones the player may add. */

@@ -232,7 +232,7 @@ struct SANDWICHSTEAM_API FSteamSessionProfileDef
 	uint8 AllowedVisibilities = 0;
 
 	/** Create a Steam lobby with presence, so friends see the game as joinable and invites work. Designer only: ignored in the player-chosen settings. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "Creates the session as a Steam lobby that friends can see and join. Turn it off only for sessions that are not meant to be joined through Steam. Designer only: the player cannot change it, the applied value is reported back."))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "Creates the session as a Steam lobby that friends can see and join. When off, the session is not found by Find Steam Sessions and invites and Join Game do not work: only for games that connect by their own address. Designer only: the player cannot change it, the applied value is reported back."))
 	bool bUsesPresence = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "Default for allow players to join after the match has started."))
