@@ -51,12 +51,7 @@ Steam needs a few lines in your project's `DefaultEngine.ini`. You do not have t
 <!-- SHOT 13: The Configure Steam dialog listing the DefaultEngine.ini changes -->
 ![The Configure Steam dialog](assets/img/quickstart/13-configure-steam.png)
 
-3. Click **Create steam_appid.txt** for both locations (engine Binaries and project Binaries).
-
-<!-- SHOT 14: The two "Create steam_appid.txt" buttons in the Actions card -->
-![Create steam_appid.txt buttons](assets/img/quickstart/14-appid-txt.png)
-
-> `steam_appid.txt` lets Steam recognise a game started from the editor. It is for development only. **Never ship it.** The Publish Tool always leaves it out.
+> You do not need to create `steam_appid.txt`. When you run Standalone or a Development build, Unreal writes it next to the running executable and deletes it when the game exits. If Steam still does not recognise your game, see the dashboard's **Advanced** page. The Publish Tool always leaves the file out.
 
 ## 4. Create your App Definition
 
