@@ -1,6 +1,6 @@
 <div align="center">
 
-<!-- SHOT 40: Banner / hero image, 1280x400. Plugin name + a Steam achievement toast over a game scene -->
+<!-- SHOT 40: Banner: plugin name + a Steam achievement toast over a game scene -->
 ![Sandwich Steam banner](docs/assets/img/readme/40-hero.png)
 
 # Sandwich Steam
