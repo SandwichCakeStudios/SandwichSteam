@@ -22,8 +22,11 @@ namespace SandwichSteam
 			? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull)
 			: nullptr;
 
-		// With a world, resolve the per-world instance (PIE uses one OSS instance per world context).
-		return World ? Online::GetSubsystem(World, STEAM_SUBSYSTEM) : IOnlineSubsystem::Get(STEAM_SUBSYSTEM);
+		// Only the default subsystem counts (per world: PIE uses one OSS instance per world context). Asking for STEAM_SUBSYSTEM
+		// by name creates a second Steam instance after the engine gave up on Steam (relaunch request, Steam not running) and
+		// fell back to NULL; the game would then run on NULL while the plugin reported Steam as ready (Phase 14b).
+		IOnlineSubsystem* DefaultOSS = World ? Online::GetSubsystem(World) : IOnlineSubsystem::Get();
+		return DefaultOSS && DefaultOSS->GetSubsystemName() == STEAM_SUBSYSTEM ? DefaultOSS : nullptr;
 	}
 
 	bool IsSteamOSSAvailable(const UObject* WorldContext)
