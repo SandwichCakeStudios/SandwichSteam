@@ -150,6 +150,7 @@ void USteamCoreSubsystem::EvaluateReadiness()
 	}
 }
 
+// Dormant: dedicated servers are not supported (future content, Documents/Plans/Improvements.md 4.1).
 void USteamCoreSubsystem::ScheduleServerReadinessPoll()
 {
 	ServerPollAttempts = 0;
