@@ -11,8 +11,8 @@ struct FPropertyChangedEvent;
 
 /**
  * Live validator checks (green ok, blue info, orange warning, red error) with inline Fix buttons, plus Re-check,
- * Show in Message Log, Configure Steam... and the two steam_appid.txt buttons. Used by the Project Settings page
- * and the Steam Dashboard's right column, so there is one implementation, not two copies to keep in sync.
+ * Show in Message Log, Configure Steam... and Project Settings.... Shown in the Steam Dashboard's right column (the
+ * steam_appid.txt buttons live on the dashboard's Advanced page).
  */
 class SSteamStatusPanel : public SCompoundWidget
 {

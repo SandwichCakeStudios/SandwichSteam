@@ -1,6 +1,7 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "SandwichSteamEditor.h"
+#include "Advanced/SSteamAdvancedPage.h"
 #include "Assets/SteamAppDefinitionCustomization.h"
 #include "Assets/SteamDashboardAppDefinitionPage.h"
 #include "Cook/SteamCookHelper.h"
@@ -46,6 +47,7 @@ void FSandwichSteamEditorModule::StartupModule()
 	SandwichSteam::Editor::RegisterAppDefinitionDashboardPage();
 	SandwichSteam::Editor::RegisterSteamCmdDashboardPage();
 	SandwichSteam::Editor::RegisterPublishDashboardPage();
+	SandwichSteam::Editor::RegisterAdvancedDashboardPage();
 
 	ObjectChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddRaw(this, &FSandwichSteamEditorModule::HandleObjectPropertyChanged);
 
@@ -63,6 +65,7 @@ void FSandwichSteamEditorModule::ShutdownModule()
 		CookHelper.Reset();
 	}
 
+	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("Advanced"));
 	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("Publish"));
 	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("SteamCmd"));
 	SandwichSteam::Editor::UnregisterDashboardPage(TEXT("AppDefinition"));
