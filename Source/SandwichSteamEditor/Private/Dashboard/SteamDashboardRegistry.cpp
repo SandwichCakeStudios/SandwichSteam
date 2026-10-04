@@ -28,7 +28,11 @@ namespace SandwichSteam::Editor
 	TArray<FSteamDashboardPage> GetDashboardPages()
 	{
 		TArray<FSteamDashboardPage> Pages = GetRegistry();
-		Pages.Sort([](const FSteamDashboardPage& A, const FSteamDashboardPage& B) { return A.Order < B.Order; });
+		// Bottom-pinned pages always come last, so a low Order there never makes one the default (first) page.
+		Pages.Sort([](const FSteamDashboardPage& A, const FSteamDashboardPage& B)
+		{
+			return A.bPinToBottom != B.bPinToBottom ? B.bPinToBottom : A.Order < B.Order;
+		});
 		return Pages;
 	}
 }

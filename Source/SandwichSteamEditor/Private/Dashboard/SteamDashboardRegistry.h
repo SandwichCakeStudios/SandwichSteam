@@ -20,8 +20,11 @@ struct FSteamDashboardPage
 	FText Label;
 	FSlateIcon Icon;
 
-	/** Lower values are listed first. */
+	/** Lower values are listed first (within the top or the bottom group). */
 	int32 Order = 0;
+
+	/** Lists the page in the group at the bottom of the nav (for example Advanced) instead of the top. */
+	bool bPinToBottom = false;
 
 	/** Builds the page content. Called once, when the dashboard tab is constructed. */
 	TFunction<TSharedRef<SWidget>()> BuildContent;
@@ -47,6 +50,6 @@ namespace SandwichSteam::Editor
 	/** Removes a page. Call from ShutdownModule for every registered id. */
 	void UnregisterDashboardPage(FName Id);
 
-	/** Snapshot of the registered pages, sorted by Order. */
+	/** Snapshot of the registered pages: top pages by Order, then bottom-pinned pages by Order. */
 	TArray<FSteamDashboardPage> GetDashboardPages();
 }

@@ -14,6 +14,7 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
@@ -34,16 +35,23 @@ void SSteamDashboardPanel::Construct(const FArguments& /*InArgs*/)
 {
 	const TArray<FSteamDashboardPage> DashboardPages = SandwichSteam::Editor::GetDashboardPages();
 
-	const TSharedRef<SVerticalBox> Nav = SNew(SVerticalBox);
+	// Two groups: the regular pages at the top, pinned pages (Advanced) at the bottom left.
+	const TSharedRef<SVerticalBox> TopNav = SNew(SVerticalBox);
+	const TSharedRef<SVerticalBox> BottomNav = SNew(SVerticalBox);
 	SAssignNew(Pages, SWidgetSwitcher).WidgetIndex_Lambda([this]() { return GetDisplayedPage(); });
 
+	TArray<int32> BottomIndices;
 	for (int32 Index = 0; Index < DashboardPages.Num(); ++Index)
 	{
 		const FSteamDashboardPage& Page = DashboardPages[Index];
 		PageIds.Add(Page.Id);
 		PageVisibility.Add(Page.IsVisible);
+		if (Page.bPinToBottom)
+		{
+			BottomIndices.Add(Index);
+		}
 
-		Nav->AddSlot().AutoHeight()
+		(Page.bPinToBottom ? BottomNav : TopNav)->AddSlot().AutoHeight()
 		[
 			SNew(SBox)
 			.Padding(FMargin(0.f, 0.f, 0.f, 4.f))
@@ -58,6 +66,24 @@ void SSteamDashboardPanel::Construct(const FArguments& /*InArgs*/)
 			Page.BuildContent ? Page.BuildContent() : SNullWidget::NullWidget
 		];
 	}
+
+	const TSharedRef<SVerticalBox> Nav = SNew(SVerticalBox)
+		+ SVerticalBox::Slot().FillHeight(1.f)
+		[
+			TopNav
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 8.f)
+		[
+			SNew(SSeparator)
+			.Visibility_Lambda([this, BottomIndices]()
+			{
+				return BottomIndices.ContainsByPredicate([this](int32 Index) { return IsPageVisible(Index); }) ? EVisibility::Visible : EVisibility::Collapsed;
+			})
+		]
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			BottomNav
+		];
 
 	ChildSlot
 	[
