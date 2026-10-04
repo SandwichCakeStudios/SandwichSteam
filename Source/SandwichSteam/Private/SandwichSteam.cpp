@@ -4,6 +4,7 @@
 #include "Core/SteamBackend.h"
 #include "Core/SteamEngineCompat.h"
 #include "Core/SteamLog.h"
+#include "Core/SteamSDK.h"
 #include "Core/SteamToolSettings.h"
 #include "Debug/SteamConsoleCommands.h"
 #include "GameplayTagsManager.h"
@@ -62,13 +63,45 @@ void FSandwichSteamModule::HandlePostEngineInit()
 
 	if (!SandwichSteam::IsSteamOSSAvailable(nullptr))
 	{
+#if UE_BUILD_SHIPPING
+		// Shipping builds write no steam_appid.txt, so started outside the Steam client they get no Steam (verified 2026-10-03,
+		// Phase 14b). Only visible in projects that enable logging in Shipping.
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam Online Subsystem not available. Steam features stay inactive. Most likely this Shipping build was started outside the Steam client (double-clicking the exe): start it from Steam. To test outside Steam use a Development build. Also check that Steam is running and that OnlineSubsystemSteam is enabled with DefaultPlatformService=Steam."));
+#else
 		UE_LOG(LogSandwichSteam, Log, TEXT("Steam Online Subsystem not available. Steam features stay inactive. Enable OnlineSubsystemSteam and set DefaultPlatformService=Steam in DefaultEngine.ini."));
+#endif
 		return;
 	}
 
+	const bool bClientReady = SandwichSteam::IsSteamClientReady(nullptr);
 	UE_LOG(LogSandwichSteam, Log, TEXT("Steam Online Subsystem detected (client ready: %s, game server ready: %s)."),
-		SandwichSteam::IsSteamClientReady(nullptr) ? TEXT("yes") : TEXT("no"),
+		bClientReady ? TEXT("yes") : TEXT("no"),
 		SandwichSteam::IsSteamGameServerReady(nullptr) ? TEXT("yes") : TEXT("no"));
+
+	if (bClientReady)
+	{
+		WarnOnAppIdMismatch();
+	}
+}
+
+void FSandwichSteamModule::WarnOnAppIdMismatch()
+{
+#if SANDWICHSTEAM_WITH_STEAMWORKS
+	// Raw SteamUtils (as the debug dump) keeps the core free of a link dependency on OnlineSubsystemSteam.
+	ISteamUtils* Utils = SteamUtils(); // Steam's getters are not const.
+	const USteamToolSettings* Settings = USteamToolSettings::Get();
+	if (!Utils || !Settings || Settings->SteamAppId <= 0)
+	{
+		return;
+	}
+
+	const uint32 RunningAppId = Utils->GetAppID();
+	if (RunningAppId != 0 && RunningAppId != static_cast<uint32>(Settings->SteamAppId))
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam is running App ID %u, but Project Settings > Plugins > Sandwich Steam says %d. Run Configure Steam (SteamDevAppId) and delete stale steam_appid.txt files, or fix the setting."),
+			RunningAppId, Settings->SteamAppId);
+	}
+#endif
 }
 
 FSandwichSteamModule& FSandwichSteamModule::Get()

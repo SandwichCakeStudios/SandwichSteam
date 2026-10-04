@@ -22,5 +22,8 @@ private:
 
 	void HandlePostEngineInit();
 
+	/** Logs a Warning when Steam runs another App ID than USteamToolSettings::SteamAppId (stale SteamDevAppId / steam_appid.txt). */
+	void WarnOnAppIdMismatch();
+
 	FDelegateHandle PostEngineInitHandle;
 };
