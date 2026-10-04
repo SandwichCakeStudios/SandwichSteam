@@ -8,12 +8,10 @@
 	"CreatedBy": "Sandwich Cake Studios",
 	"CreatedByURL": "https://github.com/SandwichCakeStudios",
 	"DocsURL": "https://sandwichcakestudios.github.io/SandwichSteam/",
-	"MarketplaceURL": "",
 	"SupportURL": "https://github.com/SandwichCakeStudios/SandwichSteam/issues",
 	"EngineVersion": "5.8.0",
-	"FabURL": "com.epicgames.launcher://ue/Fab/product/a72543a4-8ba7-48d9-98a8-6e479616c894",
 	"CanContainContent": false,
-	"Installed": false,
+	"Installed": true,
 	"Modules": [
 		{
 			"Name": "SandwichSteam",
