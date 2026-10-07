@@ -17,6 +17,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 [**Documentation**](https://sandwichcakestudios.github.io/SandwichSteam/) ·
 [Installation](https://sandwichcakestudios.github.io/SandwichSteam/installation.html) ·
 [Quick Start](https://sandwichcakestudios.github.io/SandwichSteam/quick-start.html) ·
+[Publishing](https://sandwichcakestudios.github.io/SandwichSteam/publishing.html) ·
 [Troubleshooting](https://sandwichcakestudios.github.io/SandwichSteam/troubleshooting.html)
 
 </div>
@@ -34,7 +35,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 | **Tags, not magic strings** | Achievements, stats and leaderboards are chosen from a Gameplay Tag dropdown. Raw Steam names work too. |
 | **Built-in test panel** | Press one console command in a running game to see live Steam data and try every feature. |
 
-<!-- SHOT 41: The Steam Dashboard window (Tools > Sandwich Steam > Steam Dashboard) with the status column visible -->
+<!-- SHOT 41: The Steam Dashboard window (Tools > Steam Dashboard) with the status column visible -->
 ![The Steam Dashboard](docs/assets/img/readme/41-dashboard.png)
 
 ## What is inside
@@ -55,7 +56,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 | **Sessions & Lobbies** | Create, find, join and invite, join from a Steam invite even on a cold start |
 | **Voice Chat** | Push to talk or open mic, mute, Steam block list, "who is talking" events |
 | **Steam Input** | Controllers as Enhanced Input keys, action sets, glyphs, haptics |
-| **Publish Tool** | Download SteamCMD, package your game and upload a build from the editor |
+| **Publish Tool** | Download SteamCMD, package your game and upload a build from the editor ([guide](https://sandwichcakestudios.github.io/SandwichSteam/publishing.html)) |
 
 <!-- SHOT 42: A Blueprint graph with 3-4 Sandwich Steam nodes connected (e.g. Set Steam Stat Int -> Unlock Steam Achievement), tooltip visible -->
 ![Sandwich Steam Blueprint nodes](docs/assets/img/readme/42-blueprint-nodes.png)
@@ -66,7 +67,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 
 1. Download this repository (**Code > Download ZIP**) and copy the folder into `YourProject/Plugins/SandwichSteam`.
 2. Open your project. When Unreal asks to rebuild the missing modules, click **Yes**.
-3. Open **Tools > Sandwich Steam > Steam Dashboard** and follow the green checks.
+3. Open **Tools > Steam Dashboard** (or the Steam button in the toolbar) and follow the green checks.
 4. Press **Play > Standalone Game** (Steam does not run in Play In Editor) and type `Steam.Test.Toggle` in the console.
 
 Full walkthrough: **[Quick Start: your first achievement in 10 minutes](https://sandwichcakestudios.github.io/SandwichSteam/quick-start.html)**
