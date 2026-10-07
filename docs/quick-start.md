@@ -23,10 +23,10 @@ By the end of this page you will have unlocked a real Steam achievement from a B
 
 ## 1. Open the Steam Dashboard
 
-Go to **Tools > Sandwich Steam > Steam Dashboard**.
+Open the **Tools** menu and click **Steam Dashboard** (in the *Sandwich Steam* section), or click the Steam button in the editor toolbar.
 
-<!-- SHOT 10: Tools menu with Sandwich Steam > Steam Dashboard highlighted -->
-![Opening the Steam Dashboard from the Tools menu](assets/img/quickstart/10-open-dashboard.png)
+<!-- SHOT 07: The Tools menu open with Steam Dashboard in the Sandwich Steam section, and the Steam toolbar button -->
+![Opening the Steam Dashboard from the Tools menu or the toolbar](assets/img/install/07-tools-menu.png)
 
 The dashboard has three parts: a page list on the left, the selected page in the middle, and on the right a **Setup status** card with a coloured dot per check, plus an **Actions** card. Red means "fix me". Hover a row to read the full explanation. Our goal is to get everything green.
 
@@ -53,14 +53,16 @@ Steam needs a few lines in your project's `DefaultEngine.ini`. You do not have t
 
 > You do not need to create `steam_appid.txt`. When you run Standalone or a Development build, Unreal writes it next to the running executable and deletes it when the game exits. If Steam still does not recognise your game, see the dashboard's **Advanced** page. The Publish Tool always leaves the file out.
 
+> **Optional network tuning.** The dashboard's **Advanced** page can also write higher bandwidth caps and a connect timeout for SteamSockets sessions (off by default). It writes `MaxClientRate`, `MaxInternetClientRate`, `InitialConnectTimeout`, `ConfiguredInternetSpeed` and `ConfiguredLanSpeed` into `DefaultEngine.ini`, and `TotalNetBandwidth`, `MaxDynamicBandwidth` and `MinDynamicBandwidth` into `DefaultGame.ini`. The values are starting points; set them for your game.
+
 ## 4. Create your App Definition
 
 The **Steam App Definition** is one small asset that lists your game's stats, achievements, leaderboards and so on. It is what makes the dropdowns in Blueprint nodes work.
 
-1. In the dashboard, open the **App Definition** page.
-2. Click **Create and assign**. This creates `Content/Steam/DA_SteamAppDefinition` and assigns it in the settings for you.
+1. In the dashboard, stay on the **Setup** page. It lists everything in order.
+2. Under **2. App Definition**, click **Create & assign**. This creates `Content/Steam/DA_SteamAppDefinition` and assigns it in the settings for you. (The **Create and assign** button in the Setup status card does the same.)
 
-<!-- SHOT 15: Dashboard "App Definition" page showing the "Create and assign" button -->
+<!-- SHOT 15: Dashboard Setup page, step 2 App Definition, with the "Create & assign" button -->
 ![Create and assign the App Definition](assets/img/quickstart/15-create-app-definition.png)
 
 Click **Re-check**. The Setup status rows should now be green. Spacewar (480) shows an *info* row saying you use the test app. That is expected.
@@ -71,15 +73,17 @@ Steam knows which achievements Spacewar has. You can pull them into your App Def
 
 1. Press **Play > Standalone Game**.
 2. In the running game, press the **~** key and enter `Steam.Debug.Show`. A debug panel appears.
-3. Click **Export schema for the editor importer**, then close the game.
+3. Scroll down in the panel to the **Stats** section, click **Export schema for the editor importer**, then close the game.
 
-<!-- SHOT 17: The Steam debug panel in a running game, with the "Export schema for the editor importer" button visible -->
+<!-- SHOT 17: The Steam debug panel in a running game -->
 ![The Steam debug panel](assets/img/quickstart/17-debug-panel.png)
+
+> **Without the panel:** type `Steam.Stats.ExportSchema` in the console instead. It writes the same file.
 
 4. In the editor's dashboard, on the **App Definition** page, click **Import from Steam...**.
 5. When asked whether to create gameplay tags, click **Yes**. You get one tag per achievement, like `Steam.Achievement.<Name>`.
 
-<!-- SHOT 19: The "Import from Steam" result / tag-creation question -->
+<!-- SHOT 19: Dashboard App Definition page with "Import from Steam...", then the tag-creation question -->
 ![Import from Steam](assets/img/quickstart/19-import-from-steam.png)
 
 6. **Save** the App Definition asset.
@@ -90,10 +94,10 @@ Steam knows which achievements Spacewar has. You can pull them into your App Def
 
 1. Open your level's **Level Blueprint** (or any Blueprint that runs in the game).
 2. Right-click on the graph and search for **Unlock Steam Achievement**.
-3. Connect it after **Event BeginPlay**.
+3. Connect it where the achievement should unlock. For this test, **Event BeginPlay** is fine.
 4. Click the achievement dropdown and pick one of the tags you just created.
 
-<!-- SHOT 20: Blueprint graph: Event BeginPlay -> Unlock Steam Achievement, with a Steam.Achievement.* tag chosen -->
+<!-- SHOT 20: Blueprint graph: Unlock Steam Achievement with its achievement tag dropdown open -->
 ![Event BeginPlay to Unlock Steam Achievement](assets/img/quickstart/20-bp-unlock.png)
 
 5. **Compile** and **Save**.
@@ -107,9 +111,6 @@ Steam knows which achievements Spacewar has. You can pull them into your App Def
 ![The Steam achievement toast](assets/img/quickstart/21-steam-toast.png)
 
 **No pop-up?** Open the console (**~**) and type `Steam.Achievements.Dump`. It prints every achievement and whether it is unlocked.
-
-<!-- SHOT 22: Output Log after Steam.Achievements.Dump, showing the unlocked achievement -->
-![Steam.Achievements.Dump output](assets/img/quickstart/22-achievements-dump.png)
 
 **Want to test it again?** An unlocked achievement stays unlocked. In a development game, type `Steam.Achievements.Clear <ApiName>` to lock it again.
 
@@ -125,6 +126,7 @@ Steam knows which achievements Spacewar has. You can pull them into your App Def
 - **Something went wrong?** [Troubleshooting](troubleshooting.html).
 - **Feature guides** for stats, leaderboards, sessions, voice and more are coming.
 - **Ready for your own game?** Get an App ID in the [Steamworks partner site](https://partner.steamgames.com/), put it in the settings instead of `480`, and repeat steps 3 to 5.
+- **Ready to upload a build?** [Publishing to Steam](publishing.html) packages and uploads from the dashboard.
 
 ## Useful console commands
 
