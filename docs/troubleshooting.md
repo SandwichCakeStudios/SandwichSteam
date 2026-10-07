@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-nav_order: 4
+nav_order: 5
 ---
 
 # Troubleshooting & FAQ
@@ -15,7 +15,7 @@ Most problems are one of these:
 
 1. **Is the Steam client running and logged in?** It must be, every time you test.
 2. **Are you using Play > Standalone Game?** Steam does not run in Play In Editor. Nodes report *Unavailable* there. This is normal.
-3. **Is the Dashboard green?** Open **Tools > Sandwich Steam > Steam Dashboard**, click **Re-check** and look at the Setup status card.
+3. **Is the Dashboard green?** Open the Steam Dashboard (**Tools > Steam Dashboard**, or the Steam button in the toolbar), click **Re-check** and look at the Setup status card.
 
 <!-- SHOT 30: Dashboard Setup status card with one red row (e.g. DefaultEngine.ini) and its Fix button -->
 ![A red Setup status row with a Fix button](assets/img/troubleshooting/30-status-red.png)
@@ -50,6 +50,11 @@ Most problems are one of these:
 | Project not configured | `DefaultEngine.ini` lacks the Steam lines | Dashboard > **Configure Steam...** |
 
 Run `Steam.Core.Dump` in the game console. It tells you which of these is the reason.
+
+If you need the file anyway, the dashboard's **Advanced** page creates it next to the editor (*Engine Binaries*) or your project's executable (*Project Binaries*). It is for development only; the Publish Tool always leaves it out of the upload.
+
+<!-- SHOT 32: Dashboard Advanced page, steam_appid.txt section with the Create buttons -->
+![The steam_appid.txt section on the Advanced page](assets/img/troubleshooting/32-advanced-appid.png)
 
 ## Achievements or stats do not save
 
@@ -102,6 +107,3 @@ Open an [issue](https://github.com/SandwichCakeStudios/SandwichSteam/issues/new/
 1. Unreal Engine version and operating system
 2. Output of `Steam.Core.Dump` from a **Standalone** game
 3. Output Log lines from the `LogSandwichSteam` category (turn on **Verbose Logging** in **Project Settings > Plugins > Sandwich Steam** for more detail)
-
-<!-- SHOT 31: Output Log filtered on LogSandwichSteam, showing Steam.Core.Dump output -->
-![Output Log filtered to LogSandwichSteam](assets/img/troubleshooting/31-output-log.png)
