@@ -37,6 +37,8 @@ Skip this if you already build C++ projects.
 <!-- SHOT 02: Visual Studio Installer with the "Game development with C++" workload ticked -->
 ![Visual Studio Installer with the Game development with C++ workload ticked](assets/img/install/02-vs-workload.png)
 
+*Screenshot from Epic's guide [Setting up Visual Studio for Unreal Engine](https://dev.epicgames.com/documentation/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine), which explains every option.*
+
 > **Why?** Unreal needs a compiler to turn the plugin's source code into something it can run. You will never open Visual Studio yourself in Path 1. Unreal uses it in the background.
 
 > **macOS / Linux:** the plugin is written for them but has never been run there. You are welcome to try, and to tell us how it went in an [issue](https://github.com/SandwichCakeStudios/SandwichSteam/issues). On a Mac, the Steam overlay only works when the game is launched through the Steam client: add the build with *Add a Non-Steam Game to My Library* and start it from there.
@@ -105,7 +107,11 @@ You have done Steps 0 to 2. Now:
    <!-- SHOT 05: Right-click menu on the .uproject file with "Generate Visual Studio project files" highlighted -->
    ![Generate Visual Studio project files](assets/img/install/05-generate-project-files.png)
 
-3. Open the `.sln` and build your editor target (**Development Editor**, **Win64**) as usual. Rider users: open the `.uproject` and build from there.
+3. Open the `.sln` and build your editor target (**Development Editor**, **Win64**) as usual: **Build > Build YourProject**. Wait for `1 succeeded` in the Output window. Rider users: open the `.uproject` and build from there.
+
+   <!-- SHOT 08: Visual Studio: Build > Build <YourProject>, then the Output window saying the build succeeded -->
+   ![Building the project in Visual Studio](assets/img/install/08-vs-build.png)
+
 4. To call the plugin from your own C++, add the modules you use to your `YourProject.Build.cs`:
 
 ```csharp
@@ -151,9 +157,6 @@ Open a terminal and run (adjust the paths to your install):
   -TargetPlatforms=Win64
 ```
 
-<!-- SHOT 06: Terminal showing the BuildPlugin command finishing with "BUILD SUCCESSFUL" -->
-![BuildPlugin finishing successfully](assets/img/install/06-buildplugin.png)
-
 When it says **BUILD SUCCESSFUL**, copy `C:\Builds\SandwichSteam` into any project's `Plugins` folder (or into `UE_5.8\Engine\Plugins\Marketplace` to make it available to all projects). Those projects no longer need to compile it.
 
 > The result only works with the engine version and platform you built it for.
@@ -167,10 +170,10 @@ When it says **BUILD SUCCESSFUL**, copy `C:\Builds\SandwichSteam` into any proje
    <!-- SHOT 01: Edit > Plugins window with "Sandwich Steam" found by search and enabled -->
    ![Sandwich Steam in the Plugins window](assets/img/install/01-plugins-window.png)
 
-2. Look at the **Tools** menu. You should see **Sandwich Steam > Steam Dashboard**.
+2. Open the **Tools** menu. In its **Sandwich Steam** section you should see **Steam Dashboard**. The Steam button in the editor toolbar opens the same dashboard.
 
-   <!-- SHOT 07: The Tools menu open, with the Sandwich Steam submenu and "Steam Dashboard" visible -->
-   ![Tools menu with the Sandwich Steam entry](assets/img/install/07-tools-menu.png)
+   <!-- SHOT 07: The Tools menu open with Steam Dashboard in the Sandwich Steam section, and the Steam toolbar button -->
+   ![Steam Dashboard in the Tools menu and the Steam toolbar button](assets/img/install/07-tools-menu.png)
 
 3. Right-click in any Blueprint and search for `Steam`. You should see nodes such as **Unlock Steam Achievement**.
 
