@@ -61,6 +61,29 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (DisplayName = "Configure Steam Writes bRelaunchInSteam=false", ToolTip = "When on, Configure Steam writes bRelaunchInSteam=false into DefaultEngine.ini and the status panel checks it. With true, a Standalone run asks Steam to relaunch the game and falls back to the NULL Online Subsystem; a Shipping build is not affected either way. Turn off to manage the key yourself."))
 	bool bWriteRelaunchInSteamOff = true;
 
+	/**
+	 * Networking tuning (Dashboard > Advanced). Off = the plugin neither writes nor checks any of these keys, and the engine
+	 * defaults or the project's own values are used. The values only raise the engine's bandwidth caps a bit; tune them for your game.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Networking", meta = (DisplayName = "Configure Steam Writes Network Tuning", ToolTip = "When on, Configure Steam writes the bandwidth and connect timeout keys below into DefaultEngine.ini and DefaultGame.ini and the status panel checks them. Off = the engine defaults or your own values are used."))
+	bool bWriteNetworkTuning = false;
+
+	/** Per-client cap in bytes per second: MaxClientRate, MaxInternetClientRate, ConfiguredInternetSpeed, ConfiguredLanSpeed and MaxDynamicBandwidth. */
+	UPROPERTY(Config, EditAnywhere, Category = "Networking", meta = (EditCondition = "bWriteNetworkTuning", ClampMin = "10000", UIMin = "10000", UIMax = "1000000", ForceUnits = "B/s", ToolTip = "Per-client bandwidth cap in bytes per second. Written to MaxClientRate, MaxInternetClientRate, ConfiguredInternetSpeed, ConfiguredLanSpeed and MaxDynamicBandwidth so the client and the server limits match."))
+	int32 NetBandwidthPerClient = 200000;
+
+	/** TotalNetBandwidth: shared by all connections. Raw value, set it for the player count of your game. */
+	UPROPERTY(Config, EditAnywhere, Category = "Networking", meta = (EditCondition = "bWriteNetworkTuning", ClampMin = "10000", UIMin = "10000", UIMax = "10000000", ForceUnits = "B/s", ToolTip = "TotalNetBandwidth in bytes per second, shared by all connections. Written as is: set it for the player count of your game."))
+	int32 TotalNetBandwidth = 800000;
+
+	/** MinDynamicBandwidth: the per-connection floor when the total bandwidth is shared. */
+	UPROPERTY(Config, EditAnywhere, Category = "Networking", meta = (EditCondition = "bWriteNetworkTuning", ClampMin = "1000", UIMin = "1000", UIMax = "200000", ForceUnits = "B/s", ToolTip = "MinDynamicBandwidth in bytes per second: the least a connection gets when the total bandwidth is shared. Keep it at or below the per-client cap."))
+	int32 MinDynamicBandwidth = 20000;
+
+	/** InitialConnectTimeout of the IP net driver (used by SteamSockets as well). */
+	UPROPERTY(Config, EditAnywhere, Category = "Networking", meta = (EditCondition = "bWriteNetworkTuning", ClampMin = "5.0", UIMin = "5.0", UIMax = "300.0", Units = "s", ToolTip = "InitialConnectTimeout in seconds: how long a connection may take to finish the handshake. Lower fails faster, higher forgives slow Steam relay connections."))
+	float InitialConnectTimeout = 60.0f;
+
 	/** Features listed here are not created at runtime. Empty means every feature is enabled. */
 	UPROPERTY(Config, EditAnywhere, Category = "Features", meta = (Categories = "Steam.Feature", ToolTip = "Features listed here are turned off and cost nothing at runtime. Leave empty to enable all features."))
 	FGameplayTagContainer DisabledFeatures;
