@@ -34,6 +34,19 @@ struct FSteamIniChange
 	FString OldValue;
 };
 
+/** The values behind the Advanced page's network tuning (see USteamToolSettings, Networking category). */
+struct FSteamNetworkTuning
+{
+	/** Bytes per second per client: IpNetDriver rates, Player speeds and MaxDynamicBandwidth. */
+	int32 BandwidthPerClient = 200000;
+	/** GameNetworkManager TotalNetBandwidth, shared by all connections. */
+	int32 TotalBandwidth = 800000;
+	/** GameNetworkManager MinDynamicBandwidth. */
+	int32 MinDynamicBandwidth = 20000;
+	/** IpNetDriver InitialConnectTimeout in seconds. */
+	float InitialConnectTimeout = 60.0f;
+};
+
 /**
  * Pure ini text editing (string in, string out, no file or engine access) so it can be unit tested.
  * Idempotent: Apply(Apply(Ini, E), E) == Apply(Ini, E), and Apply returns the input untouched when nothing changes.
@@ -55,6 +68,19 @@ public:
 	 * The Voice module opens the microphone itself in open mic mode, so the ini value does not depend on the mode.
 	 */
 	static TArray<FSteamIniEntry> BuildGameEntries(bool bWithVoice);
+
+	/**
+	 * The DefaultEngine.ini network tuning entries: IpNetDriver MaxClientRate, MaxInternetClientRate and InitialConnectTimeout, and
+	 * Player ConfiguredInternetSpeed and ConfiguredLanSpeed (the client enforces its own limit, so it has to match the server's).
+	 * SteamSocketsNetDriver reads the IpNetDriver section. Append to BuildRequiredEntries only when USteamToolSettings::bWriteNetworkTuning is on.
+	 */
+	static TArray<FSteamIniEntry> BuildNetworkEngineEntries(const FSteamNetworkTuning& Tuning);
+
+	/** The DefaultGame.ini network tuning entries: GameNetworkManager TotalNetBandwidth, MaxDynamicBandwidth and MinDynamicBandwidth. */
+	static TArray<FSteamIniEntry> BuildNetworkGameEntries(const FSteamNetworkTuning& Tuning);
+
+	/** False (with a short reason in OutProblem) when the values contradict each other: Min above per-client, or per-client above the total. */
+	static bool IsNetworkTuningConsistent(const FSteamNetworkTuning& Tuning, FString& OutProblem);
 
 	/** What Apply would do, per entry. */
 	static TArray<FSteamIniChange> Diff(const FString& Ini, const TArray<FSteamIniEntry>& Entries);

@@ -155,6 +155,42 @@ TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, b
 	return Entries;
 }
 
+TArray<FSteamIniEntry> FSteamIniWriter::BuildNetworkEngineEntries(const FSteamNetworkTuning& Tuning)
+{
+	const FString Rate = FString::FromInt(Tuning.BandwidthPerClient);
+	return {
+		{ TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"), TEXT("MaxClientRate"), Rate },
+		{ TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"), TEXT("MaxInternetClientRate"), Rate },
+		{ TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"), TEXT("InitialConnectTimeout"), FString::Printf(TEXT("%.1f"), Tuning.InitialConnectTimeout) },
+		{ TEXT("/Script/Engine.Player"), TEXT("ConfiguredInternetSpeed"), Rate },
+		{ TEXT("/Script/Engine.Player"), TEXT("ConfiguredLanSpeed"), Rate }
+	};
+}
+
+TArray<FSteamIniEntry> FSteamIniWriter::BuildNetworkGameEntries(const FSteamNetworkTuning& Tuning)
+{
+	return {
+		{ TEXT("/Script/Engine.GameNetworkManager"), TEXT("TotalNetBandwidth"), FString::FromInt(Tuning.TotalBandwidth) },
+		{ TEXT("/Script/Engine.GameNetworkManager"), TEXT("MaxDynamicBandwidth"), FString::FromInt(Tuning.BandwidthPerClient) },
+		{ TEXT("/Script/Engine.GameNetworkManager"), TEXT("MinDynamicBandwidth"), FString::FromInt(Tuning.MinDynamicBandwidth) }
+	};
+}
+
+bool FSteamIniWriter::IsNetworkTuningConsistent(const FSteamNetworkTuning& Tuning, FString& OutProblem)
+{
+	if (Tuning.MinDynamicBandwidth > Tuning.BandwidthPerClient)
+	{
+		OutProblem = TEXT("MinDynamicBandwidth is above the per-client bandwidth.");
+		return false;
+	}
+	if (Tuning.BandwidthPerClient > Tuning.TotalBandwidth)
+	{
+		OutProblem = TEXT("The per-client bandwidth is above TotalNetBandwidth, so one client could use the whole total.");
+		return false;
+	}
+	return true;
+}
+
 TArray<FSteamIniChange> FSteamIniWriter::Diff(const FString& Ini, const TArray<FSteamIniEntry>& Entries)
 {
 	TArray<FString> Lines;

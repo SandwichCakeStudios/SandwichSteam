@@ -174,4 +174,53 @@ bool FSteamIniWriterRelaunchTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIniWriterNetworkTuningTest, "SandwichSteam.Editor.IniWriter.NetworkTuning",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FSteamIniWriterNetworkTuningTest::RunTest(const FString& Parameters)
+{
+	const FSteamNetworkTuning Tuning;
+	const TArray<FSteamIniEntry> Engine = FSteamIniWriter::BuildNetworkEngineEntries(Tuning);
+	const TArray<FSteamIniEntry> Game = FSteamIniWriter::BuildNetworkGameEntries(Tuning);
+
+	const auto ValueOf = [](const TArray<FSteamIniEntry>& Entries, const TCHAR* Section, const TCHAR* Key)
+	{
+		const FSteamIniEntry* Found = Entries.FindByPredicate([Section, Key](const FSteamIniEntry& Entry)
+		{
+			return Entry.Section == Section && Entry.Key == Key;
+		});
+		return Found ? Found->Value : FString(TEXT("<missing>"));
+	};
+
+	// The client limit (Player, DefaultEngine.ini) has to match the server limit, so they share one value.
+	TestEqual(TEXT("MaxClientRate"), ValueOf(Engine, TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"), TEXT("MaxClientRate")), FString(TEXT("200000")));
+	TestEqual(TEXT("MaxInternetClientRate"), ValueOf(Engine, TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"), TEXT("MaxInternetClientRate")), FString(TEXT("200000")));
+	TestEqual(TEXT("InitialConnectTimeout"), ValueOf(Engine, TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"), TEXT("InitialConnectTimeout")), FString(TEXT("60.0")));
+	TestEqual(TEXT("ConfiguredInternetSpeed is in DefaultEngine.ini"), ValueOf(Engine, TEXT("/Script/Engine.Player"), TEXT("ConfiguredInternetSpeed")), FString(TEXT("200000")));
+	TestEqual(TEXT("ConfiguredLanSpeed is in DefaultEngine.ini"), ValueOf(Engine, TEXT("/Script/Engine.Player"), TEXT("ConfiguredLanSpeed")), FString(TEXT("200000")));
+
+	TestEqual(TEXT("TotalNetBandwidth is the raw total"), ValueOf(Game, TEXT("/Script/Engine.GameNetworkManager"), TEXT("TotalNetBandwidth")), FString(TEXT("800000")));
+	TestEqual(TEXT("MaxDynamicBandwidth follows the per-client value"), ValueOf(Game, TEXT("/Script/Engine.GameNetworkManager"), TEXT("MaxDynamicBandwidth")), FString(TEXT("200000")));
+	TestEqual(TEXT("MinDynamicBandwidth"), ValueOf(Game, TEXT("/Script/Engine.GameNetworkManager"), TEXT("MinDynamicBandwidth")), FString(TEXT("20000")));
+	TestEqual(TEXT("No Player entry in DefaultGame.ini"), ValueOf(Game, TEXT("/Script/Engine.Player"), TEXT("ConfiguredInternetSpeed")), FString(TEXT("<missing>")));
+
+	// A project's own value is replaced (and reported as Modified), then Apply is idempotent.
+	const FString Own = TEXT("[/Script/OnlineSubsystemUtils.IpNetDriver]\nMaxClientRate=15000\n");
+	const TArray<FSteamIniChange> Changes = FSteamIniWriter::Diff(Own, Engine);
+	TestEqual(TEXT("MaxClientRate is Modified"), Changes[0].Change, ESteamIniChange::Modified);
+	TestEqual(TEXT("Old value is reported"), Changes[0].OldValue, FString(TEXT("15000")));
+	const FString Once = FSteamIniWriter::Apply(Own, Engine);
+	TestEqual(TEXT("Applying twice equals applying once"), FSteamIniWriter::Apply(Once, Engine), Once);
+
+	FString Problem;
+	TestTrue(TEXT("Defaults are consistent"), FSteamIniWriter::IsNetworkTuningConsistent(Tuning, Problem));
+	FSteamNetworkTuning MinTooHigh = Tuning;
+	MinTooHigh.MinDynamicBandwidth = Tuning.BandwidthPerClient + 1;
+	TestFalse(TEXT("Min above per-client is flagged"), FSteamIniWriter::IsNetworkTuningConsistent(MinTooHigh, Problem));
+	FSteamNetworkTuning ClientAboveTotal = Tuning;
+	ClientAboveTotal.TotalBandwidth = Tuning.BandwidthPerClient - 1;
+	TestFalse(TEXT("Per-client above total is flagged"), FSteamIniWriter::IsNetworkTuningConsistent(ClientAboveTotal, Problem));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
