@@ -100,8 +100,12 @@ public:
 	/** Travels the local player to the host of the current session (ClientTravel). Client only. */
 	FSteamResult TravelToSession();
 
-	/** Loads a map as the host. With bListen the game listens for connections (needed the first time a host leaves the menu). */
-	FSteamResult ServerTravel(const FString& MapName, bool bListen);
+	/**
+	 * Loads a map as the host. With bListen the game listens for connections (needed the first time a host leaves the menu).
+	 * bAbsolute applies when already hosting: false keeps the current URL's options (relative travel), true starts from a clean URL.
+	 * Leaving the menu (standalone) is always absolute.
+	 */
+	FSteamResult ServerTravel(const FString& MapName, bool bListen, bool bAbsolute = false);
 
 	/** True while a session exists (hosting, joining or joined). */
 	bool IsInSession() const;

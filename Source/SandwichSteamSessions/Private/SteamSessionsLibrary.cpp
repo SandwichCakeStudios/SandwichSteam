@@ -42,10 +42,10 @@ FSteamResult USteamSessionsLibrary::TravelToSteamSession(const UObject* WorldCon
 	return Sessions ? Sessions->TravelToSession() : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::SteamServerTravel(const UObject* WorldContextObject, const FString& MapName, bool bListen)
+FSteamResult USteamSessionsLibrary::SteamServerTravel(const UObject* WorldContextObject, const FString& MapName, bool bListen, bool bAbsolute)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->ServerTravel(MapName, bListen) : NotAvailable();
+	return Sessions ? Sessions->ServerTravel(MapName, bListen, bAbsolute) : NotAvailable();
 }
 
 bool USteamSessionsLibrary::GetPendingSteamJoinRequest(const UObject* WorldContextObject, FSteamJoinRequest& OutRequest)

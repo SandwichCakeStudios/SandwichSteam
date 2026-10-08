@@ -682,7 +682,7 @@ FSteamResult USteamSessionsSubsystem::TravelToSession()
 	return ClientTravelTo(Connect);
 }
 
-FSteamResult USteamSessionsSubsystem::ServerTravel(const FString& MapName, bool bListen)
+FSteamResult USteamSessionsSubsystem::ServerTravel(const FString& MapName, bool bListen, bool bAbsolute)
 {
 	FSteamResult Result;
 	if (!RequireActive(Result))
@@ -710,7 +710,7 @@ FSteamResult USteamSessionsSubsystem::ServerTravel(const FString& MapName, bool 
 	}
 	else
 	{
-		World->ServerTravel(Url);
+		World->ServerTravel(Url, bAbsolute);
 	}
 
 	return FSteamResult::Success();

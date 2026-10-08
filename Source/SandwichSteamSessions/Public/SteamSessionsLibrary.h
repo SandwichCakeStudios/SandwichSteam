@@ -37,8 +37,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (WorldContext = "WorldContextObject", ToolTip = "Travels the local player to the host of the current session. Only needed when Auto Travel After Join is off."))
 	static FSteamResult TravelToSteamSession(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (WorldContext = "WorldContextObject", ToolTip = "Loads a map as the host. Listen makes the game accept connections, which the host needs the first time it leaves the menu."))
-	static FSteamResult SteamServerTravel(const UObject* WorldContextObject, const FString& MapName, bool bListen = true);
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (WorldContext = "WorldContextObject", ToolTip = "Loads a map as the host. Listen makes the game accept connections, which the host needs the first time it leaves the menu. Absolute (when already hosting) drops the current URL's options instead of keeping them.", AdvancedDisplay = "bAbsolute"))
+	static FSteamResult SteamServerTravel(const UObject* WorldContextObject, const FString& MapName, bool bListen = true, bool bAbsolute = false);
 
 	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (WorldContext = "WorldContextObject", ExpandBoolAsExecs = "ReturnValue", ToolTip = "The join request that waits for the game (its Action is Ask Game). Returns false when none waits."))
 	static bool GetPendingSteamJoinRequest(const UObject* WorldContextObject, FSteamJoinRequest& OutRequest);
