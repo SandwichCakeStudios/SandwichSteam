@@ -139,6 +139,36 @@ bool SandwichSteam::Editor::WantsVoiceIni()
 	return FModuleManager::Get().IsModuleLoaded(TEXT("SandwichSteamVoice"));
 }
 
+FSteamNetworkTuning SandwichSteam::Editor::MakeNetworkTuning(const USteamToolSettings& Settings)
+{
+	FSteamNetworkTuning Tuning;
+	Tuning.BandwidthPerClient = Settings.NetBandwidthPerClient;
+	Tuning.TotalBandwidth = Settings.TotalNetBandwidth;
+	Tuning.MinDynamicBandwidth = Settings.MinDynamicBandwidth;
+	Tuning.InitialConnectTimeout = Settings.InitialConnectTimeout;
+	return Tuning;
+}
+
+TArray<FSteamIniEntry> SandwichSteam::Editor::BuildEngineIniEntries(const USteamToolSettings& Settings)
+{
+	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildRequiredEntries(Settings.SteamAppId, WantsSessionsIni(), WantsVoiceIni(), Settings.bWriteRelaunchInSteamOff);
+	if (Settings.bWriteNetworkTuning)
+	{
+		Entries.Append(FSteamIniWriter::BuildNetworkEngineEntries(MakeNetworkTuning(Settings)));
+	}
+	return Entries;
+}
+
+TArray<FSteamIniEntry> SandwichSteam::Editor::BuildGameIniEntries(const USteamToolSettings& Settings)
+{
+	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildGameEntries(WantsVoiceIni());
+	if (Settings.bWriteNetworkTuning)
+	{
+		Entries.Append(FSteamIniWriter::BuildNetworkGameEntries(MakeNetworkTuning(Settings)));
+	}
+	return Entries;
+}
+
 void SandwichSteam::Editor::ConfigureSteam()
 {
 	const USteamToolSettings* Settings = USteamToolSettings::Get();
@@ -150,12 +180,10 @@ void SandwichSteam::Editor::ConfigureSteam()
 		return;
 	}
 
-	const bool bVoice = WantsVoiceIni();
-
 	TArray<FIniTarget> Targets;
 	Targets.AddDefaulted(2);
-	if (!LoadTarget(Targets[0], TEXT("DefaultEngine.ini"), FSteamIniWriter::BuildRequiredEntries(Settings->SteamAppId, WantsSessionsIni(), bVoice, Settings->bWriteRelaunchInSteamOff))
-		|| !LoadTarget(Targets[1], TEXT("DefaultGame.ini"), FSteamIniWriter::BuildGameEntries(bVoice)))
+	if (!LoadTarget(Targets[0], TEXT("DefaultEngine.ini"), BuildEngineIniEntries(*Settings))
+		|| !LoadTarget(Targets[1], TEXT("DefaultGame.ini"), BuildGameIniEntries(*Settings)))
 	{
 		return;
 	}

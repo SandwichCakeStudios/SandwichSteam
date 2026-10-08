@@ -111,15 +111,20 @@ namespace
 			FFileHelper::LoadFileToString(GameIni, *GameIniPath);
 		}
 
-		const bool bVoice = SandwichSteam::Editor::WantsVoiceIni();
 		int32 Pending = 0;
-		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Ini, FSteamIniWriter::BuildRequiredEntries(AppId, SandwichSteam::Editor::WantsSessionsIni(), bVoice, Settings->bWriteRelaunchInSteamOff)))
+		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Ini, SandwichSteam::Editor::BuildEngineIniEntries(*Settings)))
 		{
 			Pending += Change.Change != ESteamIniChange::Unchanged ? 1 : 0;
 		}
-		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(GameIni, FSteamIniWriter::BuildGameEntries(bVoice)))
+		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(GameIni, SandwichSteam::Editor::BuildGameIniEntries(*Settings)))
 		{
 			Pending += Change.Change != ESteamIniChange::Unchanged ? 1 : 0;
+		}
+
+		FString TuningProblem;
+		if (Settings->bWriteNetworkTuning && !FSteamIniWriter::IsNetworkTuningConsistent(SandwichSteam::Editor::MakeNetworkTuning(*Settings), TuningProblem))
+		{
+			Out.Add(MakeCheck(FName(TEXT("IniTuning")), ESteamCheckSeverity::Warning, LOCTEXT("IniTuningLabel", "Network tuning"), FText::Format(LOCTEXT("IniTuningInconsistent", "Network tuning: {0}"), FText::FromString(TuningProblem))));
 		}
 
 		if (Pending == 0)
