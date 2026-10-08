@@ -8,10 +8,14 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Settings/SteamConfigureAction.h"
+#include "Settings/SteamIniWriter.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
@@ -150,9 +154,155 @@ namespace
 			];
 	}
 
+	/** Writes the settings object to DefaultGame.ini (the settings class is DefaultConfig). */
+	void SaveSettings(USteamToolSettings* Settings)
+	{
+		Settings->TryUpdateDefaultConfigFile();
+	}
+
+	/** Label on the left, value editor on the right. */
+	TSharedRef<SWidget> MakeTuningRow(const FText& Label, const FText& ToolTip, const TSharedRef<SWidget>& Editor)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+			[
+				SNew(STextBlock).Text(Label).Font(BodyFont()).ToolTipText(ToolTip)
+			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(8.f, 0.f, 0.f, 0.f)
+			[
+				SNew(SBox).WidthOverride(140.f)
+				[
+					Editor
+				]
+			];
+	}
+
+	/** An int32 setting edited in place and saved when the value is committed. */
+	TSharedRef<SWidget> MakeTuningIntRow(const FText& Label, const FText& ToolTip, int32 MinValue, int32 MaxValue, int32 USteamToolSettings::* Member)
+	{
+		USteamToolSettings* Settings = GetMutableDefault<USteamToolSettings>();
+		return MakeTuningRow(Label, ToolTip,
+			SNew(SSpinBox<int32>)
+			.MinValue(MinValue)
+			.MaxSliderValue(MaxValue)
+			.Delta(1000)
+			.ToolTipText(ToolTip)
+			.IsEnabled_Lambda([Settings]() { return Settings->bWriteNetworkTuning; })
+			.Value_Lambda([Settings, Member]() { return Settings->*Member; })
+			.OnValueChanged_Lambda([Settings, Member](int32 NewValue) { Settings->*Member = NewValue; })
+			.OnValueCommitted_Lambda([Settings, Member, MinValue](int32 NewValue, ETextCommit::Type)
+			{
+				Settings->*Member = FMath::Max(NewValue, MinValue);
+				SaveSettings(Settings);
+			}));
+	}
+
+	/** The lines Configure Steam will write, one per row, from the current values. */
+	FText DescribeTuningLines()
+	{
+		const USteamToolSettings* Settings = USteamToolSettings::Get();
+		if (!Settings || !Settings->bWriteNetworkTuning)
+		{
+			return LOCTEXT("TuningOff", "Off: nothing is written, the engine defaults or your own values are used.");
+		}
+
+		const FSteamNetworkTuning Tuning = SandwichSteam::Editor::MakeNetworkTuning(*Settings);
+		FString Text;
+		for (const FSteamIniEntry& Entry : FSteamIniWriter::BuildNetworkEngineEntries(Tuning))
+		{
+			Text += FString::Printf(TEXT("DefaultEngine.ini  [%s] %s=%s\n"), *Entry.Section, *Entry.Key, *Entry.Value);
+		}
+		for (const FSteamIniEntry& Entry : FSteamIniWriter::BuildNetworkGameEntries(Tuning))
+		{
+			Text += FString::Printf(TEXT("DefaultGame.ini  [%s] %s=%s\n"), *Entry.Section, *Entry.Key, *Entry.Value);
+		}
+
+		FString Problem;
+		if (!FSteamIniWriter::IsNetworkTuningConsistent(Tuning, Problem))
+		{
+			Text += TEXT("\nWarning: ") + Problem;
+		}
+		return FText::FromString(Text.TrimEnd());
+	}
+
+	TSharedRef<SWidget> BuildNetworkTuningCategory()
+	{
+		USteamToolSettings* Settings = GetMutableDefault<USteamToolSettings>();
+
+		return SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
+			[
+				SNew(STextBlock)
+				.AutoWrapText(true)
+				.Font(BodyFont())
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+				.Text(LOCTEXT("TuningIntro", "Raises the engine's bandwidth caps a bit and sets the connect timeout, for SteamSockets sessions. The client limit (ConfiguredInternetSpeed) has to match the server limit or the lower one wins, so one value feeds all of them. These are starting points: tune them for your game's replication and player count. Applied by Configure Steam, which shows the changes first."))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				MakeTuningRow(LOCTEXT("TuningEnable", "Write network tuning"),
+					LOCTEXT("TuningEnableTip", "Off (default): the plugin neither writes nor checks these keys."),
+					SNew(SCheckBox)
+					.IsChecked_Lambda([Settings]() { return Settings->bWriteNetworkTuning ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+					.OnCheckStateChanged_Lambda([Settings](ECheckBoxState State)
+					{
+						Settings->bWriteNetworkTuning = State == ECheckBoxState::Checked;
+						SaveSettings(Settings);
+					}))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				MakeTuningIntRow(LOCTEXT("TuningPerClient", "Per-client bandwidth (B/s)"),
+					LOCTEXT("TuningPerClientTip", "MaxClientRate, MaxInternetClientRate, ConfiguredInternetSpeed, ConfiguredLanSpeed and MaxDynamicBandwidth."),
+					10000, 1000000, &USteamToolSettings::NetBandwidthPerClient)
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				MakeTuningIntRow(LOCTEXT("TuningTotal", "Total bandwidth (B/s)"),
+					LOCTEXT("TuningTotalTip", "TotalNetBandwidth: shared by all connections. Written as is, set it for the player count of your game."),
+					10000, 10000000, &USteamToolSettings::TotalNetBandwidth)
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				MakeTuningIntRow(LOCTEXT("TuningMin", "Minimum per connection (B/s)"),
+					LOCTEXT("TuningMinTip", "MinDynamicBandwidth: the least a connection gets when the total is shared."),
+					1000, 200000, &USteamToolSettings::MinDynamicBandwidth)
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
+			[
+				MakeTuningRow(LOCTEXT("TuningTimeout", "Connect timeout (s)"),
+					LOCTEXT("TuningTimeoutTip", "InitialConnectTimeout: lower fails faster, higher forgives slow Steam relay connections."),
+					SNew(SSpinBox<float>)
+					.MinValue(5.f)
+					.MaxSliderValue(300.f)
+					.Delta(5.f)
+					.IsEnabled_Lambda([Settings]() { return Settings->bWriteNetworkTuning; })
+					.Value_Lambda([Settings]() { return Settings->InitialConnectTimeout; })
+					.OnValueChanged_Lambda([Settings](float NewValue) { Settings->InitialConnectTimeout = NewValue; })
+					.OnValueCommitted_Lambda([Settings](float NewValue, ETextCommit::Type)
+					{
+						Settings->InitialConnectTimeout = FMath::Max(NewValue, 5.f);
+						SaveSettings(Settings);
+					}))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
+			[
+				SNew(STextBlock)
+				.AutoWrapText(true)
+				.Font(BodyFont())
+				.Text_Lambda([]() { return DescribeTuningLines(); })
+			]
+			+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
+			[
+				MakeButton(LOCTEXT("TuningConfigure", "Configure Steam..."), LOCTEXT("TuningConfigureTip", "Shows the pending ini changes and writes them."),
+					[]() { SandwichSteam::Editor::ConfigureSteam(); })
+			];
+	}
+
 	TArray<FSteamAdvancedCategory> GetCategories()
 	{
 		return {
+			{ LOCTEXT("TuningHeading", "Networking (tuning)"), &BuildNetworkTuningCategory },
 			{ LOCTEXT("AppIdFileHeading", "steam_appid.txt (troubleshooting)"), &BuildAppIdFileCategory }
 		};
 	}
