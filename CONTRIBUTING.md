@@ -15,7 +15,7 @@ Screenshots are tracked by an ID such as `SHOT 07`. If you have a better screens
 ## Code contributions
 - Target: Unreal Engine 5.8.
 - Follow [Epic's coding standard](https://dev.epicgames.com/documentation/en-us/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine).
-- Every new `.h` / `.cpp` under `Source/` starts with `// Copyright 2026 Sandwich Cake Studios. All Rights Reserved.`
+- Every new `.h` / `.cpp` under `Source/`
 - Each feature is its own runtime module (`SandwichSteam<Feature>`). The core module `SandwichSteam` must never depend on a feature module.
 - Prefer composition over deep inheritance, no raw `new` / `delete`, gameplay tags where they make sense.
 - Steam callbacks arrive on a non-game thread. Never touch a `UObject` from one directly; go through the plugin's callback dispatcher.

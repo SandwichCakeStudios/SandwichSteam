@@ -22,6 +22,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 
 </div>
 
+> **Note:** This project is part of the SandwichKit open-source ecosystem.
 ---
 
 ## Why Sandwich Steam?
