@@ -4,10 +4,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamStatsFlushPolicy.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamStatsFlushCoalescesTest, "SandwichSteam.Stats.FlushPolicy.CoalescesChanges",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamStatsFlushCoalescesTest::RunTest(const FString& Parameters)
 {
@@ -41,7 +42,7 @@ bool FSteamStatsFlushCoalescesTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamStatsFlushUrgentTest, "SandwichSteam.Stats.FlushPolicy.UrgentStoresImmediately",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamStatsFlushUrgentTest::RunTest(const FString& Parameters)
 {
@@ -59,7 +60,7 @@ bool FSteamStatsFlushUrgentTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamStatsFlushInFlightTest, "SandwichSteam.Stats.FlushPolicy.OneStoreInFlight",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamStatsFlushInFlightTest::RunTest(const FString& Parameters)
 {
@@ -78,7 +79,7 @@ bool FSteamStatsFlushInFlightTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamStatsFlushFailureTest, "SandwichSteam.Stats.FlushPolicy.FailureRetriesAfterWindow",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamStatsFlushFailureTest::RunTest(const FString& Parameters)
 {

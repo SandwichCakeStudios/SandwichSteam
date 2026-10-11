@@ -5,10 +5,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Core/SteamChangeBatch.h"
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamPresenceRules.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamChangeBatchCoalesceTest, "SandwichSteam.Core.ChangeBatch.Coalesce",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamChangeBatchCoalesceTest::RunTest(const FString& Parameters)
 {
@@ -33,7 +34,7 @@ bool FSteamChangeBatchCoalesceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPresenceRulesTest, "SandwichSteam.Core.PresenceRules.Limits",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamPresenceRulesTest::RunTest(const FString& Parameters)
 {

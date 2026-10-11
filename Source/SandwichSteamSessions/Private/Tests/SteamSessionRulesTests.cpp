@@ -4,12 +4,13 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamSessionRules.h"
 
 using namespace SandwichSteam::Sessions;
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamJoinDecisionTest, "SandwichSteam.Sessions.Rules.JoinDecision",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamJoinDecisionTest::RunTest(const FString& Parameters)
 {
@@ -51,7 +52,7 @@ bool FSteamJoinDecisionTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionShapeTest, "SandwichSteam.Sessions.Rules.Shape",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionShapeTest::RunTest(const FString& Parameters)
 {
@@ -94,7 +95,7 @@ bool FSteamSessionShapeTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionFailureTest, "SandwichSteam.Sessions.Rules.NetworkFailure",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionFailureTest::RunTest(const FString& Parameters)
 {
@@ -107,7 +108,7 @@ bool FSteamSessionFailureTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionDuplicateTest, "SandwichSteam.Sessions.Rules.Duplicate",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionDuplicateTest::RunTest(const FString& Parameters)
 {
@@ -123,7 +124,7 @@ bool FSteamSessionDuplicateTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionConnectStringTest, "SandwichSteam.Sessions.Rules.ConnectString",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionConnectStringTest::RunTest(const FString& Parameters)
 {
@@ -149,7 +150,7 @@ bool FSteamSessionConnectStringTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamLobbyKeysTest, "SandwichSteam.Sessions.Rules.LobbyKeys",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamLobbyKeysTest::RunTest(const FString& Parameters)
 {
@@ -182,7 +183,7 @@ bool FSteamLobbyKeysTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamLobbyMemberChangeTest, "SandwichSteam.Sessions.Rules.LobbyMemberChange",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamLobbyMemberChangeTest::RunTest(const FString& Parameters)
 {
@@ -205,7 +206,7 @@ bool FSteamLobbyMemberChangeTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionResolveSettingsTest, "SandwichSteam.Sessions.Rules.ResolveSettings",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionResolveSettingsTest::RunTest(const FString& Parameters)
 {
@@ -367,7 +368,7 @@ bool FSteamSessionResolveSettingsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionDefaultSettingsTest, "SandwichSteam.Sessions.Rules.DefaultSettings",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionDefaultSettingsTest::RunTest(const FString& Parameters)
 {
@@ -390,7 +391,7 @@ bool FSteamSessionDefaultSettingsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamSessionUpdateValidationTest, "SandwichSteam.Sessions.Rules.UpdateValidation",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamSessionUpdateValidationTest::RunTest(const FString& Parameters)
 {

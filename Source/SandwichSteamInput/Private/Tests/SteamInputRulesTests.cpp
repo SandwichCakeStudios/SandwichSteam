@@ -4,6 +4,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamInputRules.h"
 #include "SteamInputRules.h"
 
@@ -33,7 +34,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamInputNamesTest, "SandwichSteam.Input.Rules.Names",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamInputNamesTest::RunTest(const FString& Parameters)
 {
@@ -63,7 +64,7 @@ bool FSteamInputNamesTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamInputSlotTableTest, "SandwichSteam.Input.Rules.SlotTable",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamInputSlotTableTest::RunTest(const FString& Parameters)
 {
@@ -117,7 +118,7 @@ bool FSteamInputSlotTableTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamInputStateTrackerButtonTest, "SandwichSteam.Input.Rules.TrackerButtons",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamInputStateTrackerButtonTest::RunTest(const FString& Parameters)
 {
@@ -179,7 +180,7 @@ bool FSteamInputStateTrackerButtonTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamInputStateTrackerAnalogTest, "SandwichSteam.Input.Rules.TrackerAnalog",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamInputStateTrackerAnalogTest::RunTest(const FString& Parameters)
 {

@@ -4,6 +4,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamRequestKey.h"
 
 namespace
@@ -19,7 +20,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamRequestKeyEqualityTest, "SandwichSteam.Leaderboards.RequestKey.Equality",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamRequestKeyEqualityTest::RunTest(const FString& Parameters)
 {
@@ -44,7 +45,7 @@ bool FSteamRequestKeyEqualityTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamRequestKeyNormalizeTest, "SandwichSteam.Leaderboards.RequestKey.Normalize",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamRequestKeyNormalizeTest::RunTest(const FString& Parameters)
 {
@@ -75,7 +76,7 @@ bool FSteamRequestKeyNormalizeTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamRequestCoalescerTest, "SandwichSteam.Leaderboards.RequestKey.Coalescer",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamRequestCoalescerTest::RunTest(const FString& Parameters)
 {

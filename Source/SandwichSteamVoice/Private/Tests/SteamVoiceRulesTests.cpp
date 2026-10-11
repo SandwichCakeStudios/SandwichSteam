@@ -4,6 +4,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamVoiceRules.h"
 
 using namespace SandwichSteam::Voice;
@@ -22,7 +23,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceTalkingTrackerTest, "SandwichSteam.Voice.Rules.TalkingTracker",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamVoiceTalkingTrackerTest::RunTest(const FString& Parameters)
 {
@@ -63,7 +64,7 @@ bool FSteamVoiceTalkingTrackerTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceMuteBookTest, "SandwichSteam.Voice.Rules.MuteBook",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamVoiceMuteBookTest::RunTest(const FString& Parameters)
 {

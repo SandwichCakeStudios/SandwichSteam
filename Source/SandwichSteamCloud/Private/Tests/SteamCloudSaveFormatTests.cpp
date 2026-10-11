@@ -4,6 +4,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamCloudSaveFormat.h"
 
 namespace
@@ -30,7 +31,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamCloudFormatRoundTripTest, "SandwichSteam.Cloud.Format.RoundTrip",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamCloudFormatRoundTripTest::RunTest(const FString& Parameters)
 {
@@ -52,7 +53,7 @@ bool FSteamCloudFormatRoundTripTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamCloudFormatCorruptTest, "SandwichSteam.Cloud.Format.Corrupt",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamCloudFormatCorruptTest::RunTest(const FString& Parameters)
 {
@@ -89,7 +90,7 @@ bool FSteamCloudFormatCorruptTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamCloudConflictTest, "SandwichSteam.Cloud.Format.Conflict",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamCloudConflictTest::RunTest(const FString& Parameters)
 {
@@ -119,7 +120,7 @@ bool FSteamCloudConflictTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamCloudSlotNameTest, "SandwichSteam.Cloud.Format.SlotName",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamCloudSlotNameTest::RunTest(const FString& Parameters)
 {

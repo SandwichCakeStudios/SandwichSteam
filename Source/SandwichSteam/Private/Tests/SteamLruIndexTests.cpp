@@ -4,11 +4,12 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamLruIndex.h"
 #include "Features/Utility/SteamLanguage.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamLruEvictsOldestTest, "SandwichSteam.User.LruIndex.EvictsLeastRecentlyUsed",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamLruEvictsOldestTest::RunTest(const FString& Parameters)
 {
@@ -33,7 +34,7 @@ bool FSteamLruEvictsOldestTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamLruShrinkAndRemoveTest, "SandwichSteam.User.LruIndex.ShrinkAndRemove",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamLruShrinkAndRemoveTest::RunTest(const FString& Parameters)
 {
@@ -62,7 +63,7 @@ bool FSteamLruShrinkAndRemoveTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamLanguageMappingTest, "SandwichSteam.Utility.Language.SteamToCulture",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamLanguageMappingTest::RunTest(const FString& Parameters)
 {

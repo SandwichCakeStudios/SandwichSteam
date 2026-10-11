@@ -4,10 +4,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamProgressThrottle.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamProgressThrottleStepsTest, "SandwichSteam.Achievements.ProgressThrottle.OnePerStep",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamProgressThrottleStepsTest::RunTest(const FString& Parameters)
 {
@@ -25,7 +26,7 @@ bool FSteamProgressThrottleStepsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamProgressThrottleLimitsTest, "SandwichSteam.Achievements.ProgressThrottle.LimitsAndReset",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamProgressThrottleLimitsTest::RunTest(const FString& Parameters)
 {

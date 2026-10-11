@@ -4,12 +4,13 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamPresenceBatch.h"
 
 using SandwichSteam::Presence::EIssue;
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPresenceBatchDebounceTest, "SandwichSteam.Presence.Batch.Debounce",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamPresenceBatchDebounceTest::RunTest(const FString& Parameters)
 {
@@ -53,7 +54,7 @@ bool FSteamPresenceBatchDebounceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPresenceBatchLimitsTest, "SandwichSteam.Presence.Batch.Limits",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamPresenceBatchLimitsTest::RunTest(const FString& Parameters)
 {
@@ -78,7 +79,7 @@ bool FSteamPresenceBatchLimitsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPresenceBatchClearTest, "SandwichSteam.Presence.Batch.ClearAndRequeue",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamPresenceBatchClearTest::RunTest(const FString& Parameters)
 {

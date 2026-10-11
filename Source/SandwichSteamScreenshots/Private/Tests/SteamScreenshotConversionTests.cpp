@@ -4,10 +4,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "SteamScreenshotConversion.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamScreenshotConversionTest, "SandwichSteam.Screenshots.Conversion.BgraToRgb",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamScreenshotConversionTest::RunTest(const FString& Parameters)
 {

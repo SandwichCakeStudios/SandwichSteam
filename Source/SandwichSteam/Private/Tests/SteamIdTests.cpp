@@ -4,10 +4,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamId.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIdRoundTripTest, "SandwichSteam.Core.SteamId.RoundTrip",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamIdRoundTripTest::RunTest(const FString& Parameters)
 {
@@ -38,7 +39,7 @@ bool FSteamIdRoundTripTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIdInvalidInputTest, "SandwichSteam.Core.SteamId.InvalidInput",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamIdInvalidInputTest::RunTest(const FString& Parameters)
 {
@@ -59,7 +60,7 @@ bool FSteamIdInvalidInputTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIdEqualityTest, "SandwichSteam.Core.SteamId.EqualityAndHash",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamIdEqualityTest::RunTest(const FString& Parameters)
 {

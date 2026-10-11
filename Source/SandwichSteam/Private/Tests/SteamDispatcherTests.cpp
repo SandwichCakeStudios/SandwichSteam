@@ -6,11 +6,12 @@
 
 #include "Async/Async.h"
 #include "Core/SteamCallbackDispatcher.h"
+#include "Core/SteamEngineCompat.h"
 #include "Core/SteamIdLibrary.h"
 #include "UObject/Package.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamDispatcherOrderTest, "SandwichSteam.Core.Dispatcher.DrainsInOrder",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamDispatcherOrderTest::RunTest(const FString& Parameters)
 {
@@ -41,7 +42,7 @@ bool FSteamDispatcherOrderTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamDispatcherDeadOwnerTest, "SandwichSteam.Core.Dispatcher.SkipsDeadOwners",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamDispatcherDeadOwnerTest::RunTest(const FString& Parameters)
 {
@@ -70,7 +71,7 @@ bool FSteamDispatcherDeadOwnerTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamDispatcherThreadsTest, "SandwichSteam.Core.Dispatcher.EnqueueFromOtherThreads",
-	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 
 bool FSteamDispatcherThreadsTest::RunTest(const FString& Parameters)
 {
