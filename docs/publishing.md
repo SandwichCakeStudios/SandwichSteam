@@ -55,13 +55,25 @@ On the **Publish** page, open the **Setup** tab. It holds the settings the whole
 
 - **Depots:** one per platform, with its Depot ID from the partner site, content folder and exclusions.
 - **Branches:** the branch names you upload to, and whether a build goes live on them right away.
-- **Build:** Development or Shipping, the build description, optional pre and post steps, and **Target Name** if your project has more than one game target.
+- **Build:** the **Default Configuration** the Publish page starts with, the build description, optional pre and post steps, and **Target Name** if your project has more than one game target.
 
 **Fetch from Steam** on the dashboard's Setup page (or **Fetch App Info** on the SteamCMD page) reads your depots and branches from Steam and fills them in.
 
 ## 4. Publish
 
-On the **Publish** page, pick a **Branch**, then choose what to run:
+On the **Publish** page, pick a **Branch** and a **Configuration**, then choose what to run.
+
+The configuration starts from **Default Configuration** (Setup tab). Picking another one only affects the runs you start from this page, and the shared setting stays the same:
+
+| Configuration | Use it for |
+|---|---|
+| **Shipping** | Players. Best performance, with console commands, stats and profiling tools removed |
+| **Development** | Testers. Nearly as fast, and keeps console commands, stats and logging |
+| **DebugGame** | Debugging your own C++ game modules. Game code is built without optimizations, the engine stays optimized. Needs a C++ project |
+
+The pre-flight checks warn when a Development or DebugGame build would go live on a branch right away.
+
+Then choose what to run:
 
 | Button | What it does |
 |---|---|
