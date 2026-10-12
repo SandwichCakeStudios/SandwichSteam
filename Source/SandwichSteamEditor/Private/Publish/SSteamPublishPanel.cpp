@@ -32,8 +32,10 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SExpandableArea.h"
+#include "Widgets/Layout/SGridPanel.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
+#include "Widgets/Layout/SWrapBox.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/SBoxPanel.h"
@@ -100,9 +102,11 @@ namespace
 		}
 	}
 
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, TAttribute<bool> bEnabled = true)
+	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, TAttribute<bool> bEnabled = true, bool bPrimary = false)
 	{
 		return SNew(SButton)
+			.ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>(bPrimary ? "PrimaryButton" : "Button"))
+			.HAlign(HAlign_Center)
 			.ToolTipText(ToolTip)
 			.IsEnabled(bEnabled)
 			.OnClicked_Lambda([OnClick]()
@@ -297,11 +301,11 @@ TSharedRef<SWidget> SSteamPublishPanel::MakePageToggle(int32 Page, const FText& 
 
 TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 {
-	// Steps row
-	const TSharedRef<SHorizontalBox> StepsRow = SNew(SHorizontalBox);
+	// Steps row; wraps instead of overflowing when the page is narrow (e.g. next to the dashboard's status column).
+	const TSharedRef<SWrapBox> StepsRow = SNew(SWrapBox).UseAllottedSize(true);
 	for (const ESteamPublishStepId Step : FSteamPublishJob::GetAllSteps())
 	{
-		StepsRow->AddSlot().AutoWidth().Padding(0.f, 0.f, 16.f, 0.f).VAlign(VAlign_Center)
+		StepsRow->AddSlot().Padding(0.f, 2.f, 16.f, 2.f).VAlign(VAlign_Center)
 		[
 			SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
@@ -328,129 +332,138 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
+					// Run options: a label/value form that takes the free width; the checkbox labels wrap, so it never pushes the buttons out of the card.
+					+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Top)
 					[
-						SNew(STextBlock).Text(LOCTEXT("Branch", "Branch")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-					]
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 16.f, 0.f)
-					[
-						SNew(SBox).MinDesiredWidth(140.f)
+						SNew(SGridPanel).FillColumn(1, 1.f)
+						+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0.f, 2.f, 12.f, 2.f)
 						[
-							SAssignNew(BranchCombo, SComboBox<TSharedPtr<FString>>)
-							.OptionsSource(&BranchOptions)
-							.InitiallySelectedItem(SelectedBranch)
-							.IsEnabled_Lambda([this]() { return !IsRunning(); })
-							.OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
-							{
-								return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : FString())).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f));
-							})
-							.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
-							{
-								if (Item.IsValid())
-								{
-									SelectedBranch = Item;
-								}
-							})
+							SNew(STextBlock).Text(LOCTEXT("Branch", "Branch")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
+						]
+						+ SGridPanel::Slot(1, 0).HAlign(HAlign_Left).VAlign(VAlign_Center).Padding(0.f, 2.f)
+						[
+							SNew(SBox).MinDesiredWidth(180.f)
 							[
-								SNew(STextBlock).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f)).Text_Lambda([this]()
+								SAssignNew(BranchCombo, SComboBox<TSharedPtr<FString>>)
+								.OptionsSource(&BranchOptions)
+								.InitiallySelectedItem(SelectedBranch)
+								.IsEnabled_Lambda([this]() { return !IsRunning(); })
+								.OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
 								{
-									return SelectedBranch.IsValid() ? FText::FromString(*SelectedBranch) : LOCTEXT("NoBranchOption", "(no branch)");
+									return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : FString())).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f));
 								})
+								.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
+								{
+									if (Item.IsValid())
+									{
+										SelectedBranch = Item;
+									}
+								})
+								[
+									SNew(STextBlock).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f)).Text_Lambda([this]()
+									{
+										return SelectedBranch.IsValid() ? FText::FromString(*SelectedBranch) : LOCTEXT("NoBranchOption", "(no branch)");
+									})
+								]
+							]
+						]
+						+ SGridPanel::Slot(0, 1).VAlign(VAlign_Center).Padding(0.f, 2.f, 12.f, 2.f)
+						[
+							SNew(STextBlock).Text(LOCTEXT("Configuration", "Configuration")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
+						]
+						+ SGridPanel::Slot(1, 1).HAlign(HAlign_Left).VAlign(VAlign_Center).Padding(0.f, 2.f)
+						[
+							SNew(SBox).MinDesiredWidth(180.f)
+							[
+								SAssignNew(ConfigCombo, SComboBox<TSharedPtr<ESteamPublishConfig>>)
+								.OptionsSource(&ConfigOptions)
+								.InitiallySelectedItem(FindConfigOption(SelectedConfig))
+								.IsEnabled_Lambda([this]() { return !IsRunning(); })
+								.ToolTipText_Lambda([this]()
+								{
+									return FText::Format(LOCTEXT("ConfigComboTip", "{0}\n\nStarts from Default Configuration (Setup page) and does not change it. With \"Upload staged build\" checked nothing is built: the configuration only labels the build description ({Config})."),
+										GetConfigToolTip(SelectedConfig));
+								})
+								.OnGenerateWidget_Lambda([](TSharedPtr<ESteamPublishConfig> Item)
+								{
+									return SNew(STextBlock)
+										.Text(Item.IsValid() ? GetConfigLabel(*Item) : FText::GetEmpty())
+										.ToolTipText(Item.IsValid() ? GetConfigToolTip(*Item) : FText::GetEmpty())
+										.Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f));
+								})
+								.OnSelectionChanged_Lambda([this](TSharedPtr<ESteamPublishConfig> Item, ESelectInfo::Type SelectInfo)
+								{
+									if (Item.IsValid())
+									{
+										SelectedConfig = *Item;
+										// Direct = set from code (SyncConfigToDefault), not a pick by the user.
+										bConfigPicked |= SelectInfo != ESelectInfo::Direct;
+									}
+								})
+								[
+									SNew(STextBlock).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f)).Text_Lambda([this]()
+									{
+										return GetConfigLabel(SelectedConfig);
+									})
+								]
+							]
+						]
+						+ SGridPanel::Slot(1, 2).Padding(0.f, 6.f, 0.f, 2.f)
+						[
+							SNew(SCheckBox)
+							.IsEnabled_Lambda([this]() { return !IsRunning(); })
+							.ToolTipText(LOCTEXT("SkipPackageTip", "Upload the folder that is already staged (see Staging Directory) without packaging again."))
+							.IsChecked_Lambda([this]() { return bSkipPackaging ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+							.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { bSkipPackaging = State == ECheckBoxState::Checked; })
+							[
+								SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("SkipPackage", "Upload staged build (skip packaging)")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
+							]
+						]
+						+ SGridPanel::Slot(1, 3).Padding(0.f, 2.f)
+						[
+							SNew(SCheckBox)
+							.IsEnabled_Lambda([this]() { return !IsRunning(); })
+							.ToolTipText(LOCTEXT("LiveCodingTip", "UAT cannot package while Live Coding is enabled. When checked, Live Coding is switched off for the packaging step and restored afterwards. Uncheck to manage Live Coding yourself."))
+							.IsChecked_Lambda([this]() { return bDisableLiveCoding ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+							.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { bDisableLiveCoding = State == ECheckBoxState::Checked; })
+							[
+								SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("LiveCoding", "Pause Live Coding while packaging")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
 							]
 						]
 					]
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
+					// Actions: one fixed-width column pinned to the top right, primary action first, Cancel set apart.
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top).Padding(16.f, 0.f, 0.f, 0.f)
 					[
-						SNew(STextBlock).Text(LOCTEXT("Configuration", "Configuration")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-					]
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 16.f, 0.f)
-					[
-						SNew(SBox).MinDesiredWidth(120.f)
+						SNew(SBox).WidthOverride(170.f)
 						[
-							SAssignNew(ConfigCombo, SComboBox<TSharedPtr<ESteamPublishConfig>>)
-							.OptionsSource(&ConfigOptions)
-							.InitiallySelectedItem(FindConfigOption(SelectedConfig))
-							.IsEnabled_Lambda([this]() { return !IsRunning(); })
-							.ToolTipText_Lambda([this]()
-							{
-								return FText::Format(LOCTEXT("ConfigComboTip", "{0}\n\nStarts from Default Configuration (Setup page) and does not change it. With \"Upload staged build\" checked nothing is built: the configuration only labels the build description ({Config})."),
-									GetConfigToolTip(SelectedConfig));
-							})
-							.OnGenerateWidget_Lambda([](TSharedPtr<ESteamPublishConfig> Item)
-							{
-								return SNew(STextBlock)
-									.Text(Item.IsValid() ? GetConfigLabel(*Item) : FText::GetEmpty())
-									.ToolTipText(Item.IsValid() ? GetConfigToolTip(*Item) : FText::GetEmpty())
-									.Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f));
-							})
-							.OnSelectionChanged_Lambda([this](TSharedPtr<ESteamPublishConfig> Item, ESelectInfo::Type SelectInfo)
-							{
-								if (Item.IsValid())
-								{
-									SelectedConfig = *Item;
-									// Direct = set from code (SyncConfigToDefault), not a pick by the user.
-									bConfigPicked |= SelectInfo != ESelectInfo::Direct;
-								}
-							})
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
 							[
-								SNew(STextBlock).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f)).Text_Lambda([this]()
-								{
-									return GetConfigLabel(SelectedConfig);
-								})
+								MakeButton(LOCTEXT("Publish", "Publish"), LOCTEXT("PublishTip", "Package the game, write the build scripts and upload the build with SteamCMD."),
+									[this]() { OnPublishClicked(false); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }), /*bPrimary*/ true)
+							]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
+							[
+								MakeButton(LOCTEXT("TestBuild", "Test build (no upload)"), LOCTEXT("TestBuildTip", "Runs pre steps, packages with UAT, writes the build scripts and runs post steps. Never calls SteamCMD - use this to verify packaging before spending an upload."),
+									[this]() { OnPublishClicked(false, true); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
+							]
+							+ SVerticalBox::Slot().AutoHeight()
+							[
+								MakeButton(LOCTEXT("DryRun", "Dry run"), LOCTEXT("DryRunTip", "Runs the checks and writes the app and depot build scripts. Nothing is packaged or uploaded."),
+									[this]() { OnPublishClicked(true); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
+							]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 0.f)
+							[
+								MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelTip", "Stops the running process."),
+									[this]()
+									{
+										if (Job.IsValid())
+										{
+											Job->Cancel();
+										}
+									}, TAttribute<bool>::CreateLambda([this]() { return IsRunning(); }))
 							]
 						]
-					]
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 16.f, 0.f)
-					[
-						SNew(SCheckBox)
-						.IsEnabled_Lambda([this]() { return !IsRunning(); })
-						.ToolTipText(LOCTEXT("SkipPackageTip", "Upload the folder that is already staged (see Staging Directory) without packaging again."))
-						.IsChecked_Lambda([this]() { return bSkipPackaging ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-						.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { bSkipPackaging = State == ECheckBoxState::Checked; })
-						[
-							SNew(STextBlock).Text(LOCTEXT("SkipPackage", "Upload staged build (skip packaging)")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-						]
-					]
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 16.f, 0.f)
-					[
-						SNew(SCheckBox)
-						.IsEnabled_Lambda([this]() { return !IsRunning(); })
-						.ToolTipText(LOCTEXT("LiveCodingTip", "UAT cannot package while Live Coding is enabled. When checked, Live Coding is switched off for the packaging step and restored afterwards. Uncheck to manage Live Coding yourself."))
-						.IsChecked_Lambda([this]() { return bDisableLiveCoding ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-						.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { bDisableLiveCoding = State == ECheckBoxState::Checked; })
-						[
-							SNew(STextBlock).Text(LOCTEXT("LiveCoding", "Pause Live Coding while packaging")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-						]
-					]
-					+ SHorizontalBox::Slot().FillWidth(1.f)
-					[
-						SNullWidget::NullWidget
-					]
-					+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
-					[
-						MakeButton(LOCTEXT("DryRun", "Dry run"), LOCTEXT("DryRunTip", "Runs the checks and writes the app and depot build scripts. Nothing is packaged or uploaded."),
-							[this]() { OnPublishClicked(true); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
-					]
-					+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
-					[
-						MakeButton(LOCTEXT("TestBuild", "Test build (no upload)"), LOCTEXT("TestBuildTip", "Runs pre steps, packages with UAT, writes the build scripts and runs post steps. Never calls SteamCMD - use this to verify packaging before spending an upload."),
-							[this]() { OnPublishClicked(false, true); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
-					]
-					+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
-					[
-						MakeButton(LOCTEXT("Publish", "Publish"), LOCTEXT("PublishTip", "Package the game, write the build scripts and upload the build with SteamCMD."),
-							[this]() { OnPublishClicked(false); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
-					]
-					+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
-					[
-						MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelTip", "Stops the running process."),
-							[this]()
-							{
-								if (Job.IsValid())
-								{
-									Job->Cancel();
-								}
-							}, TAttribute<bool>::CreateLambda([this]() { return IsRunning(); }))
 					]
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 0.f)
