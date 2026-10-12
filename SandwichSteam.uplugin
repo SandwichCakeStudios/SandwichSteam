@@ -114,6 +114,16 @@
 			]
 		},
 		{
+			"Name": "SandwichSteamAuth",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
+		},
+		{
 			"Name": "SandwichSteamVoice",
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
