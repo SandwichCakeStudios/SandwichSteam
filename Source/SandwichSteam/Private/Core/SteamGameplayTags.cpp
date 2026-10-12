@@ -19,6 +19,7 @@ namespace SteamGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Feature_Cloud, "Steam.Feature.Cloud", "Steam cloud saves");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Feature_DLC, "Steam.Feature.DLC", "Steam DLC");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Feature_Screenshots, "Steam.Feature.Screenshots", "Steam screenshots");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Feature_Auth, "Steam.Feature.Auth", "Steam authentication of joining players (SteamAuth packet handler)");
 
 	// Errors
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Error_Unavailable, "Steam.Error.Unavailable", "Steam or the Online Subsystem is not available");
