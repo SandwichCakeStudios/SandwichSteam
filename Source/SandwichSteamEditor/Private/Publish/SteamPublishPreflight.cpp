@@ -129,6 +129,13 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 					FText::Format(LOCTEXT("TargetNotFound", "Target Name '{0}' does not match any Target.cs in Source/ ({1})."),
 						FText::FromString(TargetName), FText::FromString(FString::Join(TargetNames, TEXT(", "))))));
 			}
+
+			// DebugGame only differs from Development in the project's own game modules.
+			if (Options.Config == ESteamPublishConfig::DebugGame && TargetNames.IsEmpty())
+			{
+				Checks.Add(MakeCheck(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
+					LOCTEXT("DebugGameNoCode", "DebugGame only removes optimizations from the project's C++ game modules, and this project has no Target.cs in Source/. Use Development instead.")));
+			}
 		}
 
 		// Validator errors (missing OSS plugin, App ID, ini, ...)
@@ -166,6 +173,16 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			else if (!FSteamVdfWriter::CanSetLive(Options.Branch))
 			{
 				Checks.Add(MakeCheck(TEXT("Branch"), ESteamCheckSeverity::Info, LOCTEXT("Branch", "Branch"), LOCTEXT("DefaultBranch", "Steam does not allow setlive on the default branch. The build is uploaded; set it live on the partner site.")));
+			}
+			else if (Options.Config != ESteamPublishConfig::Shipping)
+			{
+				const FSteamPublishBranch* Branch = Settings->Branches.FindByPredicate([&Options](const FSteamPublishBranch& Entry) { return Entry.Name.TrimStartAndEnd() == Options.Branch; });
+				if (Branch && Branch->bSetLive)
+				{
+					Checks.Add(MakeCheck(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
+						FText::Format(LOCTEXT("NonShippingLive", "A {0} build keeps console commands, stats and profiling tools, and players on '{1}' get it as soon as the upload finishes. Use Shipping for player-facing branches."),
+							StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Options.Config)), FText::FromString(Options.Branch))));
+				}
 			}
 
 			if (bMac)
