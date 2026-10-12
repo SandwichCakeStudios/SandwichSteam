@@ -29,6 +29,9 @@ namespace SandwichSteam::Publish
 	/** Absolute, forward slash content root of the depot. Relative paths start at the project folder; empty = <Staging Directory>/<Platform>. */
 	FString ResolveContentRoot(const FSteamPublishDepot& Depot);
 
+	/** True when an upload to Branch is set live: the branch is listed with Set Live on and is not "default" (Steam refuses setlive there). */
+	bool ShouldSetLive(const USteamPublishSettings& Settings, const FString& Branch);
+
 	/** The build description with its tokens ({Project}, {Config}, {Branch}, {Date}) filled in, as the app script gets it. */
 	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName, ESteamPublishConfig Config);
 

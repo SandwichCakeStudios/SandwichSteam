@@ -597,7 +597,18 @@ void FSteamPublishJob::HandleSteamCmdFinished(const FSteamCmdResult& CmdResult)
 	case ESteamCmdOutcome::Success:
 		if (CmdResult.BuildId > 0)
 		{
-			SuccessMessage = FString::Printf(TEXT("Build %lld uploaded%s."), CmdResult.BuildId, Options.Branch.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" to branch %s"), *Options.Branch));
+			if (Options.Branch.IsEmpty())
+			{
+				SuccessMessage = FString::Printf(TEXT("Build %lld uploaded."), CmdResult.BuildId);
+			}
+			else if (SandwichSteam::Publish::ShouldSetLive(*USteamPublishSettings::Get(), Options.Branch))
+			{
+				SuccessMessage = FString::Printf(TEXT("Build %lld uploaded and set live on branch %s."), CmdResult.BuildId, *Options.Branch);
+			}
+			else
+			{
+				SuccessMessage = FString::Printf(TEXT("Build %lld uploaded (not set live on %s; set it live on the partner site)."), CmdResult.BuildId, *Options.Branch);
+			}
 		}
 		else
 		{

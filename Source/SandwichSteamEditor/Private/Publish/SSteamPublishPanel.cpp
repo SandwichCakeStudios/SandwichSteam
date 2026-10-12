@@ -814,18 +814,7 @@ void SSteamPublishPanel::RebuildChecks()
 
 bool SSteamPublishPanel::IsBranchSetLive(const FString& Branch) const
 {
-	if (Branch.IsEmpty() || !FSteamVdfWriter::CanSetLive(Branch))
-	{
-		return false;
-	}
-	for (const FSteamPublishBranch& Entry : USteamPublishSettings::Get()->Branches)
-	{
-		if (Entry.Name.TrimStartAndEnd() == Branch)
-		{
-			return Entry.bSetLive;
-		}
-	}
-	return false;
+	return SandwichSteam::Publish::ShouldSetLive(*USteamPublishSettings::Get(), Branch);
 }
 
 void SSteamPublishPanel::OnPublishClicked(bool bDryRun, bool bSkipUpload)

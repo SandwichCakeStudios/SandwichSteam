@@ -73,6 +73,16 @@ namespace SandwichSteam::Publish
 		return FSteamVdfWriter::NormalizePath(MakeAbsolute(Root));
 	}
 
+	bool ShouldSetLive(const USteamPublishSettings& Settings, const FString& Branch)
+	{
+		if (Branch.IsEmpty() || !FSteamVdfWriter::CanSetLive(Branch))
+		{
+			return false;
+		}
+		const FSteamPublishBranch* Entry = Settings.Branches.FindByPredicate([&Branch](const FSteamPublishBranch& Candidate) { return Candidate.Name.TrimStartAndEnd() == Branch; });
+		return Entry && Entry->bSetLive;
+	}
+
 	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName, ESteamPublishConfig Config)
 	{
 		TMap<FString, FString> Tokens;
@@ -94,7 +104,8 @@ namespace SandwichSteam::Publish
 
 		FSteamVdfApp App;
 		App.AppId = AppId;
-		App.SetLiveBranch = BranchName;
+		// Without SetLive the build is only uploaded; it is set live later on the partner site.
+		App.SetLiveBranch = ShouldSetLive(Settings, BranchName) ? BranchName : FString();
 
 		TArray<FSteamVdfDepot> Depots;
 		TSet<int32> SeenIds;

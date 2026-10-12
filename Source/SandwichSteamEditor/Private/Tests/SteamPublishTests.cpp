@@ -6,6 +6,8 @@
 
 #include "Publish/SteamPackager.h"
 #include "Publish/SteamPublishHistory.h"
+#include "Publish/SteamPublishVdf.h"
+#include "UObject/Package.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPackagerArgsTest, "SandwichSteam.Editor.Publish.PackagerArgs",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
@@ -90,6 +92,34 @@ bool FSteamPublishHistoryTest::RunTest(const FString& Parameters)
 
 	TestFalse(TEXT("Garbage is rejected"), FSteamPublishHistory::FromJson(TEXT("nope"), Read));
 	TestTrue(TEXT("Empty list is valid"), FSteamPublishHistory::FromJson(FSteamPublishHistory::ToJson({}), Read) && Read.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPublishSetLiveTest, "SandwichSteam.Editor.Publish.SetLive",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FSteamPublishSetLiveTest::RunTest(const FString& Parameters)
+{
+	// Transient settings object: the project's real (CDO) settings are never touched.
+	USteamPublishSettings* Settings = NewObject<USteamPublishSettings>(GetTransientPackage());
+	Settings->Branches.Reset();
+
+	FSteamPublishBranch Live;
+	Live.Name = TEXT(" beta ");
+	Live.bSetLive = true;
+	FSteamPublishBranch Upload;
+	Upload.Name = TEXT("staging");
+	Upload.bSetLive = false;
+	FSteamPublishBranch Default;
+	Default.Name = TEXT("default");
+	Default.bSetLive = true;
+	Settings->Branches = { Live, Upload, Default };
+
+	TestTrue(TEXT("Set Live on: set live (name is trimmed)"), SandwichSteam::Publish::ShouldSetLive(*Settings, TEXT("beta")));
+	TestFalse(TEXT("Set Live off: upload only"), SandwichSteam::Publish::ShouldSetLive(*Settings, TEXT("staging")));
+	TestFalse(TEXT("default is never set live"), SandwichSteam::Publish::ShouldSetLive(*Settings, TEXT("default")));
+	TestFalse(TEXT("Unknown branch is not set live"), SandwichSteam::Publish::ShouldSetLive(*Settings, TEXT("missing")));
+	TestFalse(TEXT("No branch is not set live"), SandwichSteam::Publish::ShouldSetLive(*Settings, FString()));
 	return true;
 }
 

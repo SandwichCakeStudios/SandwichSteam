@@ -89,7 +89,7 @@ struct FSteamPublishBranch
 	UPROPERTY(EditAnywhere, Config, Category = "Steam Publish")
 	FString Name;
 
-	/** Set the uploaded build live on this branch. Steam does not allow this for "default"; it is ignored there. */
+	/** Set the uploaded build live on this branch. When off, the build is only uploaded; set it live on the partner site (SteamPipe > Builds). Steam does not allow this for "default"; it is ignored there. */
 	UPROPERTY(EditAnywhere, Config, Category = "Steam Publish")
 	bool bSetLive = true;
 };

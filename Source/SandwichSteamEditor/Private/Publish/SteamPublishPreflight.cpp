@@ -7,6 +7,7 @@
 #include "HAL/FileManager.h"
 #include "Publish/SteamCmdOutputParser.h"
 #include "Publish/SteamPublishSettings.h"
+#include "Publish/SteamPublishVdf.h"
 #include "Publish/SteamVdfWriter.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamPublishPreflight"
@@ -174,15 +175,11 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			{
 				Checks.Add(MakeCheck(TEXT("Branch"), ESteamCheckSeverity::Info, LOCTEXT("Branch", "Branch"), LOCTEXT("DefaultBranch", "Steam does not allow setlive on the default branch. The build is uploaded; set it live on the partner site.")));
 			}
-			else if (Options.Config != ESteamPublishConfig::Shipping)
+			else if (Options.Config != ESteamPublishConfig::Shipping && SandwichSteam::Publish::ShouldSetLive(*Settings, Options.Branch))
 			{
-				const FSteamPublishBranch* Branch = Settings->Branches.FindByPredicate([&Options](const FSteamPublishBranch& Entry) { return Entry.Name.TrimStartAndEnd() == Options.Branch; });
-				if (Branch && Branch->bSetLive)
-				{
-					Checks.Add(MakeCheck(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
-						FText::Format(LOCTEXT("NonShippingLive", "A {0} build keeps console commands, stats and profiling tools, and players on '{1}' get it as soon as the upload finishes. Use Shipping for player-facing branches."),
-							StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Options.Config)), FText::FromString(Options.Branch))));
-				}
+				Checks.Add(MakeCheck(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
+					FText::Format(LOCTEXT("NonShippingLive", "A {0} build keeps console commands, stats and profiling tools, and players on '{1}' get it as soon as the upload finishes. Use Shipping for player-facing branches."),
+						StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Options.Config)), FText::FromString(Options.Branch))));
 			}
 
 			if (bMac)
