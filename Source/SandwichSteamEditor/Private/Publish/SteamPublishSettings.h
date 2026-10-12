@@ -15,12 +15,13 @@ enum class ESteamPublishPlatform : uint8
 	Linux
 };
 
-/** Build configuration the packager cooks for. */
+/** Build configuration the packager cooks for. Names match UAT's -clientconfig values. */
 UENUM()
 enum class ESteamPublishConfig : uint8
 {
-	Development,
-	Shipping
+	Development UMETA(ToolTip = "Enables all but the most time-consuming engine and game code optimizations. Keeps console commands, stats and logging: good for testers."),
+	Shipping UMETA(ToolTip = "Optimal performance, for players. Strips console commands, stats and profiling tools."),
+	DebugGame UMETA(ToolTip = "Builds game code without optimizations (the engine stays optimized). For debugging game modules only; needs a C++ project.")
 };
 
 /** One FileMapping entry of a depot build script. */
@@ -155,8 +156,8 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Folders", meta = (RelativeToGameDir))
 	FDirectoryPath StagingDirectory;
 
-	/** Configuration the packager builds. */
-	UPROPERTY(EditAnywhere, Config, Category = "Build")
+	/** Configuration the Publish page starts with. Each run can pick another one there without changing this setting. */
+	UPROPERTY(EditAnywhere, Config, Category = "Build", meta = (DisplayName = "Default Configuration"))
 	ESteamPublishConfig PackageConfig = ESteamPublishConfig::Shipping;
 
 	/**

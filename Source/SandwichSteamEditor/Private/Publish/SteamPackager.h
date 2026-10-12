@@ -36,6 +36,9 @@ public:
 	/** UAT platform name: Win64, Mac, Linux. */
 	static FString GetPlatformName(ESteamPublishPlatform Platform);
 
+	/** UAT configuration name: Development, Shipping, DebugGame. */
+	static FString GetConfigName(ESteamPublishConfig Config);
+
 	/** "BuildCookRun -project=... -platform=Win64+Linux ..." (without RunUAT). */
 	static FString BuildUatArguments(const FSteamPackageRequest& Request);
 

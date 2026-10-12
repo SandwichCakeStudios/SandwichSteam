@@ -32,6 +32,9 @@ bool FSteamPackagerArgsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Development config"), Dev.Contains(TEXT("-clientconfig=Development")));
 	TestFalse(TEXT("No staging directory when empty"), Dev.Contains(TEXT("-stagingdirectory")));
 
+	Request.Config = ESteamPublishConfig::DebugGame;
+	TestTrue(TEXT("DebugGame config"), FSteamPackager::BuildUatArguments(Request).Contains(TEXT("-clientconfig=DebugGame")));
+
 	FString Executable, Arguments;
 	FSteamPackager::BuildUatCommand(Request, Executable, Arguments);
 	TestFalse(TEXT("UAT command has an executable"), Executable.IsEmpty());

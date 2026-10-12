@@ -17,6 +17,19 @@ FString FSteamPackager::GetPlatformName(ESteamPublishPlatform Platform)
 	}
 }
 
+FString FSteamPackager::GetConfigName(ESteamPublishConfig Config)
+{
+	switch (Config)
+	{
+	case ESteamPublishConfig::Shipping:
+		return TEXT("Shipping");
+	case ESteamPublishConfig::DebugGame:
+		return TEXT("DebugGame");
+	default:
+		return TEXT("Development");
+	}
+}
+
 FString FSteamPackager::BuildUatArguments(const FSteamPackageRequest& Request)
 {
 	TArray<FString> PlatformNames;
@@ -25,10 +38,8 @@ FString FSteamPackager::BuildUatArguments(const FSteamPackageRequest& Request)
 		PlatformNames.AddUnique(GetPlatformName(Platform));
 	}
 
-	const TCHAR* ConfigName = Request.Config == ESteamPublishConfig::Shipping ? TEXT("Shipping") : TEXT("Development");
-
 	FString Args = FString::Printf(TEXT("BuildCookRun -project=\"%s\" -noP4 -utf8output -unattended -platform=%s -clientconfig=%s -build -cook -stage -pak -compressed"),
-		*FSteamVdfWriter::NormalizePath(Request.ProjectFile), *FString::Join(PlatformNames, TEXT("+")), ConfigName);
+		*FSteamVdfWriter::NormalizePath(Request.ProjectFile), *FString::Join(PlatformNames, TEXT("+")), *GetConfigName(Request.Config));
 
 	if (!Request.StagingDir.IsEmpty())
 	{
