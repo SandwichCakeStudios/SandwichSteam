@@ -128,6 +128,17 @@ namespace
 			];
 	}
 
+	FText GetConfigLabel(ESteamPublishConfig Config)
+	{
+		return StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Config));
+	}
+
+	FText GetConfigToolTip(ESteamPublishConfig Config)
+	{
+		const UEnum* Enum = StaticEnum<ESteamPublishConfig>();
+		return Enum->GetToolTipTextByIndex(Enum->GetIndexByValue(static_cast<int64>(Config)));
+	}
+
 	TSharedRef<IDetailsView> MakeDetailsView(UObject* Object)
 	{
 		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
@@ -154,7 +165,14 @@ void SSteamPublishPanel::Construct(const FArguments& InArgs)
 
 	SharedDetails = MakeDetailsView(GetMutableDefault<USteamPublishSettings>());
 
+	// Combo order: what players get first, then the debugging builds.
+	for (const ESteamPublishConfig Config : { ESteamPublishConfig::Shipping, ESteamPublishConfig::Development, ESteamPublishConfig::DebugGame })
+	{
+		ConfigOptions.Add(MakeShared<ESteamPublishConfig>(Config));
+	}
+
 	RefreshBranches();
+	SyncConfigToDefault();
 	RefreshHistory();
 
 	ChildSlot
@@ -337,6 +355,47 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 								SNew(STextBlock).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f)).Text_Lambda([this]()
 								{
 									return SelectedBranch.IsValid() ? FText::FromString(*SelectedBranch) : LOCTEXT("NoBranchOption", "(no branch)");
+								})
+							]
+						]
+					]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
+					[
+						SNew(STextBlock).Text(LOCTEXT("Configuration", "Configuration")).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 16.f, 0.f)
+					[
+						SNew(SBox).MinDesiredWidth(120.f)
+						[
+							SAssignNew(ConfigCombo, SComboBox<TSharedPtr<ESteamPublishConfig>>)
+							.OptionsSource(&ConfigOptions)
+							.InitiallySelectedItem(FindConfigOption(SelectedConfig))
+							.IsEnabled_Lambda([this]() { return !IsRunning(); })
+							.ToolTipText_Lambda([this]()
+							{
+								return FText::Format(LOCTEXT("ConfigComboTip", "{0}\n\nStarts from Default Configuration (Setup page) and does not change it. With \"Upload staged build\" checked nothing is built: the configuration only labels the build description ({Config})."),
+									GetConfigToolTip(SelectedConfig));
+							})
+							.OnGenerateWidget_Lambda([](TSharedPtr<ESteamPublishConfig> Item)
+							{
+								return SNew(STextBlock)
+									.Text(Item.IsValid() ? GetConfigLabel(*Item) : FText::GetEmpty())
+									.ToolTipText(Item.IsValid() ? GetConfigToolTip(*Item) : FText::GetEmpty())
+									.Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f));
+							})
+							.OnSelectionChanged_Lambda([this](TSharedPtr<ESteamPublishConfig> Item, ESelectInfo::Type SelectInfo)
+							{
+								if (Item.IsValid())
+								{
+									SelectedConfig = *Item;
+									// Direct = set from code (SyncConfigToDefault), not a pick by the user.
+									bConfigPicked |= SelectInfo != ESelectInfo::Direct;
+								}
+							})
+							[
+								SNew(STextBlock).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f)).Text_Lambda([this]()
+								{
+									return GetConfigLabel(SelectedConfig);
 								})
 							]
 						]
@@ -662,6 +721,25 @@ void SSteamPublishPanel::RefreshBranches()
 	}
 }
 
+void SSteamPublishPanel::SyncConfigToDefault()
+{
+	if (bConfigPicked)
+	{
+		return;
+	}
+	SelectedConfig = USteamPublishSettings::Get()->PackageConfig;
+	if (ConfigCombo.IsValid())
+	{
+		ConfigCombo->SetSelectedItem(FindConfigOption(SelectedConfig));
+	}
+}
+
+TSharedPtr<ESteamPublishConfig> SSteamPublishPanel::FindConfigOption(ESteamPublishConfig Config) const
+{
+	const TSharedPtr<ESteamPublishConfig>* Found = ConfigOptions.FindByPredicate([Config](const TSharedPtr<ESteamPublishConfig>& Option) { return *Option == Config; });
+	return Found ? *Found : TSharedPtr<ESteamPublishConfig>();
+}
+
 void SSteamPublishPanel::RefreshHistory()
 {
 	HistoryEntries.Reset();
@@ -746,6 +824,7 @@ void SSteamPublishPanel::OnPublishClicked(bool bDryRun, bool bSkipUpload)
 
 	FSteamPublishOptions Options;
 	Options.Branch = SelectedBranch.IsValid() ? *SelectedBranch : FString();
+	Options.Config = SelectedConfig;
 	Options.bDryRun = bDryRun;
 	Options.bSkipPackaging = bSkipPackaging;
 	Options.bSkipUpload = bSkipUpload;
@@ -778,7 +857,7 @@ bool SSteamPublishPanel::ConfirmRun(const FSteamPublishOptions& Options) const
 	const bool bPackage = !Options.bDryRun && !Options.bSkipPackaging;
 	const bool bLive = bUpload && IsBranchSetLive(Options.Branch);
 	const FText BranchText = Options.Branch.IsEmpty() ? LOCTEXT("NoBranchValue", "(none)") : FText::FromString(Options.Branch);
-	const FText ConfigText = StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Settings->PackageConfig));
+	const FText ConfigText = GetConfigLabel(Options.Config);
 	const FText Runs = LOCTEXT("StepRuns", "Runs");
 	const FText Skipped = LOCTEXT("StepSkipped", "Skipped");
 
@@ -874,9 +953,10 @@ bool SSteamPublishPanel::ConfirmRun(const FSteamPublishOptions& Options) const
 		Build.AddRow(LOCTEXT("RowBranch", "Branch"), BranchText,
 			Options.Branch.IsEmpty() ? LOCTEXT("BranchNoneNote", "The build is uploaded without being set live anywhere.")
 				: (IsBranchSetLive(Options.Branch) ? LOCTEXT("BranchLiveNote", "Set live is on for this branch.") : LOCTEXT("BranchNotLiveNote", "Set live is off for this branch (or it is 'default', which Steam never sets live from SteamCMD).")));
-		Build.AddRow(LOCTEXT("RowConfig", "Configuration"), ConfigText);
+		Build.AddRow(LOCTEXT("RowConfig", "Configuration"), ConfigText,
+			bPackage ? GetConfigToolTip(Options.Config) : LOCTEXT("ConfigLabelOnlyNote", "Nothing is built in this run; the configuration only labels the build description."));
 		Build.AddRow(LOCTEXT("RowTarget", "Target"), Settings->TargetName.IsEmpty() ? LOCTEXT("TargetDefault", "Project default") : FText::FromString(Settings->TargetName));
-		Build.AddRow(LOCTEXT("RowDescription", "Build description"), FText::FromString(SandwichSteam::Publish::FormatBuildDescription(*Settings, Options.Branch)),
+		Build.AddRow(LOCTEXT("RowDescription", "Build description"), FText::FromString(SandwichSteam::Publish::FormatBuildDescription(*Settings, Options.Branch, Options.Config)),
 			FText::Format(LOCTEXT("DescriptionNote", "From the template \"{0}\". Shown on the partner site's builds page."), FText::FromString(Settings->BuildDescriptionTemplate)));
 		if (bUpload)
 		{
@@ -1014,6 +1094,7 @@ void SSteamPublishPanel::HandleObjectChanged(UObject* Object, FPropertyChangedEv
 	if (Object == GetDefault<USteamPublishSettings>())
 	{
 		RefreshBranches();
+		SyncConfigToDefault();
 	}
 }
 

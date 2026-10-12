@@ -360,7 +360,7 @@ void FSteamPublishJob::BeginPackage()
 
 	FSteamPackageRequest Request;
 	Request.ProjectFile = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
-	Request.Config = Settings->PackageConfig;
+	Request.Config = Options.Config;
 	Request.StagingDir = SandwichSteam::Publish::GetStagingDir();
 	Request.TargetName = Settings->TargetName;
 	for (const FSteamPublishDepot& Depot : Settings->Depots)
@@ -409,7 +409,7 @@ void FSteamPublishJob::BeginVdf()
 {
 	SandwichSteam::Publish::FVdfFiles Files;
 	FString Error;
-	if (!SandwichSteam::Publish::WriteVdfFiles(*USteamPublishSettings::Get(), Options.Branch, Files, Error))
+	if (!SandwichSteam::Publish::WriteVdfFiles(*USteamPublishSettings::Get(), Options.Branch, Options.Config, Files, Error))
 	{
 		StepFailed(Error);
 		return;

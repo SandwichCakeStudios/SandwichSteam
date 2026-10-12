@@ -3,12 +3,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Publish/SteamPublishSettings.h"
 #include "Validation/SteamProjectValidator.h"
 
 struct FSteamPublishOptions
 {
 	/** Branch to upload to. Empty = upload without setlive. */
 	FString Branch;
+	/** Configuration UAT builds; also fills the {Config} token of the build description. */
+	ESteamPublishConfig Config = ESteamPublishConfig::Shipping;
 	/** Write the build scripts only. */
 	bool bDryRun = false;
 	/** Upload the folder that is already staged instead of packaging first. */

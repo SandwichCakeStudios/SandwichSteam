@@ -138,7 +138,7 @@ namespace SandwichSteam::Editor
 
 		SandwichSteam::Publish::FVdfFiles Files;
 		FString Error;
-		if (!SandwichSteam::Publish::WriteVdfFiles(*Settings, Branch, Files, Error))
+		if (!SandwichSteam::Publish::WriteVdfFiles(*Settings, Branch, Settings->PackageConfig, Files, Error))
 		{
 			UE_LOG(LogSandwichSteamEditor, Warning, TEXT("Publish dry run failed: %s"), *Error);
 			Notify(FText::FromString(Error), SNotificationItem::CS_Fail, 10.f);

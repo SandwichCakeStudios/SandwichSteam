@@ -73,17 +73,17 @@ namespace SandwichSteam::Publish
 		return FSteamVdfWriter::NormalizePath(MakeAbsolute(Root));
 	}
 
-	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName)
+	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName, ESteamPublishConfig Config)
 	{
 		TMap<FString, FString> Tokens;
 		Tokens.Add(TEXT("Project"), FApp::GetProjectName());
-		Tokens.Add(TEXT("Config"), StaticEnum<ESteamPublishConfig>()->GetNameStringByValue(static_cast<int64>(Settings.PackageConfig)));
+		Tokens.Add(TEXT("Config"), StaticEnum<ESteamPublishConfig>()->GetNameStringByValue(static_cast<int64>(Config)));
 		Tokens.Add(TEXT("Branch"), BranchName);
 		Tokens.Add(TEXT("Date"), FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M")));
 		return FSteamVdfWriter::FormatDescription(Settings.BuildDescriptionTemplate, Tokens);
 	}
 
-	bool WriteVdfFiles(const USteamPublishSettings& Settings, const FString& BranchName, FVdfFiles& OutFiles, FString& OutError)
+	bool WriteVdfFiles(const USteamPublishSettings& Settings, const FString& BranchName, ESteamPublishConfig Config, FVdfFiles& OutFiles, FString& OutError)
 	{
 		const int32 AppId = Settings.GetAppId();
 		if (AppId <= 0)
@@ -146,7 +146,7 @@ namespace SandwichSteam::Publish
 			return false;
 		}
 
-		App.Description = FormatBuildDescription(Settings, BranchName);
+		App.Description = FormatBuildDescription(Settings, BranchName, Config);
 
 		const FString Dir = GetPublishDir();
 		OutFiles.BuildOutputDir = FSteamVdfWriter::NormalizePath(Dir / TEXT("Output"));

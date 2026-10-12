@@ -13,7 +13,7 @@ class SVerticalBox;
 template <typename OptionType> class SComboBox;
 
 /**
- * Tools > Steam Publish. Three pages: Publish (branch, dry run, publish, steps, progress, live log), Setup (depots,
+ * Tools > Steam Publish. Three pages: Publish (branch, configuration, dry run, publish, steps, progress, live log), Setup (depots,
  * branches and packaging in a details view, saved as you edit - SteamCMD path and account are on the dashboard's SteamCMD
  * page instead) and History (the uploads of this project). All work is done by FSteamPublishJob.
  */
@@ -44,6 +44,9 @@ private:
 	TSharedRef<SWidget> MakePageToggle(int32 Page, const FText& Label);
 
 	void RefreshBranches();
+	/** Follows the Setup page's Default Configuration until the user picks one in the combo (not remembered between editor sessions). */
+	void SyncConfigToDefault();
+	TSharedPtr<ESteamPublishConfig> FindConfigOption(ESteamPublishConfig Config) const;
 	void RebuildChecks();
 	void RefreshHistory();
 
@@ -73,6 +76,11 @@ private:
 	TArray<TSharedPtr<FString>> BranchOptions;
 	TSharedPtr<FString> SelectedBranch;
 	TSharedPtr<SComboBox<TSharedPtr<FString>>> BranchCombo;
+	TArray<TSharedPtr<ESteamPublishConfig>> ConfigOptions;
+	ESteamPublishConfig SelectedConfig = ESteamPublishConfig::Shipping;
+	TSharedPtr<SComboBox<TSharedPtr<ESteamPublishConfig>>> ConfigCombo;
+	/** True once the user picked a configuration; the Setup default no longer overrides it. */
+	bool bConfigPicked = false;
 	bool bSkipPackaging = false;
 	bool bDisableLiveCoding = true;
 	TSharedPtr<SVerticalBox> ChecksBox;

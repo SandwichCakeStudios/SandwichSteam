@@ -30,8 +30,8 @@ namespace SandwichSteam::Publish
 	FString ResolveContentRoot(const FSteamPublishDepot& Depot);
 
 	/** The build description with its tokens ({Project}, {Config}, {Branch}, {Date}) filled in, as the app script gets it. */
-	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName);
+	FString FormatBuildDescription(const USteamPublishSettings& Settings, const FString& BranchName, ESteamPublishConfig Config);
 
 	/** Writes the app and depot scripts for the enabled depots. Returns false with OutError when the settings cannot produce a valid build. */
-	bool WriteVdfFiles(const USteamPublishSettings& Settings, const FString& BranchName, FVdfFiles& OutFiles, FString& OutError);
+	bool WriteVdfFiles(const USteamPublishSettings& Settings, const FString& BranchName, ESteamPublishConfig Config, FVdfFiles& OutFiles, FString& OutError);
 }
