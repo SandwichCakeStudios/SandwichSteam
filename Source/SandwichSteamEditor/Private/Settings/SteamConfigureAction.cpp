@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "SandwichSteamEditor.h"
+#include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamIniWriter.h"
 #include "SourceControlHelpers.h"
 #include "Widgets/Notifications/SNotificationList.h"
@@ -67,6 +68,10 @@ namespace
 				if (Change.Change == ESteamIniChange::Added)
 				{
 					Text += FString::Printf(TEXT("+ [%s] %s=%s\n"), *Change.Entry.Section, *Change.Entry.Key, *Change.Entry.Value);
+				}
+				else if (Change.Change == ESteamIniChange::Removed)
+				{
+					Text += FString::Printf(TEXT("- [%s] %s=%s\n"), *Change.Entry.Section, *Change.Entry.Key, *Change.Entry.Value);
 				}
 				else
 				{
@@ -139,6 +144,11 @@ bool SandwichSteam::Editor::WantsVoiceIni()
 	return FModuleManager::Get().IsModuleLoaded(TEXT("SandwichSteamVoice"));
 }
 
+bool SandwichSteam::Editor::WantsSteamAuthIni()
+{
+	return Auth::IsModuleInstalled() && Auth::IsEnabled();
+}
+
 FSteamNetworkTuning SandwichSteam::Editor::MakeNetworkTuning(const USteamToolSettings& Settings)
 {
 	FSteamNetworkTuning Tuning;
@@ -149,9 +159,14 @@ FSteamNetworkTuning SandwichSteam::Editor::MakeNetworkTuning(const USteamToolSet
 	return Tuning;
 }
 
-TArray<FSteamIniEntry> SandwichSteam::Editor::BuildEngineIniEntries(const USteamToolSettings& Settings)
+TArray<FSteamIniEntry> SandwichSteam::Editor::BuildEngineIniEntries(const USteamToolSettings& Settings, bool bWithSteamAuth)
 {
 	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildRequiredEntries(Settings.SteamAppId, WantsSessionsIni(), WantsVoiceIni(), Settings.bWriteRelaunchInSteamOff);
+	if (bWithSteamAuth && Auth::IsModuleInstalled())
+	{
+		// Setting off removes the line, so the setting is the one switch. Without the Auth module the line is left alone.
+		Entries.Append(FSteamIniWriter::BuildSteamAuthEntries(Auth::IsEnabled()));
+	}
 	if (Settings.bWriteNetworkTuning)
 	{
 		Entries.Append(FSteamIniWriter::BuildNetworkEngineEntries(MakeNetworkTuning(Settings)));

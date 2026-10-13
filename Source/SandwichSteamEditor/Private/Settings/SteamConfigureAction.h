@@ -12,8 +12,12 @@ namespace SandwichSteam::Editor
 	/** The network tuning values as set in Project Settings (Networking category). */
 	FSteamNetworkTuning MakeNetworkTuning(const USteamToolSettings& Settings);
 
-	/** Everything Configure Steam wants in DefaultEngine.ini for these settings (required entries, plus the network tuning when it is on). */
-	TArray<FSteamIniEntry> BuildEngineIniEntries(const USteamToolSettings& Settings);
+	/**
+	 * Everything Configure Steam wants in DefaultEngine.ini for these settings (required entries, plus the network tuning when it is on).
+	 * With bWithSteamAuth and the Auth module installed, the SteamAuth packet handler line is added (setting on) or removed (setting off).
+	 * The validator passes false and checks that line in its own row.
+	 */
+	TArray<FSteamIniEntry> BuildEngineIniEntries(const USteamToolSettings& Settings, bool bWithSteamAuth = true);
 
 	/** Everything Configure Steam wants in DefaultGame.ini for these settings (voice, plus the network tuning when it is on). */
 	TArray<FSteamIniEntry> BuildGameIniEntries(const USteamToolSettings& Settings);
@@ -31,4 +35,10 @@ namespace SandwichSteam::Editor
 
 	/** True when the Voice module is installed, so [OnlineSubsystem] bHasVoiceEnabled (DefaultEngine.ini) and bRequiresPushToTalk (DefaultGame.ini) are needed. */
 	bool WantsVoiceIni();
+
+	/**
+	 * True when the Auth module is installed and Enable Steam Authentication is on (Project Settings > Plugins > Sandwich Steam - Auth),
+	 * so the SteamAuth packet handler line belongs in DefaultEngine.ini (see Settings/SteamAuthEditorAccess.h).
+	 */
+	bool WantsSteamAuthIni();
 }
