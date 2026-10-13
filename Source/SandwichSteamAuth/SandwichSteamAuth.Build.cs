@@ -21,6 +21,7 @@ public class SandwichSteamAuth : ModuleRules
                 "Core",
                 "CoreUObject",
                 "Engine",
+                "DeveloperSettings",
                 "GameplayTags",
                 "SandwichSteam"
             }
