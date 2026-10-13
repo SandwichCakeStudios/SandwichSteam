@@ -3,6 +3,7 @@
 #include "SandwichSteamTestWidget.h"
 #include "Core/SteamCoreSubsystem.h"
 #include "Pages/SandwichSteamTestSlate.h"
+#include "Pages/SSandwichSteamAuthTestPage.h"
 #include "Pages/SSandwichSteamCloudTestPage.h"
 #include "Pages/SSandwichSteamDLCTestPage.h"
 #include "Pages/SSandwichSteamFriendsTestPage.h"
@@ -47,6 +48,7 @@ TSharedRef<SWidget> USandwichSteamTestWidget::RebuildWidget()
 		{ LOCTEXT("SessionsTab", "Sessions"), SNew(SSandwichSteamSessionsTestPage).WorldContext(Context) },
 		{ LOCTEXT("VoiceTab", "Voice"), SNew(SSandwichSteamVoiceTestPage).WorldContext(Context) },
 		{ LOCTEXT("InputTab", "Input"), SNew(SSandwichSteamInputTestPage).WorldContext(Context) },
+		{ LOCTEXT("AuthTab", "Auth"), SNew(SSandwichSteamAuthTestPage).WorldContext(Context) },
 	};
 
 	const TSharedRef<SVerticalBox> Tabs = SNew(SVerticalBox);

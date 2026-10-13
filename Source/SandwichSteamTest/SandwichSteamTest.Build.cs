@@ -31,7 +31,8 @@ public class SandwichSteamTest : ModuleRules
                 "SandwichSteamScreenshots",
                 "SandwichSteamSessions",
                 "SandwichSteamVoice",
-                "SandwichSteamInput"
+                "SandwichSteamInput",
+                "SandwichSteamAuth"
             }
         );
 
