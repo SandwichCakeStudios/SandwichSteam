@@ -89,6 +89,8 @@ Sandwich Steam uses the Steamworks SDK that ships with Unreal Engine, so the Ste
 | 5.8 | 1.64 (`Steamv164`) |
 | 5.7 | 1.61 (`Steamv161`) |
 | 5.6 | 1.57 (`Steamv157`) |
+| 5.5 | 1.57 (`Steamv157`) |
+| 5.4 | 1.57 (`Steamv157`) |
 
 Need a newer Steamworks version than your engine ships with? Epic explains how to download and add it in [Online Subsystem Steam: Downloading Steamworks](https://dev.epicgames.com/documentation/unreal-engine/online-subsystem-steam-interface-in-unreal-engine#downloadingsteamworks).
 
