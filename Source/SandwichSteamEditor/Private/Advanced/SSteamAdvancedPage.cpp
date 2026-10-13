@@ -8,6 +8,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Settings/SteamIniWriter.h"
 #include "Style/SteamToolStyle.h"
@@ -299,10 +300,87 @@ namespace
 			];
 	}
 
+	/** The ini line state is read from disk when the card is built and after every change made from it; nothing polls. */
+	FText DescribeSteamAuthLine(bool bLine)
+	{
+		namespace Auth = SandwichSteam::Editor::Auth;
+		const bool bEnabled = Auth::IsEnabled();
+		if (bEnabled == bLine)
+		{
+			return bLine
+				? LOCTEXT("AuthLineOn", "DefaultEngine.ini: [PacketHandlerComponents] +Components=OnlineSubsystemSteam.SteamAuthComponentModuleInterface is present.")
+				: LOCTEXT("AuthLineOff", "DefaultEngine.ini: no SteamAuth line. Joining players are not checked.");
+		}
+		return bEnabled
+			? LOCTEXT("AuthLineMissing", "DefaultEngine.ini: the SteamAuth line is missing. Run Configure Steam to add it, then restart the editor.")
+			: LOCTEXT("AuthLineExtra", "DefaultEngine.ini: the SteamAuth line is still there, so players are still checked. Run Configure Steam to remove it.");
+	}
+
+	TSharedRef<SWidget> BuildSteamAuthCategory()
+	{
+		namespace Auth = SandwichSteam::Editor::Auth;
+
+		if (!Auth::IsModuleInstalled())
+		{
+			return SNew(STextBlock)
+				.AutoWrapText(true)
+				.Font(BodyFont())
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+				.Text(LOCTEXT("AuthNoModule", "The SandwichSteamAuth module is not installed. Add it to the plugin to let Steam check joining players."));
+		}
+
+		const TSharedRef<bool> bLine = MakeShared<bool>(Auth::HasIniLine());
+		const auto Refresh = [bLine]() { *bLine = Auth::HasIniLine(); };
+
+		return SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
+			[
+				SNew(STextBlock)
+				.AutoWrapText(true)
+				.Font(BodyFont())
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+				.Text(LOCTEXT("AuthIntro", "The host lets Steam check every joining player: owns the game, no VAC or publisher ban, valid ticket. The engine does the check; the game gets On Steam Auth Result. Host and clients must use the same setting, so ship one build. Applied by Configure Steam (restart the editor after it)."))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				MakeTuningRow(LOCTEXT("AuthEnable", "Enable Steam Authentication"),
+					LOCTEXT("AuthEnableTip", "On: Configure Steam adds the SteamAuth packet handler line to DefaultEngine.ini. Off: Configure Steam removes it."),
+					SNew(SCheckBox)
+					.IsChecked_Lambda([]() { return Auth::IsEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+					.OnCheckStateChanged_Lambda([](ECheckBoxState State) { Auth::SetEnabled(State == ECheckBoxState::Checked); }))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
+			[
+				MakeTuningRow(LOCTEXT("AuthCustom", "Custom failure policy"),
+					LOCTEXT("AuthCustomTip", "Off (Kick): the engine kicks players who fail. On (Custom): nobody is kicked automatically; On Steam Auth Failed fires and your game decides (Kick Steam Player)."),
+					SNew(SCheckBox)
+					.IsEnabled_Lambda([]() { return Auth::IsEnabled(); })
+					.IsChecked_Lambda([]() { return Auth::IsCustomPolicy() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+					.OnCheckStateChanged_Lambda([](ECheckBoxState State) { Auth::SetCustomPolicy(State == ECheckBoxState::Checked); }))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
+			[
+				SNew(STextBlock)
+				.AutoWrapText(true)
+				.Font(BodyFont())
+				.Text_Lambda([bLine]() { return DescribeSteamAuthLine(*bLine); })
+			]
+			+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
+			[
+				MakeButton(LOCTEXT("AuthConfigure", "Configure Steam..."), LOCTEXT("AuthConfigureTip", "Shows the pending ini changes and writes them."),
+					[Refresh]()
+					{
+						SandwichSteam::Editor::ConfigureSteam();
+						Refresh();
+					})
+			];
+	}
+
 	TArray<FSteamAdvancedCategory> GetCategories()
 	{
 		return {
 			{ LOCTEXT("TuningHeading", "Networking (tuning)"), &BuildNetworkTuningCategory },
+			{ LOCTEXT("AuthHeading", "Steam authentication"), &BuildSteamAuthCategory },
 			{ LOCTEXT("AppIdFileHeading", "steam_appid.txt (troubleshooting)"), &BuildAppIdFileCategory }
 		};
 	}
