@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "SandwichSteamEditor.h"
+#include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Settings/SteamIniWriter.h"
 
@@ -112,7 +113,7 @@ namespace
 		}
 
 		int32 Pending = 0;
-		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Ini, SandwichSteam::Editor::BuildEngineIniEntries(*Settings)))
+		for (const FSteamIniChange& Change : FSteamIniWriter::Diff(Ini, SandwichSteam::Editor::BuildEngineIniEntries(*Settings, /*bWithSteamAuth*/ false)))
 		{
 			Pending += Change.Change != ESteamIniChange::Unchanged ? 1 : 0;
 		}
@@ -257,6 +258,46 @@ namespace
 		}
 	}
 
+	void CheckSteamAuth(TArray<FSteamValidationCheck>& Out)
+	{
+		namespace Auth = SandwichSteam::Editor::Auth;
+
+		const FName Id(TEXT("SteamAuth"));
+		const FText Label = LOCTEXT("SteamAuthLabel", "Steam authentication (Auth)");
+		const bool bLine = Auth::HasIniLine();
+
+		if (!Auth::IsModuleInstalled())
+		{
+			if (bLine)
+			{
+				Out.Add(MakeCheck(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("SteamAuthNoModule", "DefaultEngine.ini has the SteamAuth packet handler line but the Auth module is not installed. The engine still checks and kicks joining players; the game gets no auth events.")));
+			}
+			return; // No module and no line: nothing to check.
+		}
+
+		const bool bEnabled = Auth::IsEnabled();
+		if (bEnabled && bLine)
+		{
+			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, Auth::IsCustomPolicy()
+				? LOCTEXT("SteamAuthOkCustom", "On: Steam checks every joining player. Custom policy: nobody is kicked automatically, On Steam Auth Failed decides.")
+				: LOCTEXT("SteamAuthOkKick", "On: Steam checks every joining player. Kick policy: the engine kicks players who fail.")));
+			return;
+		}
+
+		if (!bEnabled && !bLine)
+		{
+			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamAuthOff", "Off (default): joining players are not checked by Steam.")));
+			return;
+		}
+
+		FSteamValidationCheck Check = MakeCheck(Id, ESteamCheckSeverity::Warning, Label, bEnabled
+			? LOCTEXT("SteamAuthLineMissing", "Enable Steam Authentication is on but DefaultEngine.ini has no SteamAuth packet handler line, so nobody is checked. Run Configure Steam and restart the editor.")
+			: LOCTEXT("SteamAuthLineExtra", "Enable Steam Authentication is off but DefaultEngine.ini still has the SteamAuth packet handler line, so players are still checked. Run Configure Steam to remove it, or turn the setting on."));
+		Check.FixLabel = LOCTEXT("SteamAuthFix", "Configure Steam...");
+		Check.Fix = []() { SandwichSteam::Editor::ConfigureSteam(); };
+		Out.Add(MoveTemp(Check));
+	}
+
 	void CheckInput(TArray<FSteamValidationCheck>& Out, const USteamToolSettings* Settings)
 	{
 		if (!FModuleManager::Get().IsModuleLoaded(TEXT("SandwichSteamInput")))
@@ -328,6 +369,7 @@ TArray<FSteamValidationCheck> FSteamProjectValidator::Run()
 	CheckDefinition(Checks, Settings);
 	CheckSessions(Checks);
 	CheckVoice(Checks);
+	CheckSteamAuth(Checks);
 	CheckInput(Checks, Settings);
 	return Checks;
 }
