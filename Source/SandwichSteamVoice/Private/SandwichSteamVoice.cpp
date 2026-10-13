@@ -126,6 +126,47 @@ namespace
 		LogResult(Output, TEXT("Steam.Voice.Volume"), Voice->SetMasterVolume(FCString::Atof(*Args[0])), TEXT("volume set"));
 	}
 
+	/** Steam.Voice.FakeTalker <count> [delayMs] [lossPct] [channel] */
+	void FakeTalker(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			Output.Log(TEXT("Usage: Steam.Voice.FakeTalker <count 0..8> [delayMs=100] [lossPct=0] [staggerMs=250] [channel=-1]. Fake i plays delayMs + i * staggerMs late. Open the microphone (Steam.Voice.Talk 1 or open mic) to hear yourself as fake talkers."));
+			return;
+		}
+
+		const int32 Count = FCString::Atoi(*Args[0]);
+		const int32 DelayMs = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 100;
+		const float LossPercent = Args.IsValidIndex(2) ? FCString::Atof(*Args[2]) : 0.0f;
+		const int32 StaggerMs = Args.IsValidIndex(3) ? FCString::Atoi(*Args[3]) : 250;
+		const int32 Channel = Args.IsValidIndex(4) ? FCString::Atoi(*Args[4]) : -1;
+		LogResult(Output, TEXT("Steam.Voice.FakeTalker"), Voice->SetFakeTalkers(Count, DelayMs, LossPercent, StaggerMs, Channel), Count > 0 ? TEXT("fake talkers on") : TEXT("fake talkers off"));
+	}
+
+	/** Steam.Voice.SimLoss <pct> */
+	void SimLoss(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			Output.Log(TEXT("Usage: Steam.Voice.SimLoss <0..100>: drops that percent of the voice packets received from real players."));
+			return;
+		}
+
+		LogResult(Output, TEXT("Steam.Voice.SimLoss"), Voice->SetSimulatedLoss(FCString::Atof(*Args[0])), TEXT("simulated loss set"));
+	}
+
 	const FName DebugSectionId(TEXT("Voice"));
 
 	FString ReportVoice(UWorld* World)
@@ -148,7 +189,7 @@ void FSandwichSteamVoiceModule::StartupModule()
 	SandwichSteam::Debug::RegisterSection(MoveTemp(Section));
 
 	Commands.Add(TEXT("Steam.Voice.Dump"),
-		TEXT("Prints the voice state: mode, microphone, push to talk binding, who talks, who is muted."),
+		TEXT("Prints the voice state: mode, microphone, push to talk binding, who talks, who is muted, and the Steam voice pipeline numbers per talker."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&DumpVoice));
 
 	Commands.Add(TEXT("Steam.Voice.Enable"),
@@ -170,6 +211,14 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.Unmute"),
 		TEXT("Unmutes a player: Steam.Voice.Unmute <SteamID64>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&UnmutePlayer));
+
+	Commands.Add(TEXT("Steam.Voice.FakeTalker"),
+		TEXT("Plays your own microphone back as fake talkers through the full receive path: Steam.Voice.FakeTalker <count 0..8> [delayMs] [lossPct] [staggerMs] [channel]. With 2+ fakes the dump runs a decoder check."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&FakeTalker));
+
+	Commands.Add(TEXT("Steam.Voice.SimLoss"),
+		TEXT("Drops a percent of the voice packets received from real players: Steam.Voice.SimLoss <0..100>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SimLoss));
 
 	Commands.Add(TEXT("Steam.Voice.Volume"),
 		TEXT("Sets (or reads) the master volume of the voice sound class: Steam.Voice.Volume [0..2]."),
