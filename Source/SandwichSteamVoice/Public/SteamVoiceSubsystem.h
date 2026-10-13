@@ -14,23 +14,32 @@
 class AGameStateBase;
 class APlayerController;
 class FSteamVoiceBackend;
+class FSteamVoiceTransport;
+class FSteamVoiceWorker;
 class FUniqueNetId;
 class UEnhancedInputComponent;
 class ULocalPlayer;
 class UInputMappingContext;
 class USoundMix;
+class USteamVoiceComponent;
 class UWorld;
 
+namespace Audio
+{
+	class FPatchSplitter;
+}
+
 /**
- * Steam in-session voice chat. Client only (the server relays voice by itself).
+ * Steam in-session voice chat. Client only.
  *
- * The engine's Steam Online Subsystem carries the voice over the game connection (IOnlineVoice), so voice works while players are in
- * the same game session: a listen server, a dedicated server or a Steam lobby that travelled to a map. Chat in a lobby before the travel
- * is not supported. The feature adds what the Online Subsystem lacks: a mode (push to talk / open mic) you can switch at runtime, push to talk
- * through Enhanced Input, mute by Steam ID with automatic muting of players you blocked on Steam, talking events for a UI, and a master volume.
+ * Two pipelines, picked once when the feature starts:
+ * - Steam voice pipeline (when the Online Subsystem has no voice interface): Steam capture and codec, SteamNetworkingMessages between the
+ *   players of the game, a voice worker thread (jitter, decode), and USteamVoiceComponent speakers (one 2D speaker per talker for now).
+ * - Online Subsystem voice (when [OnlineSubsystem] bHasVoiceEnabled=true and [Voice] bEnabled=true): the engine carries voice over the
+ *   game connection (IOnlineVoice). Needs [/Script/Engine.GameSession] bRequiresPushToTalk=true as well.
  *
- * Needs [OnlineSubsystem] bHasVoiceEnabled=true and [/Script/Engine.GameSession] bRequiresPushToTalk=true (Tools > Sandwich Steam > Configure Steam
- * writes both). The ini always asks for push to talk; the feature opens the microphone itself in open mic mode, so the mode can change at runtime.
+ * Both work while players are in the same game session. The feature adds a mode (push to talk / open mic) you can switch at runtime,
+ * push to talk through Enhanced Input, mute by Steam ID with automatic muting of players you blocked on Steam, talking events and a master volume.
  *
  * While voice is disabled (Set Voice Enabled false, or Enabled By Default off) nothing runs: no polling, no input binding, no microphone.
  * All methods run on the game thread.
@@ -118,9 +127,18 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when a player was muted or unmuted, also when a blocked Steam player was muted automatically."))
 	FSteamVoiceMuteChanged OnPlayerMuteChanged;
 
+	/** True when the Steam voice pipeline runs (false: Online Subsystem voice, or voice disabled). */
+	bool IsUsingSteamPipeline() const { return bUseSteamPipeline; }
+
 #if SANDWICHSTEAM_WITH_DEBUG
 	/** Multi-line report for Steam.Voice.Dump. */
 	FString BuildDebugString() const;
+
+	/** Steam.Voice.FakeTalker: re-inject the local capture as Count fake talkers (0 = off), fake i DelayMs + i * StaggerMs late. Steam voice pipeline only. */
+	FSteamResult SetFakeTalkers(int32 Count, int32 DelayMs, float LossPercent, int32 StaggerMs, int32 Channel);
+
+	/** Steam.Voice.SimLoss: drop this percent of real received voice packets. Steam voice pipeline only. */
+	FSteamResult SetSimulatedLoss(float LossPercent);
 #endif
 
 protected:
@@ -153,7 +171,63 @@ private:
 
 	void BroadcastTalking(int64 Player, bool bTalking);
 
+	// ---- Steam voice pipeline ----
+
+	/** Starts the transport and the worker (voice enabled). False when another game instance in this process owns the microphone. */
+	bool StartPipeline();
+	void StopPipeline();
+
+	/** Sends the current routing (players, mutes, microphone) to the worker when it changed. */
+	void PublishRouting();
+
+	/** Handles the worker's events: speakers, talking. Runs every frame while the pipeline is up. */
+	void DrainWorkerEvents();
+
+	USteamVoiceComponent* EnsureSpeaker(int64 Talker);
+	void DestroySpeakers();
+	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
+
+	struct FSpeakerSource
+	{
+		TSharedPtr<Audio::FPatchSplitter, ESPMode::ThreadSafe> Splitter;
+		int32 SampleRate = 0;
+		bool bFake = false;
+		bool bActive = false;
+	};
+
 	TSharedPtr<FSteamVoiceBackend> Backend;
+	TSharedPtr<FSteamVoiceTransport> Transport;
+	/** Shared pointers keep the forward declarations above enough for the generated code. */
+	TSharedPtr<FSteamVoiceWorker> Worker;
+	bool bUseSteamPipeline = false;
+	/** Seconds since the last player poll (the ticker runs every frame while the pipeline is up). */
+	float PollAccumulator = 0.0f;
+
+	/** Talkers the worker knows (connected patch splitter), whether their speaker plays, who talks (worker events). */
+	TMap<int64, FSpeakerSource> SpeakerSources;
+	TSet<int64> PipelineTalking;
+
+	/** Plugin-created speakers of the current world. Cleared before the world is destroyed. */
+	UPROPERTY(Transient)
+	TMap<int64, TObjectPtr<USteamVoiceComponent>> Speakers;
+	TWeakObjectPtr<UWorld> SpeakerWorld;
+	FDelegateHandle WorldCleanupHandle;
+
+	/** What the worker was last sent, to publish only changes. */
+	TArray<uint64> PublishedPeers;
+	TArray<uint64> PublishedMuted;
+	TArray<uint64> PublishedBlocked;
+	int64 PublishedLocalId = 0;
+	bool bPublishedRecord = false;
+	bool bRoutingPublished = false;
+	int32 FakeTalkerCount = 0;
+	int32 FakeTalkerDelayMs = 100;
+	int32 FakeTalkerStaggerMs = 250;
+	float FakeTalkerLossPercent = 0.0f;
+	int32 FakeTalkerChannel = -1;
+	float SimulatedLossPercent = 0.0f;
+	/** Another game instance (PIE) already runs the pipeline: warned once. */
+	bool bWarnedPipelineOwner = false;
 	TUniquePtr<SandwichSteam::Voice::FTalkingTracker> Tracker;
 	TUniquePtr<SandwichSteam::Voice::FMuteBook> Book;
 

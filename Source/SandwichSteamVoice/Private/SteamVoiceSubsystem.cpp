@@ -17,13 +17,24 @@
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
+#include "Core/SteamSDK.h"
 #include "SteamVoiceBackend.h"
+#include "SteamVoiceComponent.h"
+#include "SteamVoiceRouting.h"
 #include "SteamVoiceRules.h"
 #include "SteamVoiceSettings.h"
+#include "SteamVoiceTransport.h"
+#include "SteamVoiceWorker.h"
 
 using SandwichSteam::Voice::FMuteBook;
 using SandwichSteam::Voice::FTalkingChange;
 using SandwichSteam::Voice::FTalkingTracker;
+
+namespace
+{
+	/** Steam has one microphone and one message channel per process: only one game instance (PIE) runs the pipeline. Game thread only. */
+	TWeakObjectPtr<USteamVoiceSubsystem> GPipelineOwner;
+}
 
 USteamVoiceSubsystem* USteamVoiceSubsystem::Get(const UObject* WorldContext)
 {
@@ -44,12 +55,18 @@ bool USteamVoiceSubsystem::InitializeFeature()
 {
 #if SANDWICHSTEAM_WITH_STEAMWORKS
 	Backend = MakeShared<FSteamVoiceBackend>(GetGameInstance());
-	if (!Backend->IsUsable())
+
+	// The Online Subsystem voice and the Steam pipeline would both read Steam's microphone: only one of them runs.
+	bUseSteamPipeline = !Backend->IsUsable();
+	if (bUseSteamPipeline)
 	{
-		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: the Steam Online Subsystem has no voice interface. Set [OnlineSubsystem] bHasVoiceEnabled=true and [Voice] bEnabled=true in DefaultEngine.ini (Tools > Sandwich Steam > Configure Steam) and restart."));
-		Backend.Reset();
-		return false;
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: using the Steam voice pipeline (the Online Subsystem voice interface is off)."));
 	}
+	else
+	{
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: using the Online Subsystem voice ([OnlineSubsystem] bHasVoiceEnabled=true). Remove bHasVoiceEnabled and [Voice] bEnabled from DefaultEngine.ini to use the Steam voice pipeline."));
+	}
+	WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddUObject(this, &USteamVoiceSubsystem::HandleWorldCleanup);
 
 	Tracker = MakeUnique<FTalkingTracker>();
 	Book = MakeUnique<FMuteBook>();
@@ -101,7 +118,14 @@ void USteamVoiceSubsystem::ShutdownFeature()
 		}
 	}
 
-	if (Backend.IsValid() && bMicOpen)
+	StopPipeline();
+	if (WorldCleanupHandle.IsValid())
+	{
+		FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
+		WorldCleanupHandle.Reset();
+	}
+
+	if (Backend.IsValid() && bMicOpen && !bUseSteamPipeline)
 	{
 		Backend->StopTalking();
 	}
@@ -192,6 +216,15 @@ bool USteamVoiceSubsystem::IsLocalTalking() const
 
 bool USteamVoiceSubsystem::IsHeadsetPresent() const
 {
+	if (bUseSteamPipeline)
+	{
+#if SANDWICHSTEAM_WITH_STEAMWORKS
+		// Steam has no headset query: the capture says NotInitialized when there is no recording device.
+		return Worker.IsValid() && Worker->GetStats().LastCaptureResult != static_cast<int32>(k_EVoiceResultNotInitialized);
+#else
+		return false;
+#endif
+	}
 	return Backend.IsValid() && Backend->IsHeadsetPresent();
 }
 
@@ -242,6 +275,7 @@ FSteamResult USteamVoiceSubsystem::MutePlayer(FSteamId Player, bool bSystemWide)
 		OnPlayerMuteChanged.Broadcast(Player, true, false);
 	}
 
+	PublishRouting();
 	if (Present.Contains(Player.Value))
 	{
 		ApplyMute(Player, Player.ToUniqueNetId(GetGameInstance()));
@@ -267,6 +301,7 @@ FSteamResult USteamVoiceSubsystem::UnmutePlayer(FSteamId Player)
 		OnPlayerMuteChanged.Broadcast(Player, false, false);
 	}
 
+	PublishRouting();
 	if (Present.Contains(Player.Value))
 	{
 		ApplyMute(Player, Player.ToUniqueNetId(GetGameInstance()));
@@ -352,10 +387,17 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 {
 	if (bEnabled)
 	{
+		if (bUseSteamPipeline)
+		{
+			StartPipeline();
+		}
+
 		if (!TickHandle.IsValid())
 		{
+			// The pipeline ticks every frame to start speakers on time; the player poll itself still runs at the poll rate.
 			const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
-			const float Interval = Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f;
+			const float Interval = bUseSteamPipeline ? 0.0f : (Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f);
+			PollAccumulator = TNumericLimits<float>::Max(); // Poll on the first tick.
 			TickHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USteamVoiceSubsystem::TickVoice), Interval);
 		}
 
@@ -376,6 +418,7 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 	UnbindPushToTalk();
 	RefreshTalking(true);
 	RemoveVolumeMix();
+	StopPipeline();
 
 	if (Tracker.IsValid())
 	{
@@ -408,6 +451,13 @@ void USteamVoiceSubsystem::RefreshTalking(bool bForce)
 		return;
 	}
 
+	if (bUseSteamPipeline)
+	{
+		bMicOpen = bWant;
+		PublishRouting(); // The worker starts or stops Steam's recording.
+		return;
+	}
+
 	bMicOpen = bWant;
 	if (bWant)
 	{
@@ -431,7 +481,7 @@ void USteamVoiceSubsystem::HandlePushToTalkReleased()
 	RefreshTalking(false);
 }
 
-bool USteamVoiceSubsystem::TickVoice(float /*DeltaTime*/)
+bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 {
 	if (!Backend.IsValid() || !bEnabled)
 	{
@@ -442,6 +492,32 @@ bool USteamVoiceSubsystem::TickVoice(float /*DeltaTime*/)
 	UGameInstance* GameInstance = GetGameInstance();
 	UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+
+	if (bUseSteamPipeline)
+	{
+		DrainWorkerEvents();
+
+		// A new world: connect speakers for the talkers the worker knows, and play the ones that are talking.
+		if (Worker.IsValid() && World && !World->bIsTearingDown && SpeakerWorld.Get() != World)
+		{
+			for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
+			{
+				USteamVoiceComponent* Speaker = EnsureSpeaker(Source.Key);
+				if (Speaker && Source.Value.bActive && !Speaker->IsPlaying())
+				{
+					Speaker->Start();
+				}
+			}
+		}
+
+		PollAccumulator += DeltaTime;
+		const float Interval = Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f;
+		if (PollAccumulator < Interval)
+		{
+			return true;
+		}
+		PollAccumulator = 0.0f;
+	}
 
 	if (!LocalId.IsValid())
 	{
@@ -458,7 +534,7 @@ bool USteamVoiceSubsystem::TickVoice(float /*DeltaTime*/)
 		if (GameState)
 		{
 			ApplyMasterVolume();
-			if (bMicOpen)
+			if (bMicOpen && !bUseSteamPipeline)
 			{
 				Backend->StartTalking(); // The connection is new; open the microphone on it.
 			}
@@ -481,7 +557,7 @@ bool USteamVoiceSubsystem::TickVoice(float /*DeltaTime*/)
 	if (LocalId.IsValid())
 	{
 		NowPresent.Add(LocalId.Value);
-		if (Backend->IsLocalTalking())
+		if (bUseSteamPipeline ? PipelineTalking.Contains(LocalId.Value) : Backend->IsLocalTalking())
 		{
 			NowTalking.Add(LocalId.Value);
 		}
@@ -520,9 +596,22 @@ bool USteamVoiceSubsystem::TickVoice(float /*DeltaTime*/)
 
 			NowPresent.Add(Id.Value);
 			Others.Emplace(Id, NetId);
-			if (Backend->IsRemoteTalking(*NetId))
+			if (bUseSteamPipeline ? PipelineTalking.Contains(Id.Value) : Backend->IsRemoteTalking(*NetId))
 			{
 				NowTalking.Add(Id.Value);
+			}
+		}
+	}
+
+	// Fake talkers (Steam.Voice.FakeTalker) count as present, so talking events and the test panel show them.
+	for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
+	{
+		if (Source.Value.bFake)
+		{
+			NowPresent.Add(Source.Key);
+			if (PipelineTalking.Contains(Source.Key))
+			{
+				NowTalking.Add(Source.Key);
 			}
 		}
 	}
@@ -550,6 +639,7 @@ bool USteamVoiceSubsystem::TickVoice(float /*DeltaTime*/)
 		BroadcastTalking(Change.Player, Change.bTalking);
 	}
 
+	PublishRouting();
 	return true;
 }
 
@@ -562,7 +652,8 @@ void USteamVoiceSubsystem::BroadcastTalking(int64 Player, bool bTalking)
 
 void USteamVoiceSubsystem::ApplyMute(FSteamId Player, const TSharedPtr<const FUniqueNetId>& NetId)
 {
-	if (!Backend.IsValid() || !NetId.IsValid() || !Book->NeedsApply(Player.Value))
+	// The Steam pipeline reads mutes from the routing snapshot.
+	if (bUseSteamPipeline || !Backend.IsValid() || !NetId.IsValid() || !Book->NeedsApply(Player.Value))
 	{
 		return;
 	}
@@ -574,6 +665,310 @@ void USteamVoiceSubsystem::ApplyMute(FSteamId Player, const TSharedPtr<const FUn
 	else
 	{
 		++MuteCallsFailed; // The talker is probably not registered yet; the next poll tries again.
+	}
+}
+
+// ---- Steam voice pipeline ----
+
+bool USteamVoiceSubsystem::StartPipeline()
+{
+	if (Worker.IsValid())
+	{
+		return true;
+	}
+
+	if (GPipelineOwner.IsValid() && GPipelineOwner.Get() != this)
+	{
+		if (!bWarnedPipelineOwner)
+		{
+			bWarnedPipelineOwner = true;
+			UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: another game instance in this process already runs Steam voice (Steam has one microphone per process). Voice stays off here; use Steam.Voice.FakeTalker in the first instance to test on one machine."));
+		}
+		return false;
+	}
+
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	SandwichSteam::Voice::FWorkerConfig Config;
+	if (Settings)
+	{
+		Config.MessageChannel = FMath::Clamp(Settings->SteamMessageChannel, 0, 255);
+		Config.RequestedSampleRate = Settings->DecodeSampleRate;
+		Config.PacketsPerSecond = static_cast<float>(Settings->MaxPacketsPerSecond);
+		Config.BytesPerSecond = static_cast<float>(Settings->MaxBytesPerSecond);
+	}
+
+	TSharedRef<FSteamVoiceTransport> NewTransport = MakeShared<FSteamVoiceTransport>(Config.MessageChannel);
+	if (!NewTransport->IsAvailable())
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: SteamNetworkingMessages is not available, the Steam voice pipeline cannot start."));
+		return false;
+	}
+
+	TSharedRef<FSteamVoiceWorker> NewWorker = MakeShared<FSteamVoiceWorker>(Config, NewTransport);
+	if (!NewWorker->StartThread())
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: the voice worker thread could not be created."));
+		return false;
+	}
+
+	Transport = NewTransport;
+	Worker = NewWorker;
+	GPipelineOwner = this;
+	bRoutingPublished = false;
+	PublishRouting();
+
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: pipeline started (message channel %d, decode %d Hz, Steam optimal %d Hz)."),
+		Config.MessageChannel, Worker->GetDecodeSampleRate(), Worker->GetStats().OptimalSampleRate);
+	return true;
+}
+
+void USteamVoiceSubsystem::StopPipeline()
+{
+	if (Worker.IsValid())
+	{
+		Worker->Shutdown(); // Joins the thread before the transport goes away.
+		Worker.Reset();
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: pipeline stopped."));
+	}
+	Transport.Reset();
+
+	if (GPipelineOwner.Get() == this)
+	{
+		GPipelineOwner.Reset();
+	}
+
+	DestroySpeakers();
+	SpeakerSources.Reset();
+	PipelineTalking.Reset();
+	bRoutingPublished = false;
+}
+
+void USteamVoiceSubsystem::PublishRouting()
+{
+	if (!Worker.IsValid())
+	{
+		return;
+	}
+
+	TArray<uint64> Peers;
+	Peers.Reserve(Present.Num());
+	for (const int64 Player : Present)
+	{
+		if (Player != LocalId.Value && !SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player)))
+		{
+			Peers.Add(static_cast<uint64>(Player));
+		}
+	}
+	Peers.Sort();
+
+	TArray<uint64> Muted;
+	TArray<uint64> Blocked;
+	if (Book.IsValid())
+	{
+		for (const int64 Player : Book->GetMutedPlayers())
+		{
+			if (Book->IsUserMuted(Player))
+			{
+				Muted.Add(static_cast<uint64>(Player));
+			}
+			if (Book->IsAutoMuted(Player))
+			{
+				Blocked.Add(static_cast<uint64>(Player));
+			}
+		}
+	}
+	Muted.Sort();
+	Blocked.Sort();
+
+	if (bRoutingPublished && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked)
+	{
+		return;
+	}
+
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	TSharedRef<SandwichSteam::Voice::FRoutingSnapshot, ESPMode::ThreadSafe> Snapshot = MakeShared<SandwichSteam::Voice::FRoutingSnapshot, ESPMode::ThreadSafe>();
+	Snapshot->LocalId = static_cast<uint64>(LocalId.Value);
+	Snapshot->bRecord = bMicOpen;
+	Snapshot->bMuteSteamFriendsWhileTalking = Settings && Settings->bMuteSteamFriendsVoiceWhileTalking;
+	Snapshot->Peers = Peers;
+	Snapshot->Muted.Append(Muted);
+	Snapshot->Blocked.Append(Blocked);
+	Snapshot->Fake.Count = FakeTalkerCount;
+	Snapshot->Fake.DelayMs = FakeTalkerDelayMs;
+	Snapshot->Fake.StaggerMs = FakeTalkerStaggerMs;
+	Snapshot->Fake.LossPercent = FakeTalkerLossPercent;
+	Snapshot->Fake.Channel = FakeTalkerChannel;
+	Snapshot->SimLossPercent = SimulatedLossPercent;
+	Worker->Publish(Snapshot);
+
+	PublishedPeers = MoveTemp(Peers);
+	PublishedMuted = MoveTemp(Muted);
+	PublishedBlocked = MoveTemp(Blocked);
+	PublishedLocalId = LocalId.Value;
+	bPublishedRecord = bMicOpen;
+	bRoutingPublished = true;
+}
+
+void USteamVoiceSubsystem::DrainWorkerEvents()
+{
+	if (!Worker.IsValid())
+	{
+		return;
+	}
+
+	using SandwichSteam::Voice::EWorkerEvent;
+	SandwichSteam::Voice::FWorkerEvent Event;
+	while (Worker->PopEvent(Event))
+	{
+		const int64 Talker = static_cast<int64>(Event.Talker);
+		switch (Event.Type)
+		{
+		case EWorkerEvent::TalkerAdded:
+		{
+			FSpeakerSource& Source = SpeakerSources.FindOrAdd(Talker);
+			Source.Splitter = Event.Splitter;
+			Source.SampleRate = Event.SampleRate;
+			Source.bFake = Event.bFake;
+			Source.bActive = false;
+
+			// A speaker from an earlier source of this talker reads a dead patch: replace it.
+			if (TObjectPtr<USteamVoiceComponent>* Existing = Speakers.Find(Talker))
+			{
+				if (IsValid(*Existing))
+				{
+					(*Existing)->DestroyComponent();
+				}
+				Speakers.Remove(Talker);
+			}
+			EnsureSpeaker(Talker);
+			break;
+		}
+		case EWorkerEvent::TalkerActive:
+			if (FSpeakerSource* Source = SpeakerSources.Find(Talker))
+			{
+				Source->bActive = true;
+			}
+			if (USteamVoiceComponent* Speaker = EnsureSpeaker(Talker))
+			{
+				if (!Speaker->IsPlaying())
+				{
+					Speaker->Start();
+				}
+			}
+			break;
+
+		case EWorkerEvent::TalkerIdle:
+			if (FSpeakerSource* Source = SpeakerSources.Find(Talker))
+			{
+				Source->bActive = false;
+			}
+			if (TObjectPtr<USteamVoiceComponent>* Speaker = Speakers.Find(Talker))
+			{
+				if (IsValid(*Speaker))
+				{
+					(*Speaker)->Stop();
+				}
+			}
+			break;
+
+		case EWorkerEvent::TalkingStarted:
+			PipelineTalking.Add(Talker);
+			break;
+
+		case EWorkerEvent::TalkingStopped:
+			PipelineTalking.Remove(Talker);
+			break;
+
+		case EWorkerEvent::Flood:
+			UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: %s sent too much voice data for 5 seconds and is muted for this session."), *FSteamId(Talker).ToString());
+			break;
+
+		case EWorkerEvent::TalkerRemoved:
+			SpeakerSources.Remove(Talker);
+			PipelineTalking.Remove(Talker);
+			if (TObjectPtr<USteamVoiceComponent>* Speaker = Speakers.Find(Talker))
+			{
+				if (IsValid(*Speaker))
+				{
+					(*Speaker)->DestroyComponent();
+				}
+				Speakers.Remove(Talker);
+			}
+			break;
+
+		default:
+			break;
+		}
+	}
+}
+
+USteamVoiceComponent* USteamVoiceSubsystem::EnsureSpeaker(int64 Talker)
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
+	if (!World || World->bIsTearingDown)
+	{
+		return nullptr;
+	}
+
+	if (SpeakerWorld.Get() != World)
+	{
+		DestroySpeakers();
+		SpeakerWorld = World;
+	}
+
+	if (TObjectPtr<USteamVoiceComponent>* Existing = Speakers.Find(Talker))
+	{
+		if (IsValid(*Existing))
+		{
+			return *Existing;
+		}
+		Speakers.Remove(Talker);
+	}
+
+	const FSpeakerSource* Source = SpeakerSources.Find(Talker);
+	if (!Source || !Source->Splitter.IsValid() || Source->SampleRate <= 0)
+	{
+		return nullptr;
+	}
+
+	// One unattached 2D speaker per talker for now. Pawn speakers and channels come with the full component setup.
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	USteamVoiceComponent* Speaker = NewObject<USteamVoiceComponent>(World, NAME_None, RF_Transient);
+	if (Settings && !Settings->VoiceSoundClass.IsNull())
+	{
+		Speaker->SoundClass = Settings->VoiceSoundClass.LoadSynchronous();
+	}
+	Speaker->RegisterComponentWithWorld(World);
+
+	// The patch holds up to one second; the speaker keeps it near the playout delay.
+	const int32 PlayoutDelayMs = Settings ? Settings->PlayoutDelayMs : 80;
+	Speaker->SetVoiceSource(FSteamId(Talker), Source->Splitter->AddNewPatch(Source->SampleRate, 1.0f), Source->SampleRate, PlayoutDelayMs);
+
+	Speakers.Add(Talker, Speaker);
+	return Speaker;
+}
+
+void USteamVoiceSubsystem::DestroySpeakers()
+{
+	for (const TPair<int64, TObjectPtr<USteamVoiceComponent>>& Pair : Speakers)
+	{
+		if (IsValid(Pair.Value))
+		{
+			Pair.Value->Stop();
+			Pair.Value->DestroyComponent();
+		}
+	}
+	Speakers.Reset();
+	SpeakerWorld.Reset();
+}
+
+void USteamVoiceSubsystem::HandleWorldCleanup(UWorld* World, bool /*bSessionEnded*/, bool /*bCleanupResources*/)
+{
+	// Speakers live in the world: release them before it goes, or the world would be kept alive (PIE leak check).
+	if (World && World == SpeakerWorld.Get())
+	{
+		DestroySpeakers();
 	}
 }
 
@@ -727,6 +1122,46 @@ void USteamVoiceSubsystem::RemoveVolumeMix()
 }
 
 #if SANDWICHSTEAM_WITH_DEBUG
+FSteamResult USteamVoiceSubsystem::SetFakeTalkers(int32 Count, int32 DelayMs, float LossPercent, int32 StaggerMs, int32 Channel)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+	if (!bUseSteamPipeline)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceFakeNeedsPipeline", "Fake talkers need the Steam voice pipeline (remove bHasVoiceEnabled and [Voice] bEnabled from DefaultEngine.ini)."));
+	}
+
+	FakeTalkerCount = FMath::Clamp(Count, 0, SandwichSteam::Voice::MaxFakeTalkers);
+	FakeTalkerDelayMs = FMath::Clamp(DelayMs, 0, 2000);
+	FakeTalkerStaggerMs = FMath::Clamp(StaggerMs, 0, 2000);
+	FakeTalkerLossPercent = FMath::Clamp(LossPercent, 0.0f, 100.0f);
+	FakeTalkerChannel = Channel;
+	bRoutingPublished = false;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::SetSimulatedLoss(float LossPercent)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+	if (!bUseSteamPipeline)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceSimLossNeedsPipeline", "Simulated loss needs the Steam voice pipeline."));
+	}
+
+	SimulatedLossPercent = FMath::Clamp(LossPercent, 0.0f, 100.0f);
+	bRoutingPublished = false;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
 FString USteamVoiceSubsystem::BuildDebugString() const
 {
 	FString Report = FString::Printf(TEXT("Steam.Voice: feature %s\n"), IsFeatureActive() ? TEXT("active") : TEXT("inactive"));
@@ -771,6 +1206,65 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 	}
 
 	Report += FString::Printf(TEXT("  Counters: %d talking events, %d mute call(s) not accepted yet\n"), TalkingEventsSent, MuteCallsFailed);
+
+	Report += FString::Printf(TEXT("  Pipeline: %s\n"), bUseSteamPipeline ? (Worker.IsValid() ? TEXT("Steam voice (running)") : TEXT("Steam voice (stopped)")) : TEXT("Online Subsystem voice"));
+	if (Worker.IsValid())
+	{
+		const SandwichSteam::Voice::FWorkerStats Stats = Worker->GetStats();
+		Report += FString::Printf(TEXT("    Worker: %s, loop avg %.2f ms / max %.2f ms, recording %s, last capture result %d\n"),
+			Stats.bRunning ? TEXT("running") : TEXT("stopped"), Stats.LoopAverageMs, Stats.LoopMaxMs, Stats.bRecording ? TEXT("yes") : TEXT("no"), Stats.LastCaptureResult);
+		Report += FString::Printf(TEXT("    Sample rate: Steam optimal %d Hz, decoding at %d Hz\n"), Stats.OptimalSampleRate, Stats.DecodeSampleRate);
+		Report += FString::Printf(TEXT("    Capture: %llu chunk(s), %llu bytes, %llu too large; sent %llu packet(s), %llu failed, %llu hello(s)\n"),
+			Stats.CapturedChunks, Stats.CapturedBytes, Stats.CaptureTooLarge, Stats.PacketsSent, Stats.SendFailures, Stats.HellosSent);
+		Report += FString::Printf(TEXT("    Payload format: %llu/%llu start with our Steam ID, %llu/%llu end with a valid CRC-32 -> %s\n"),
+			Stats.PayloadIdMatches, Stats.CapturedChunks, Stats.PayloadCrcMatches, Stats.CapturedChunks,
+			Stats.CapturedChunks == 0 ? TEXT("no capture yet")
+			: (Stats.PayloadIdMatches == Stats.CapturedChunks && Stats.PayloadCrcMatches == Stats.CapturedChunks ? TEXT("CONFIRMED") : TEXT("NOT as expected")));
+		if (FakeTalkerCount > 0)
+		{
+			Report += FString::Printf(TEXT("    Fake speaker ids: %llu packet(s) rewritten, %llu kept ours (layout not as expected)\n"), Stats.FakeRewritten, Stats.FakeRewriteFailed);
+		}
+		Report += FString::Printf(TEXT("    Receive: %llu packet(s), %llu invalid, %llu from non-players, %llu muted, %llu simulated loss, %llu dropped: speaker id is not the sender\n"),
+			Stats.PacketsReceived, Stats.Invalid, Stats.FromUnknown, Stats.MutedDrops, Stats.SimLossDrops, Stats.SpeakerMismatch);
+		Report += FString::Printf(TEXT("    Sessions: %llu accepted, %llu rejected, %d pending\n"), Stats.SessionsAccepted, Stats.SessionsRejected, Stats.SessionsPending);
+		if (FakeTalkerCount > 0 || SimulatedLossPercent > 0.0f)
+		{
+			Report += FString::Printf(TEXT("    Test: %d fake talker(s), %d ms delay + %d ms per fake, %.0f%% loss; simulated loss %.0f%%\n"),
+				FakeTalkerCount, FakeTalkerDelayMs, FakeTalkerStaggerMs, FakeTalkerLossPercent, SimulatedLossPercent);
+		}
+		if (FakeTalkerCount >= 2)
+		{
+			// With loss a fake that missed a packet may legitimately decode the next one differently, so the check needs 0% loss.
+			const TCHAR* Verdict = Stats.FakeRewriteFailed > 0 ? TEXT("not valid: fake speaker ids could not be rewritten")
+				: FakeTalkerLossPercent > 0.0f ? TEXT("not valid with fake loss, use 0% loss")
+				: Stats.DecodeCompared < 50 ? TEXT("not enough data yet, keep talking")
+				: (Stats.DecodeIdentical == Stats.DecodeCompared ? TEXT("PASS: talkers decode independently")
+				: TEXT("FAIL: interleaved talkers change each other's audio (shared decoder state)"));
+			Report += FString::Printf(TEXT("    Decoder check: %llu packet(s) compared, %llu identical, %llu length mismatch, max sample difference %d -> %s\n"),
+				Stats.DecodeCompared, Stats.DecodeIdentical, Stats.DecodeLengthMismatch, Stats.DecodeMaxDifference, Verdict);
+		}
+
+		for (const SandwichSteam::Voice::FTalkerStats& Talker : Stats.Talkers)
+		{
+			const TObjectPtr<USteamVoiceComponent>* Speaker = Speakers.Find(static_cast<int64>(Talker.Talker));
+			const USteamVoiceComponent* Component = Speaker && IsValid(*Speaker) ? Speaker->Get() : nullptr;
+			const float BufferedMs = Component ? Component->GetBufferedMs() : 0.0f;
+
+			FString Latency = TEXT("n/a");
+			if (Talker.PipelineLatencyMs >= 0.0f)
+			{
+				Latency = FString::Printf(TEXT("%.0f ms (capture to speaker %.0f + buffer %.0f)"), Talker.PipelineLatencyMs + BufferedMs, Talker.PipelineLatencyMs, BufferedMs);
+			}
+
+			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples), queued %d\n"),
+				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.bFake ? TEXT(" (fake)") : TEXT(""),
+				Talker.bTalking ? TEXT("TALKING") : TEXT("silent"), Talker.bActive ? TEXT(", speaker on") : TEXT(""),
+				Talker.Level, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
+				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.Queued);
+			Report += FString::Printf(TEXT("      speaker: %s, buffered %.0f ms, underruns %u (incl. ends of speech), latency %s\n"),
+				Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs, Component ? Component->GetUnderruns() : 0u, *Latency);
+		}
+	}
 	return Report;
 }
 #endif
