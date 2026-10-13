@@ -8,12 +8,14 @@
  * One key=value line that must exist in an ini section.
  * A key that starts with '+' (an array element, for example +NetDriverDefinitions) is matched by key AND value: the line is
  * added when no line has both, and other lines with the same key are left alone.
+ * With bRemove the line must NOT exist: every matching line is deleted (same matching rules), nothing else is touched.
  */
 struct FSteamIniEntry
 {
 	FString Section;
 	FString Key;
 	FString Value;
+	bool bRemove = false;
 };
 
 enum class ESteamIniChange : uint8
@@ -23,7 +25,9 @@ enum class ESteamIniChange : uint8
 	/** Key (or its whole section) is missing and will be added. */
 	Added,
 	/** Key exists with another value and will be replaced. */
-	Modified
+	Modified,
+	/** A bRemove entry whose line exists and will be deleted. */
+	Removed
 };
 
 struct FSteamIniChange
@@ -76,6 +80,14 @@ public:
 	 */
 	static TArray<FSteamIniEntry> BuildNetworkEngineEntries(const FSteamNetworkTuning& Tuning);
 
+	/**
+	 * The DefaultEngine.ini entry that loads the engine's SteamAuth packet handler component ([PacketHandlerComponents]
+	 * +Components=OnlineSubsystemSteam.SteamAuthComponentModuleInterface). Append to BuildRequiredEntries only when the Auth module is
+	 * installed. bEnable false makes it a bRemove entry, so turning the setting off takes the line out again.
+	 * Other +Components lines (encryption etc.) are never touched.
+	 */
+	static TArray<FSteamIniEntry> BuildSteamAuthEntries(bool bEnable = true);
+
 	/** The DefaultGame.ini network tuning entries: GameNetworkManager TotalNetBandwidth, MaxDynamicBandwidth and MinDynamicBandwidth. */
 	static TArray<FSteamIniEntry> BuildNetworkGameEntries(const FSteamNetworkTuning& Tuning);
 
@@ -85,6 +97,9 @@ public:
 	/** What Apply would do, per entry. */
 	static TArray<FSteamIniChange> Diff(const FString& Ini, const TArray<FSteamIniEntry>& Entries);
 
-	/** Returns Ini with every entry set. Missing sections are appended, missing keys added at the end of their section. */
+	/**
+	 * Returns Ini with every entry set. Missing sections are appended, missing keys added at the end of their section.
+	 * bRemove entries delete their lines; a section left empty keeps its header.
+	 */
 	static FString Apply(const FString& Ini, const TArray<FSteamIniEntry>& Entries);
 };

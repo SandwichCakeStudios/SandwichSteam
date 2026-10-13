@@ -167,6 +167,15 @@ TArray<FSteamIniEntry> FSteamIniWriter::BuildNetworkEngineEntries(const FSteamNe
 	};
 }
 
+TArray<FSteamIniEntry> FSteamIniWriter::BuildSteamAuthEntries(bool bEnable)
+{
+	// An array element: matched by key and value, so the project's other packet handler components stay as they are.
+	// Host and clients must have the same list, or the client loops on the connection handshake (verified 2026-10-13).
+	FSteamIniEntry Entry{ TEXT("PacketHandlerComponents"), TEXT("+Components"), TEXT("OnlineSubsystemSteam.SteamAuthComponentModuleInterface") };
+	Entry.bRemove = !bEnable;
+	return { MoveTemp(Entry) };
+}
+
 TArray<FSteamIniEntry> FSteamIniWriter::BuildNetworkGameEntries(const FSteamNetworkTuning& Tuning)
 {
 	return {
@@ -205,7 +214,11 @@ TArray<FSteamIniChange> FSteamIniWriter::Diff(const FString& Ini, const TArray<F
 
 		FString ExistingValue;
 		const FIniLocation Location = Locate(Lines, Entry.Section, Entry.Key, &ExistingValue, Entry.Key.StartsWith(TEXT("+")) ? &Entry.Value : nullptr);
-		if (Location.KeyLine == INDEX_NONE)
+		if (Entry.bRemove)
+		{
+			Change.Change = Location.KeyLine != INDEX_NONE ? ESteamIniChange::Removed : ESteamIniChange::Unchanged;
+		}
+		else if (Location.KeyLine == INDEX_NONE)
 		{
 			Change.Change = ESteamIniChange::Added;
 		}
@@ -227,8 +240,21 @@ FString FSteamIniWriter::Apply(const FString& Ini, const TArray<FSteamIniEntry>&
 	bool bChanged = false;
 	for (const FSteamIniEntry& Entry : Entries)
 	{
+		const FString* ElementValue = Entry.Key.StartsWith(TEXT("+")) ? &Entry.Value : nullptr;
+		if (Entry.bRemove)
+		{
+			// Locate returns the last matching line, so repeat until none is left (a line can be duplicated by hand).
+			for (FIniLocation Found = Locate(Lines, Entry.Section, Entry.Key, nullptr, ElementValue); Found.KeyLine != INDEX_NONE;
+				Found = Locate(Lines, Entry.Section, Entry.Key, nullptr, ElementValue))
+			{
+				Lines.RemoveAt(Found.KeyLine);
+				bChanged = true;
+			}
+			continue;
+		}
+
 		FString ExistingValue;
-		const FIniLocation Location = Locate(Lines, Entry.Section, Entry.Key, &ExistingValue, Entry.Key.StartsWith(TEXT("+")) ? &Entry.Value : nullptr);
+		const FIniLocation Location = Locate(Lines, Entry.Section, Entry.Key, &ExistingValue, ElementValue);
 		const FString NewLine = Entry.Key + TEXT("=") + Entry.Value;
 
 		if (Location.KeyLine != INDEX_NONE)

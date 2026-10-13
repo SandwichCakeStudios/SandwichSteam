@@ -223,4 +223,48 @@ bool FSteamIniWriterNetworkTuningTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIniWriterSteamAuthTest, "SandwichSteam.Editor.IniWriter.SteamAuth",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FSteamIniWriterSteamAuthTest::RunTest(const FString& Parameters)
+{
+	const TArray<FSteamIniEntry> Auth = FSteamIniWriter::BuildSteamAuthEntries();
+	const FString Line = TEXT("+Components=OnlineSubsystemSteam.SteamAuthComponentModuleInterface");
+
+	// Added to an empty ini, with its section.
+	const FString Fresh = FSteamIniWriter::Apply(FString(), Auth);
+	TestTrue(TEXT("Section is written"), Fresh.Contains(TEXT("[PacketHandlerComponents]")));
+	TestTrue(TEXT("Line is written"), Fresh.Contains(Line));
+	TestEqual(TEXT("Applying twice equals applying once"), FSteamIniWriter::Apply(Fresh, Auth), Fresh);
+
+	// A foreign component in the same section is kept and the SteamAuth line is added next to it.
+	const FString Foreign = TEXT("[PacketHandlerComponents]\n+Components=AESGCMHandlerComponent\n");
+	const TArray<FSteamIniChange> Changes = FSteamIniWriter::Diff(Foreign, Auth);
+	TestEqual(TEXT("One change"), Changes.Num(), 1);
+	TestEqual(TEXT("SteamAuth line is Added, not Modified"), Changes[0].Change, ESteamIniChange::Added);
+	const FString Merged = FSteamIniWriter::Apply(Foreign, Auth);
+	TestTrue(TEXT("Foreign component is kept"), Merged.Contains(TEXT("+Components=AESGCMHandlerComponent")));
+	TestTrue(TEXT("SteamAuth line is added"), Merged.Contains(Line));
+
+	// Already there (hand-written): nothing changes.
+	const FString HandWritten = FString(TEXT("[PacketHandlerComponents]\n")) + Line + TEXT("\n");
+	TestEqual(TEXT("Hand-written line is Unchanged"), FSteamIniWriter::Diff(HandWritten, Auth)[0].Change, ESteamIniChange::Unchanged);
+	TestEqual(TEXT("Hand-written ini is returned untouched"), FSteamIniWriter::Apply(HandWritten, Auth), HandWritten);
+
+	// Setting off: the line is removed, the foreign component stays, and a second run changes nothing.
+	const TArray<FSteamIniEntry> Off = FSteamIniWriter::BuildSteamAuthEntries(false);
+	TestEqual(TEXT("Present line is Removed"), FSteamIniWriter::Diff(Merged, Off)[0].Change, ESteamIniChange::Removed);
+	const FString Removed = FSteamIniWriter::Apply(Merged, Off);
+	TestFalse(TEXT("SteamAuth line is gone"), Removed.Contains(Line));
+	TestTrue(TEXT("Foreign component survives the removal"), Removed.Contains(TEXT("+Components=AESGCMHandlerComponent")));
+	TestEqual(TEXT("Nothing left to remove"), FSteamIniWriter::Diff(Removed, Off)[0].Change, ESteamIniChange::Unchanged);
+	TestEqual(TEXT("Removing twice equals removing once"), FSteamIniWriter::Apply(Removed, Off), Removed);
+	TestEqual(TEXT("Removing from an ini without the line returns it untouched"), FSteamIniWriter::Apply(Foreign, Off), Foreign);
+
+	// A duplicated hand-written line is removed completely.
+	const FString Twice = HandWritten + Line + TEXT("\n");
+	TestFalse(TEXT("Every copy is removed"), FSteamIniWriter::Apply(Twice, Off).Contains(Line));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
