@@ -39,6 +39,24 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ClampMin = "0.02", ClampMax = "1.0", ToolTip = "Seconds between checks of who is talking. Only runs while voice is enabled. 0.1 is smooth enough for a talking indicator."))
 	float TalkingPollSeconds = 0.1f;
 
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Steam mutes the player's Steam friends voice chat while they talk in game (SetInGameVoiceSpeaking). Off by default because it changes the player's Steam chat; offer it in your options menu. Steam voice pipeline only."))
+	bool bMuteSteamFriendsVoiceWhileTalking = false;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "255", ToolTip = "Steam networking messages channel used for voice. Change it only when your game uses SteamNetworkingMessages on channel 7 itself."))
+	int32 SteamMessageChannel = 7;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "20", ClampMax = "500", Units = "Milliseconds", ToolTip = "Audio each speaker keeps buffered before it plays. Higher survives worse networks, lower is more direct. 80 ms suits most connections."))
+	int32 PlayoutDelayMs = 80;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "48000", ToolTip = "Sample rate voice is decoded at. 0 uses Steam's optimal rate for the codec (recommended); 48000 is the fallback if voice sounds wrong."))
+	int32 DecodeSampleRate = 0;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", AdvancedDisplay, meta = (ClampMin = "10", ClampMax = "500", ToolTip = "Most voice packets per second accepted from one player. More are dropped; a player over the limit for 5 seconds in a row is muted for the session."))
+	int32 MaxPacketsPerSecond = 60;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", AdvancedDisplay, meta = (ClampMin = "1024", ClampMax = "65536", ToolTip = "Most voice bytes per second accepted from one player (Steam voice is about 3 KB/s)."))
+	int32 MaxBytesPerSecond = 8192;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Push To Talk", meta = (ToolTip = "The Enhanced Input action that is held to talk (a digital action). The plugin binds it on the local player controller's Enhanced Input component: pressed = start talking, released = stop. Leave empty to drive Start Talking / Stop Talking yourself."))
 	TSoftObjectPtr<UInputAction> PushToTalkAction;
 
