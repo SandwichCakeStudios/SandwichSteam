@@ -38,7 +38,7 @@ void FSandwichSteamAuthModule::StartupModule()
 	SandwichSteam::Debug::RegisterSection(MoveTemp(Section));
 
 	Commands.Add(TEXT("Steam.Auth.Dump"),
-		TEXT("Prints whether the SteamAuth packet handler is enabled, the delegate binding and every auth result seen by this host."),
+		TEXT("Prints the Auth setting, whether the SteamAuth packet handler is loaded, the failure policy, the delegate bindings and every player's auth status on this host."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&DumpAuth));
 #endif
 }
