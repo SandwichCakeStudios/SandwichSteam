@@ -10,7 +10,7 @@
 class USteamVoiceSubsystem;
 
 /**
- * Test page for the Voice feature (needs two machines and two Steam accounts in the same game session; see Systems/Voice.md):
+ * Test page for the Voice feature (needs two machines and two Steam accounts in the same game session):
  * enable / disable, mode switch, a toggle for the microphone (same as holding the push to talk key), mute and unmute the first other
  * player, master volume, and a live list of who talks. The state block is the Steam.Voice.Dump report.
  */

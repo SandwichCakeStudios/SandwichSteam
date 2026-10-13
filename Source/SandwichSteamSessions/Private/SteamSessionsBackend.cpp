@@ -211,7 +211,7 @@ bool FSteamSessionsBackend::CreateSession(const FGameplayTag& ProfileTag, const 
 
 	if (IsRunningDedicatedServer())
 	{
-		// Dormant: dedicated servers are not supported (future content, Documents/Plans/Improvements.md 4.1).
+		// Dormant: dedicated servers are not supported (future content).
 		// A dedicated server has no Steam user and no lobby: it registers a game server session.
 		Settings.bIsDedicated = true;
 		Settings.bUsesPresence = false;

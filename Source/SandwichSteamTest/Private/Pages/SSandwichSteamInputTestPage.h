@@ -14,7 +14,7 @@ class USteamInputSubsystem;
 /**
  * Test page for the Input feature (Steam Input): controllers and their type, the active action set and layers, cycling the action set, toggling the
  * first layer, rumble, the light bar, Steam's binding panel and the glyph of the first action of the active set. The state block is the Steam.Input.Dump
- * report. Needs a controller and an action file (see Systems/SteamInput.md).
+ * report. Needs a controller and an action file.
  */
 class SSandwichSteamInputTestPage : public SCompoundWidget
 {

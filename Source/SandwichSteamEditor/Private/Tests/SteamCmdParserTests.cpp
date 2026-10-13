@@ -25,7 +25,7 @@ namespace
 }
 
 // The samples are written from known SteamCMD output, not captured from a real upload. Add real lines here when a
-// [verify] run shows a different wording (see PROGRESS.md).
+// real run shows a different wording.
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamCmdParserLoginTest, "SandwichSteam.Editor.SteamCmd.Login",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)

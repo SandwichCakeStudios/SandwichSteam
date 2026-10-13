@@ -30,7 +30,7 @@ namespace
 {
 	FSteamResult NoController()
 	{
-		return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "InputNoController", "No controller is connected. Steam Input only reports controllers of an action file: see Documents/Systems/SteamInput.md."));
+		return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "InputNoController", "No controller is connected. Steam Input only reports controllers of an action file."));
 	}
 }
 

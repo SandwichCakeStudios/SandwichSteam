@@ -28,7 +28,7 @@ class UInputMappingContext;
  *
  * Nothing runs without a controller except a check for a newly connected controller every Idle Poll Seconds (Input settings). With a controller the
  * feature runs every frame. The Steam client only delivers controllers of an action file (game_actions_<AppId>.vdf: the partner site, or the Action
- * Manifest test setting); see Documents/Systems/SteamInput.md. Do not enable the engine's SteamController plugin at the same time.
+ * Manifest test setting). Do not enable the engine's SteamController plugin at the same time.
  * All methods run on the game thread.
  */
 UCLASS()

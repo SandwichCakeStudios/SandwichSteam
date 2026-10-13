@@ -15,7 +15,7 @@ struct FSteamAuthResult;
 
 /**
  * Test page for the Auth feature (needs Enable Steam Authentication + Configure Steam, and a second machine with a second Steam
- * account joining this host; see Systems/Auth.md): the Steam.Auth.Dump report, a live list of the On Steam Auth Result /
+ * account joining this host): the Steam.Auth.Dump report, a live list of the On Steam Auth Result /
  * On Steam Auth Failed events, and the players of the game with their status and a Kick button (Kick Steam Player).
  */
 class SSandwichSteamAuthTestPage : public SCompoundWidget

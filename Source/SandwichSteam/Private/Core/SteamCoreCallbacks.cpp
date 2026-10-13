@@ -65,7 +65,7 @@ void FSteamCoreCallbacks::RunThreadCheck()
 			const uint32 CallbackThreadId = LocalDispatcher->GetLastEnqueueThreadId();
 			const bool bOnGameThread = LocalDispatcher->WasLastEnqueueOnGameThread();
 			UE_LOG(LogSandwichSteam, Display,
-				TEXT("Steam.Core.ThreadCheck: game thread id=%u, raw Steam callback ran on thread id=%u (%s the game thread)%s. Record this in PROGRESS.md [verify]."),
+				TEXT("Steam.Core.ThreadCheck: game thread id=%u, raw Steam callback ran on thread id=%u (%s the game thread)%s."),
 				GameThreadId, CallbackThreadId, bOnGameThread ? TEXT("SAME as") : TEXT("different from"),
 				bIOFailure ? TEXT(", IO failure") : TEXT(""));
 		});
