@@ -19,6 +19,7 @@ Steam for Unreal Engine 5, made friendly. Achievements, stats, leaderboards, lob
 | **A Blueprint user.** I just want the nodes | [Quick Start](quick-start.html), then the feature guides *(coming soon)* |
 | **A C++ developer.** I want the API | [Installation, path 2](installation.html#path-2-c-project), then the feature guides *(coming soon)* |
 | **Ready to upload a build** | [Publishing to Steam](publishing.html) |
+| **Hosting multiplayer** and want Steam to check who joins | [Steam Authentication](steam-authentication.html) |
 | **Stuck** | [Troubleshooting](troubleshooting.html) |
 
 ## What you need to know first
