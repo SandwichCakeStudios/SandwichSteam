@@ -86,23 +86,27 @@ bool USteamVoiceSubsystem::InitializeFeature()
 {
 #if SANDWICHSTEAM_WITH_STEAMWORKS
 	OssFallback = MakeShared<FSteamVoiceOssFallback>(GetGameInstance());
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
 
-	// The Online Subsystem voice and the Steam pipeline would both read Steam's microphone: only one of them runs.
+	// The Online Subsystem voice and the Steam pipeline would both read Steam's microphone: only one of them runs. The setting picks
+	// the path and Configure Steam writes the matching ini; when the ini does not match (yet), the path the ini allows runs.
+	const bool bWantSteamPipeline = Settings ? Settings->bUseSteamVoicePipeline : true;
 	bUseSteamPipeline = !OssFallback->IsUsable();
-	if (bUseSteamPipeline)
+	if (bUseSteamPipeline != bWantSteamPipeline)
 	{
-		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: using the Steam voice pipeline (the Online Subsystem voice interface is off)."));
+		UE_LOG(LogSandwichSteam, Error, TEXT("Steam voice: Use Steam Voice Pipeline is %s, but DefaultEngine.ini %s [OnlineSubsystem] bHasVoiceEnabled / [Voice] bEnabled. Run Configure Steam and restart; using the %s for now."),
+			bWantSteamPipeline ? TEXT("on") : TEXT("off"), bWantSteamPipeline ? TEXT("still has") : TEXT("does not have"),
+			bUseSteamPipeline ? TEXT("Steam voice pipeline") : TEXT("Online Subsystem voice"));
 	}
 	else
 	{
-		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: using the Online Subsystem voice ([OnlineSubsystem] bHasVoiceEnabled=true). Remove bHasVoiceEnabled and [Voice] bEnabled from DefaultEngine.ini to use the Steam voice pipeline."));
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: using the %s."), bUseSteamPipeline ? TEXT("Steam voice pipeline") : TEXT("Online Subsystem voice (fallback)"));
 	}
 	WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddUObject(this, &USteamVoiceSubsystem::HandleWorldCleanup);
 
 	Tracker = MakeUnique<FTalkingTracker>();
 	Book = MakeUnique<FMuteBook>();
 
-	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
 	bEnabled = Settings ? Settings->bEnabledByDefault : true;
 	Mode = Settings ? Settings->DefaultMode : ESteamVoiceMode::PushToTalk;
 	MasterVolume = Settings ? Settings->DefaultMasterVolume : 1.0f;
@@ -1162,7 +1166,7 @@ FSteamResult USteamVoiceSubsystem::SetFakeTalkers(int32 Count, int32 DelayMs, fl
 	}
 	if (!bUseSteamPipeline)
 	{
-		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceFakeNeedsPipeline", "Fake talkers need the Steam voice pipeline (remove bHasVoiceEnabled and [Voice] bEnabled from DefaultEngine.ini)."));
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceFakeNeedsPipeline", "Fake talkers need the Steam voice pipeline (turn on Use Steam Voice Pipeline in the Voice settings, run Configure Steam and restart)."));
 	}
 
 	FakeTalkerCount = FMath::Clamp(Count, 0, SandwichSteam::Voice::MaxFakeTalkers);

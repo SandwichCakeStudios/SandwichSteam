@@ -32,11 +32,12 @@ namespace Audio
 /**
  * Steam in-session voice chat. Client only.
  *
- * Two pipelines, picked once when the feature starts:
- * - Steam voice pipeline (when the Online Subsystem has no voice interface): Steam capture and codec, SteamNetworkingMessages between the
+ * Two pipelines, picked once when the feature starts by Use Steam Voice Pipeline (Configure Steam writes the matching ini):
+ * - Steam voice pipeline (default; the Online Subsystem has no voice interface): Steam capture and codec, SteamNetworkingMessages between the
  *   players of the game, a voice worker thread (jitter, decode), and USteamVoiceComponent speakers (one 2D speaker per talker for now).
- * - Online Subsystem voice (when [OnlineSubsystem] bHasVoiceEnabled=true and [Voice] bEnabled=true): the engine carries voice over the
- *   game connection (IOnlineVoice). Needs [/Script/Engine.GameSession] bRequiresPushToTalk=true as well.
+ * - Online Subsystem voice, the fallback ([OnlineSubsystem] bHasVoiceEnabled=true and [Voice] bEnabled=true): the engine carries voice
+ *   over the game connection (IOnlineVoice). [/Script/Engine.GameSession] bRequiresPushToTalk=true keeps the engine from opening the microphone.
+ * When the ini does not match the setting, the path the ini allows runs and an error is logged.
  *
  * Both work while players are in the same game session. The feature adds a mode (push to talk / open mic) you can switch at runtime,
  * push to talk through Enhanced Input, mute by Steam ID with automatic muting of players you blocked on Steam, talking events and a master volume.

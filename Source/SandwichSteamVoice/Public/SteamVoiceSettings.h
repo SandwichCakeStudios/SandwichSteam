@@ -30,6 +30,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Voice is on when the game starts. Turn off to enable it from your options menu (Set Voice Enabled). While voice is off nothing runs: no microphone, no polling, no input binding."))
 	bool bEnabledByDefault = true;
 
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "On: the Steam voice pipeline (Steam capture and codec over Steam networking messages; clearer and louder). Off: the Online Subsystem voice (IOnlineVoice over the game connection) as a fallback. Changing it offers Configure Steam, which removes (on) or adds (off) [OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled in DefaultEngine.ini. Restart the editor afterwards."))
+	bool bUseSteamVoicePipeline = true;
+
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "How the microphone opens when the game starts. The player can switch at runtime with Set Voice Mode."))
 	ESteamVoiceMode DefaultMode = ESteamVoiceMode::PushToTalk;
 
