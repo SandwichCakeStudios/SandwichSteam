@@ -130,12 +130,12 @@ namespace
 
 		if (Pending == 0)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("IniOk", "Platform service, Steam subsystem, SteamDevAppId (and the SteamSockets net driver when Sessions is installed, voice when Voice is installed) are set.")));
+			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("IniOk", "Platform service, Steam subsystem, SteamDevAppId (and the SteamSockets net driver when Sessions is installed, the voice entries matching Use Steam Voice Pipeline when Voice is installed) are set.")));
 			return;
 		}
 
 		FSteamValidationCheck Check = MakeCheck(Id, ESteamCheckSeverity::Error, Label,
-			FText::Format(LOCTEXT("IniPending", "{0} setting(s) missing or different (DefaultPlatformService=Steam, bEnabled, SteamDevAppId, the SteamSockets net driver when Sessions is installed, bHasVoiceEnabled and bRequiresPushToTalk when Voice is installed). Steam will not start (or voice will not work) until they are set."), FText::AsNumber(Pending)));
+			FText::Format(LOCTEXT("IniPending", "{0} setting(s) missing or different (DefaultPlatformService=Steam, bEnabled, SteamDevAppId, the SteamSockets net driver when Sessions is installed, and when Voice is installed bHasVoiceEnabled and [Voice] bEnabled: present for the Online Subsystem voice, absent for the Steam voice pipeline; bRequiresPushToTalk for the Online Subsystem voice). Steam will not start (or voice uses the other path) until they are set."), FText::AsNumber(Pending)));
 		Check.FixLabel = LOCTEXT("IniFix", "Configure Steam...");
 		Check.Fix = []() { SandwichSteam::Editor::ConfigureSteam(); };
 		Out.Add(MoveTemp(Check));

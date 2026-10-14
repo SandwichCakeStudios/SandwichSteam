@@ -99,17 +99,32 @@ namespace
 	}
 }
 
-TArray<FSteamIniEntry> FSteamIniWriter::BuildGameEntries(bool bWithVoice)
+TArray<FSteamIniEntry> FSteamIniWriter::BuildVoiceEngineEntries(bool bOssVoice)
+{
+	TArray<FSteamIniEntry> Entries = {
+		// Without it the Steam Online Subsystem creates no voice interface.
+		{ TEXT("OnlineSubsystem"), TEXT("bHasVoiceEnabled"), TEXT("true") },
+		// The engine's voice module creates no capture device (and so no voice interface) unless this is set.
+		{ TEXT("Voice"), TEXT("bEnabled"), TEXT("true") }
+	};
+	for (FSteamIniEntry& Entry : Entries)
+	{
+		Entry.bRemove = !bOssVoice;
+	}
+	return Entries;
+}
+
+TArray<FSteamIniEntry> FSteamIniWriter::BuildVoiceGameEntries(bool bOssVoice)
 {
 	TArray<FSteamIniEntry> Entries;
-	if (bWithVoice)
+	if (bOssVoice)
 	{
 		Entries.Add({ TEXT("/Script/Engine.GameSession"), TEXT("bRequiresPushToTalk"), TEXT("true") });
 	}
 	return Entries;
 }
 
-TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, bool bWithSessions, bool bWithVoice, bool bWithRelaunchOff)
+TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, bool bWithSessions, bool bWithRelaunchOff)
 {
 	TArray<FSteamIniEntry> Entries = {
 		{ TEXT("OnlineSubsystem"), TEXT("DefaultPlatformService"), TEXT("Steam") },
@@ -123,14 +138,6 @@ TArray<FSteamIniEntry> FSteamIniWriter::BuildRequiredEntries(int32 SteamAppId, b
 		// NULL subsystem. A Shipping build is not affected either way: without UE_PROJECT_STEAMSHIPPINGID (a dedicated server
 		// macro that needs a source engine) it has no App ID to relaunch with, and players start it from Steam.
 		Entries.Add({ TEXT("OnlineSubsystemSteam"), TEXT("bRelaunchInSteam"), TEXT("false") });
-	}
-
-	if (bWithVoice)
-	{
-		// Without it the Steam Online Subsystem creates no voice interface.
-		Entries.Add({ TEXT("OnlineSubsystem"), TEXT("bHasVoiceEnabled"), TEXT("true") });
-		// The engine's voice module creates no capture device (and so no voice interface) unless this is set.
-		Entries.Add({ TEXT("Voice"), TEXT("bEnabled"), TEXT("true") });
 	}
 
 	if (bWithSessions)
