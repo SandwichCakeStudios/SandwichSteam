@@ -1,6 +1,7 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "SteamVoiceSubsystem.h"
+#include "Core/SteamBackend.h"
 #include "Core/SteamGameplayTags.h"
 #include "Core/SteamLog.h"
 #include "EnhancedInputComponent.h"
@@ -18,7 +19,7 @@
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
 #include "Core/SteamSDK.h"
-#include "SteamVoiceBackend.h"
+#include "SteamVoiceOssFallback.h"
 #include "SteamVoiceComponent.h"
 #include "SteamVoiceRouting.h"
 #include "SteamVoiceRules.h"
@@ -34,6 +35,36 @@ namespace
 {
 	/** Steam has one microphone and one message channel per process: only one game instance (PIE) runs the pipeline. Game thread only. */
 	TWeakObjectPtr<USteamVoiceSubsystem> GPipelineOwner;
+
+	/** The signed in Steam user (raw). Invalid when Steam is not ready. */
+	FSteamId GetSignedInSteamId(const UGameInstance* GameInstance)
+	{
+#if SANDWICHSTEAM_WITH_STEAMWORKS
+		if (SandwichSteam::IsSteamClientReady(GameInstance))
+		{
+			if (ISteamUser* User = SteamUser())
+			{
+				return FSteamId(static_cast<int64>(User->GetSteamID().ConvertToUint64()));
+			}
+		}
+#endif
+		return FSteamId();
+	}
+
+	/** True when the local user has blocked the player on Steam. False when unknown (Steam not ready). */
+	bool IsBlockedOnSteam(const UGameInstance* GameInstance, FSteamId Player)
+	{
+#if SANDWICHSTEAM_WITH_STEAMWORKS
+		if (Player.IsValid() && SandwichSteam::IsSteamClientReady(GameInstance))
+		{
+			if (ISteamFriends* Friends = SteamFriends())
+			{
+				return Friends->GetFriendRelationship(CSteamID(static_cast<uint64>(Player.Value))) == k_EFriendRelationshipBlocked;
+			}
+		}
+#endif
+		return false;
+	}
 }
 
 USteamVoiceSubsystem* USteamVoiceSubsystem::Get(const UObject* WorldContext)
@@ -54,10 +85,10 @@ FGameplayTag USteamVoiceSubsystem::GetFeatureTag() const
 bool USteamVoiceSubsystem::InitializeFeature()
 {
 #if SANDWICHSTEAM_WITH_STEAMWORKS
-	Backend = MakeShared<FSteamVoiceBackend>(GetGameInstance());
+	OssFallback = MakeShared<FSteamVoiceOssFallback>(GetGameInstance());
 
 	// The Online Subsystem voice and the Steam pipeline would both read Steam's microphone: only one of them runs.
-	bUseSteamPipeline = !Backend->IsUsable();
+	bUseSteamPipeline = !OssFallback->IsUsable();
 	if (bUseSteamPipeline)
 	{
 		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: using the Steam voice pipeline (the Online Subsystem voice interface is off)."));
@@ -76,7 +107,7 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	Mode = Settings ? Settings->DefaultMode : ESteamVoiceMode::PushToTalk;
 	MasterVolume = Settings ? Settings->DefaultMasterVolume : 1.0f;
 
-	LocalId = Backend->GetLocalSteamId();
+	LocalId = GetSignedInSteamId(GetGameInstance());
 	bTalkRequested = false;
 	bMicOpen = false;
 	bPushToTalkUnavailable = false;
@@ -125,9 +156,9 @@ void USteamVoiceSubsystem::ShutdownFeature()
 		WorldCleanupHandle.Reset();
 	}
 
-	if (Backend.IsValid() && bMicOpen && !bUseSteamPipeline)
+	if (OssFallback.IsValid() && bMicOpen && !bUseSteamPipeline)
 	{
-		Backend->StopTalking();
+		OssFallback->StopTalking();
 	}
 	bMicOpen = false;
 	bTalkRequested = false;
@@ -140,7 +171,7 @@ void USteamVoiceSubsystem::ShutdownFeature()
 	LastGameState.Reset();
 	Book.Reset();
 	Tracker.Reset();
-	Backend.Reset();
+	OssFallback.Reset();
 }
 
 FSteamResult USteamVoiceSubsystem::SetVoiceEnabled(bool bNewEnabled)
@@ -225,7 +256,7 @@ bool USteamVoiceSubsystem::IsHeadsetPresent() const
 		return false;
 #endif
 	}
-	return Backend.IsValid() && Backend->IsHeadsetPresent();
+	return OssFallback.IsValid() && OssFallback->IsHeadsetPresent();
 }
 
 TArray<FSteamId> USteamVoiceSubsystem::GetPlayersInGame() const
@@ -440,7 +471,7 @@ bool USteamVoiceSubsystem::ShouldTalk() const
 
 void USteamVoiceSubsystem::RefreshTalking(bool bForce)
 {
-	if (!Backend.IsValid())
+	if (!OssFallback.IsValid())
 	{
 		return;
 	}
@@ -461,11 +492,11 @@ void USteamVoiceSubsystem::RefreshTalking(bool bForce)
 	bMicOpen = bWant;
 	if (bWant)
 	{
-		Backend->StartTalking();
+		OssFallback->StartTalking();
 	}
 	else
 	{
-		Backend->StopTalking();
+		OssFallback->StopTalking();
 	}
 }
 
@@ -483,7 +514,7 @@ void USteamVoiceSubsystem::HandlePushToTalkReleased()
 
 bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 {
-	if (!Backend.IsValid() || !bEnabled)
+	if (!OssFallback.IsValid() || !bEnabled)
 	{
 		TickHandle.Reset();
 		return false; // Removes the ticker.
@@ -521,10 +552,10 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 
 	if (!LocalId.IsValid())
 	{
-		LocalId = Backend->GetLocalSteamId();
+		LocalId = GetSignedInSteamId(GetGameInstance());
 	}
 
-	// A new game state means a new session (or a new map): talkers register again, so what the backend knew is void.
+	// A new game state means a new session (or a new map): talkers register again, so what the Online Subsystem knew is void.
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
 	if (GameState != LastGameState.Get())
 	{
@@ -536,7 +567,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 			ApplyMasterVolume();
 			if (bMicOpen && !bUseSteamPipeline)
 			{
-				Backend->StartTalking(); // The connection is new; open the microphone on it.
+				OssFallback->StartTalking(); // The connection is new; open the microphone on it.
 			}
 		}
 	}
@@ -557,7 +588,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	if (LocalId.IsValid())
 	{
 		NowPresent.Add(LocalId.Value);
-		if (bUseSteamPipeline ? PipelineTalking.Contains(LocalId.Value) : Backend->IsLocalTalking())
+		if (bUseSteamPipeline ? PipelineTalking.Contains(LocalId.Value) : OssFallback->IsLocalTalking())
 		{
 			NowTalking.Add(LocalId.Value);
 		}
@@ -596,7 +627,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 
 			NowPresent.Add(Id.Value);
 			Others.Emplace(Id, NetId);
-			if (bUseSteamPipeline ? PipelineTalking.Contains(Id.Value) : Backend->IsRemoteTalking(*NetId))
+			if (bUseSteamPipeline ? PipelineTalking.Contains(Id.Value) : OssFallback->IsRemoteTalking(*NetId))
 			{
 				NowTalking.Add(Id.Value);
 			}
@@ -623,7 +654,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		if (!Evaluated.Contains(Other.Key.Value))
 		{
 			Evaluated.Add(Other.Key.Value);
-			if (Settings && Settings->bAutoMuteBlockedPlayers && Backend->IsBlockedOnSteam(Other.Key) && Book->SetAutoMuted(Other.Key.Value, true))
+			if (Settings && Settings->bAutoMuteBlockedPlayers && IsBlockedOnSteam(GetGameInstance(), Other.Key) && Book->SetAutoMuted(Other.Key.Value, true))
 			{
 				OnPlayerMuteChanged.Broadcast(Other.Key, true, true);
 			}
@@ -653,12 +684,12 @@ void USteamVoiceSubsystem::BroadcastTalking(int64 Player, bool bTalking)
 void USteamVoiceSubsystem::ApplyMute(FSteamId Player, const TSharedPtr<const FUniqueNetId>& NetId)
 {
 	// The Steam pipeline reads mutes from the routing snapshot.
-	if (bUseSteamPipeline || !Backend.IsValid() || !NetId.IsValid() || !Book->NeedsApply(Player.Value))
+	if (bUseSteamPipeline || !OssFallback.IsValid() || !NetId.IsValid() || !Book->NeedsApply(Player.Value))
 	{
 		return;
 	}
 
-	if (Backend->SetMuted(*NetId, Book->IsMuted(Player.Value), Book->IsSystemWide(Player.Value)))
+	if (OssFallback->SetMuted(*NetId, Book->IsMuted(Player.Value), Book->IsSystemWide(Player.Value)))
 	{
 		Book->MarkApplied(Player.Value);
 	}

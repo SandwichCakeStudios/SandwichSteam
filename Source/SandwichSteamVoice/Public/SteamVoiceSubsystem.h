@@ -13,7 +13,7 @@
 
 class AGameStateBase;
 class APlayerController;
-class FSteamVoiceBackend;
+class FSteamVoiceOssFallback;
 class FSteamVoiceTransport;
 class FSteamVoiceWorker;
 class FUniqueNetId;
@@ -166,7 +166,7 @@ private:
 	bool ApplyMasterVolume();
 	void RemoveVolumeMix();
 
-	/** Sends the wanted mute state of one player to the backend when it is not confirmed yet. */
+	/** Sends the wanted mute state of one player to the Online Subsystem fallback when it is not confirmed yet. */
 	void ApplyMute(FSteamId Player, const TSharedPtr<const FUniqueNetId>& NetId);
 
 	void BroadcastTalking(int64 Player, bool bTalking);
@@ -195,7 +195,7 @@ private:
 		bool bActive = false;
 	};
 
-	TSharedPtr<FSteamVoiceBackend> Backend;
+	TSharedPtr<FSteamVoiceOssFallback> OssFallback;
 	TSharedPtr<FSteamVoiceTransport> Transport;
 	/** Shared pointers keep the forward declarations above enough for the generated code. */
 	TSharedPtr<FSteamVoiceWorker> Worker;
@@ -237,7 +237,7 @@ private:
 	ESteamVoiceMode Mode = ESteamVoiceMode::PushToTalk;
 	/** Push to talk held, or Start Talking called. */
 	bool bTalkRequested = false;
-	/** What the backend was last told. */
+	/** The microphone state last given to the Steam pipeline or the Online Subsystem fallback. */
 	bool bMicOpen = false;
 	float MasterVolume = 1.0f;
 
