@@ -182,6 +182,7 @@ void FSteamVoiceWorker::Step(double Now)
 	});
 	DeliverFakePackets(Now);
 	Playout(Now);
+	MixChannels(Now);
 	UpdateActivity(Now);
 
 	if (Now >= NextStats)
@@ -213,7 +214,13 @@ void FSteamVoiceWorker::ApplySnapshot(double Now)
 
 	const bool bPeersChanged = !Snapshot.IsValid() || Snapshot->Peers != NewSnapshot->Peers;
 	const bool bFakeChanged = !Snapshot.IsValid() || !(Snapshot->Fake == NewSnapshot->Fake);
+	const bool bChannelsChanged = !Snapshot.IsValid() || Snapshot->ChannelOutputs != NewSnapshot->ChannelOutputs;
 	Snapshot = MoveTemp(NewSnapshot);
+
+	if (bChannelsChanged)
+	{
+		ApplyChannelOutputs();
+	}
 
 	if (bFakeChanged)
 	{
@@ -253,6 +260,66 @@ void FSteamVoiceWorker::ApplySnapshot(double Now)
 	if (Snapshot->Fake.Count <= 0)
 	{
 		DelayedPackets.Reset();
+	}
+}
+
+void FSteamVoiceWorker::ApplyChannelOutputs()
+{
+	TMap<int32, TArray<const FChannelOutput*, TInlineAllocator<4>>> Wanted;
+	for (const FChannelOutput& Output : Snapshot->ChannelOutputs)
+	{
+		if (Output.Channel >= 0 && Output.Splitter.IsValid())
+		{
+			Wanted.FindOrAdd(Output.Channel).Add(&Output);
+		}
+	}
+
+	// Channels nobody plays any more: the game thread already disconnected their speakers.
+	for (auto It = Channels.CreateIterator(); It; ++It)
+	{
+		if (!Wanted.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	// A channel that stays keeps its mixer, so a speaker added or removed mid-sentence does not cut the others.
+	for (const TPair<int32, TArray<const FChannelOutput*, TInlineAllocator<4>>>& Pair : Wanted)
+	{
+		TUniquePtr<FChannel>& Channel = Channels.FindOrAdd(Pair.Key);
+		if (!Channel.IsValid())
+		{
+			Channel = MakeUnique<FChannel>();
+			Channel->Mixer.Configure(DecodeSampleRate, Config.ChannelLeadSeconds);
+		}
+
+		TArray<uint64, TInlineAllocator<4>> Excluded;
+		for (const FChannelOutput* Output : Pair.Value)
+		{
+			Excluded.Add(Output->Excluded);
+		}
+
+		const TArray<FPatchSplitterPtr> OldSplitters = MoveTemp(Channel->Splitters);
+		const TArray<bool> OldActive = MoveTemp(Channel->Active);
+		TArray<uint64, TInlineAllocator<4>> OldExcluded;
+		for (int32 Index = 0; Index < Channel->Mixer.NumOutputs(); ++Index)
+		{
+			OldExcluded.Add(Channel->Mixer.GetOutputExcluded(Index));
+		}
+
+		Channel->Mixer.SetOutputs(Excluded);
+		Channel->Splitters.Reset(Channel->Mixer.NumOutputs());
+		Channel->Active.Reset(Channel->Mixer.NumOutputs());
+		for (int32 Index = 0; Index < Channel->Mixer.NumOutputs(); ++Index)
+		{
+			const uint64 Id = Channel->Mixer.GetOutputExcluded(Index);
+			const FChannelOutput* const* Output = Pair.Value.FindByPredicate([Id](const FChannelOutput* Candidate) { return Candidate->Excluded == Id; });
+			Channel->Splitters.Add((*Output)->Splitter);
+
+			// Still active only for the same splitter: a new one has new speakers that wait for their start event.
+			const int32 Old = OldExcluded.IndexOfByKey(Id);
+			Channel->Active.Add(Old != INDEX_NONE && OldSplitters.IsValidIndex(Old) && OldSplitters[Old] == (*Output)->Splitter && OldActive[Old]);
+		}
 	}
 }
 
@@ -465,7 +532,9 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 	}
 
 	// Fake talkers: the same packet comes back later as somebody else, through the full receive path.
+	// With a fake channel they talk on that channel only (radio), so Channel speakers can be tested alone.
 	const FFakeTalkerConfig& Fake = Snapshot->Fake;
+	const int32 FakeChannel = Fake.Channel;
 	for (int32 Index = 0; Index < FMath::Min(Fake.Count, MaxFakeTalkers); ++Index)
 	{
 		if (Fake.LossPercent > 0.0f && Random.FRand() * 100.0f < Fake.LossPercent)
@@ -477,11 +546,19 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 		Delayed.Due = Now + (Fake.DelayMs + Index * Fake.StaggerMs) / 1000.0;
 		Delayed.Stamp = Now;
 		Delayed.Talker = FakeTalkerIdBase + static_cast<uint64>(Index);
-		Delayed.Data = PacketBuffer;
+		if (FakeChannel < 0)
+		{
+			Delayed.Data = PacketBuffer;
+		}
+		else if (!WriteVoicePacket(PacketSequence, 0, TConstArrayView<int32>(&FakeChannel, 1), TConstArrayView<uint8>(Data, Size), Delayed.Data))
+		{
+			DelayedPackets.Pop(EAllowShrinking::No);
+			continue;
+		}
 
 		// Steam decodes per speaker id inside the payload: give each fake its own id, or all fakes would share our decoder.
 		// Only when this payload has exactly the expected layout; otherwise the rewrite would damage it.
-		const TArrayView<uint8> FakePayload(Delayed.Data.GetData() + PacketHeaderBytes, Delayed.Data.Num() - PacketHeaderBytes);
+		const TArrayView<uint8> FakePayload(Delayed.Data.GetData() + Delayed.Data.Num() - Size, Size);
 		if (bIdMatches && bCrcMatches && RewritePayloadSpeaker(FakePayload, Delayed.Talker))
 		{
 			++Stats.FakeRewritten;
@@ -547,21 +624,15 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		return;
 	}
 
-	// Only the mouth plays for now; channel playback is not built yet.
-	if (!Packet.HasMouth())
-	{
-		return;
-	}
-
-	const TConstArrayView<uint8> Payload(Packet.Payload, Packet.PayloadSize);
-	if (ReadPayloadSpeaker(Payload) != Sender)
+	if (ReadPayloadSpeaker(TConstArrayView<uint8>(Packet.Payload, Packet.PayloadSize)) != Sender)
 	{
 		// Steam decodes per speaker id inside the payload: a packet carrying somebody else's id would drive that player's decoder state.
 		++Stats.SpeakerMismatch;
 		return;
 	}
 
-	Talker.Jitter.Push(Packet.Sequence, Payload, Now, Stamp);
+	// The whole packet is queued: where it plays (mouth, channels) is decided when it is played, against the routing of that moment.
+	Talker.Jitter.Push(Packet.Sequence, TConstArrayView<uint8>(Data, Size), Now, Stamp);
 }
 
 void FSteamVoiceWorker::DeliverFakePackets(double Now)
@@ -590,22 +661,24 @@ void FSteamVoiceWorker::Playout(double Now)
 		FTalker& Talker = *Pair.Value;
 		for (;;)
 		{
-			TConstArrayView<uint8> Payload;
+			TConstArrayView<uint8> Queued;
 			double Stamp = 0.0;
-			const FJitterBuffer::EPopResult Result = Talker.Jitter.Pop(Now, MaxGapWaitSeconds, Payload, Stamp);
+			const FJitterBuffer::EPopResult Result = Talker.Jitter.Pop(Now, MaxGapWaitSeconds, Queued, Stamp);
 			if (Result == FJitterBuffer::EPopResult::None)
 			{
 				break;
 			}
-			if (Result == FJitterBuffer::EPopResult::Packet)
+
+			FPacketView Packet;
+			if (Result == FJitterBuffer::EPopResult::Packet && ReadPacket(Queued.GetData(), Queued.Num(), Packet) == EPacketReadResult::Voice)
 			{
-				Decode(Talker, Payload, Now, Stamp);
+				Decode(Talker, Packet, Now, Stamp);
 			}
 		}
 	}
 }
 
-void FSteamVoiceWorker::Decode(FTalker& Talker, TConstArrayView<uint8> Payload, double Now, double Stamp)
+void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, double Now, double Stamp)
 {
 #if SANDWICHSTEAM_WITH_STEAMWORKS
 	ISteamUser* User = SteamUser();
@@ -614,8 +687,24 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, TConstArrayView<uint8> Payload, 
 		return;
 	}
 
+	// The channels of this packet somebody here plays. Nothing to play: no decode (Steam's decoder treats the gap like a lost packet).
+	TArray<FChannel*, TInlineAllocator<MaxPacketChannels>> Targets;
+	for (const int32 Id : Packet.GetChannels())
+	{
+		if (const TUniquePtr<FChannel>* Found = Channels.Find(Id))
+		{
+			Targets.AddUnique(Found->Get());
+		}
+	}
+	const bool bMouth = Packet.HasMouth();
+	if (!bMouth && Targets.IsEmpty())
+	{
+		++Stats.NotPlayed;
+		return;
+	}
+
 	uint32 BytesWritten = 0;
-	const EVoiceResult Result = User->DecompressVoice(Payload.GetData(), static_cast<uint32>(Payload.Num()), PcmBuffer.GetData(),
+	const EVoiceResult Result = User->DecompressVoice(Packet.Payload, static_cast<uint32>(Packet.PayloadSize), PcmBuffer.GetData(),
 		static_cast<uint32>(PcmBuffer.Num() * sizeof(int16)), &BytesWritten, static_cast<uint32>(DecodeSampleRate));
 	Talker.LastDecodeResult = static_cast<int32>(Result);
 	if (Result != k_EVoiceResultOK)
@@ -653,14 +742,34 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, TConstArrayView<uint8> Payload, 
 		Talker.LatencyMs = Talker.LatencyMs < 0.0f ? Latency : FMath::Lerp(Talker.LatencyMs, Latency, 0.1f);
 	}
 
-	Talker.Splitter->PushAudio(FloatBuffer.GetData(), NumSamples);
-
-	if (!Talker.bActive)
+	if (bMouth)
 	{
-		Talker.bActive = true;
-		PostEvent(EWorkerEvent::TalkerActive, &Talker, Talker.Id);
+		Talker.LastMouthAudio = Now;
+		Talker.Splitter->PushAudio(FloatBuffer.GetData(), NumSamples);
+		if (!Talker.bActive)
+		{
+			Talker.bActive = true;
+			PostEvent(EWorkerEvent::TalkerActive, &Talker, Talker.Id);
+		}
+	}
+
+	for (FChannel* Channel : Targets)
+	{
+		Channel->Mixer.Add(Talker.Id, FloatBuffer.GetData(), NumSamples, Now);
 	}
 #endif
+}
+
+void FSteamVoiceWorker::MixChannels(double Now)
+{
+	for (TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)
+	{
+		FChannel& Channel = *Pair.Value;
+		Channel.Mixer.Advance(Now, [&Channel](int32 Output, TConstArrayView<float> Samples)
+		{
+			Channel.Splitters[Output]->PushAudio(Samples.GetData(), Samples.Num());
+		});
+	}
 }
 
 void FSteamVoiceWorker::CheckDecode(double Stamp, const int16* Samples, int32 NumSamples, double Now)
@@ -729,10 +838,25 @@ void FSteamVoiceWorker::UpdateActivity(double Now)
 			PostEvent(bTalking ? EWorkerEvent::TalkingStarted : EWorkerEvent::TalkingStopped, &Talker, Talker.Id);
 		}
 
-		if (Talker.bActive && Now - Talker.LastAudio > IdleSeconds)
+		if (Talker.bActive && Now - Talker.LastMouthAudio > IdleSeconds)
 		{
 			Talker.bActive = false;
 			PostEvent(EWorkerEvent::TalkerIdle, &Talker, Talker.Id);
+		}
+	}
+
+	for (TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)
+	{
+		FChannel& Channel = *Pair.Value;
+		for (int32 Output = 0; Output < Channel.Active.Num(); ++Output)
+		{
+			const double LastAudio = Channel.Mixer.GetOutputLastAudio(Output);
+			const bool bActive = LastAudio >= 0.0 && Now - LastAudio <= IdleSeconds;
+			if (bActive != Channel.Active[Output])
+			{
+				Channel.Active[Output] = bActive;
+				PostChannelEvent(bActive ? EWorkerEvent::ChannelActive : EWorkerEvent::ChannelIdle, Pair.Key, Channel.Mixer.GetOutputExcluded(Output), Channel.Splitters[Output]);
+			}
 		}
 	}
 
@@ -781,6 +905,11 @@ void FSteamVoiceWorker::RemoveTalker(uint64 Id)
 		return;
 	}
 
+	for (TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)
+	{
+		Pair.Value->Mixer.RemoveTalker(Id);
+	}
+
 	if (Removed->bTalking)
 	{
 		PostEvent(EWorkerEvent::TalkingStopped, Removed.Get(), Id);
@@ -799,6 +928,17 @@ void FSteamVoiceWorker::PostEvent(EWorkerEvent Type, const FTalker* Talker, uint
 	{
 		Event.Splitter = Talker->Splitter;
 	}
+	Events.Enqueue(MoveTemp(Event));
+}
+
+void FSteamVoiceWorker::PostChannelEvent(EWorkerEvent Type, int32 Channel, uint64 Excluded, const FPatchSplitterPtr& Splitter)
+{
+	FWorkerEvent Event;
+	Event.Type = Type;
+	Event.Talker = Excluded;
+	Event.Channel = Channel;
+	Event.SampleRate = DecodeSampleRate;
+	Event.Splitter = Splitter;
 	Events.Enqueue(MoveTemp(Event));
 }
 
@@ -837,13 +977,14 @@ void FSteamVoiceWorker::CloseAll()
 	}
 	PendingSessions.Reset();
 	DelayedPackets.Reset();
+	Channels.Reset();
 	DecodeReferences.Reset();
 	LocalLevel.store(0.0f, std::memory_order_relaxed);
 }
 
 // ---- Stats ----
 
-void FSteamVoiceWorker::PublishStats(double /*Now*/)
+void FSteamVoiceWorker::PublishStats(double Now)
 {
 	Stats.GatedChunks = Gate.GetHeld();
 	Stats.ActivationThreshold = ActivationThreshold.load(std::memory_order_relaxed);
@@ -872,6 +1013,25 @@ void FSteamVoiceWorker::PublishStats(double /*Now*/)
 		Out.Queued = Talker.Jitter.GetQueued();
 		Out.Level = Talker.Level;
 		Out.PipelineLatencyMs = Talker.LatencyMs;
+	}
+
+	Stats.Channels.Reset();
+	for (const TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)
+	{
+		const FChannel& Channel = *Pair.Value;
+		for (int32 Output = 0; Output < Channel.Mixer.NumOutputs(); ++Output)
+		{
+			const FChannelMixer::FOutputStats Mix = Channel.Mixer.GetOutputStats(Output, Now);
+			FChannelOutputStats& Out = Stats.Channels.AddDefaulted_GetRef();
+			Out.Channel = Pair.Key;
+			Out.Excluded = Mix.Excluded;
+			Out.bRunning = Channel.Mixer.IsRunning();
+			Out.bActive = Channel.Active.IsValidIndex(Output) && Channel.Active[Output];
+			Out.ActiveTalkers = Mix.ActiveTalkers;
+			Out.Gain = Mix.Gain;
+			Out.Limited = Mix.Limited;
+			Out.OverflowSamples = Channel.Mixer.GetOverflowSamples();
+		}
 	}
 
 	FScopeLock Lock(&StatsLock);

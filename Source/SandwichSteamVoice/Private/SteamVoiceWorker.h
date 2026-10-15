@@ -8,7 +8,9 @@
 #include "HAL/Runnable.h"
 #include "Math/RandomStream.h"
 #include "SteamVoiceActivationGate.h"
+#include "SteamVoiceChannelMixer.h"
 #include "SteamVoiceJitterBuffer.h"
+#include "SteamVoicePacket.h"
 #include "SteamVoiceRateLimiter.h"
 #include "SteamVoiceRouting.h"
 
@@ -23,7 +25,7 @@ class FSteamVoiceTransport;
  * or burst voice. Never touches a UObject.
  *
  * Each loop: routing snapshot -> session requests -> hello -> capture (GetVoice), level, voice activation and send -> receive -> validate, rate limit,
- * mute -> jitter (reorder) -> DecompressVoice -> talker patch splitter -> talking / activity events.
+ * mute -> jitter (reorder) -> DecompressVoice -> talker patch splitter (mouth) and channel mixes -> channel output splitters -> talking / activity events.
  *
  * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats, SetActivationThreshold, GetLocalLevel.
  */
@@ -73,7 +75,10 @@ private:
 		bool bActive = false;
 		bool bTalking = false;
 		bool bFlooded = false;
+		/** Any decoded audio (talking indicator). */
 		double LastAudio = -1.0;
+		/** Decoded audio for the mouth (the talker's speakers start and stop on it). */
+		double LastMouthAudio = -1.0;
 		float Level = 0.0f;
 		float LatencyMs = -1.0f;
 		uint64 FloodDrops = 0;
@@ -83,6 +88,14 @@ private:
 		SandwichSteam::Voice::FRateLimiter Limiter;
 		SandwichSteam::Voice::FJitterBuffer Jitter;
 		SandwichSteam::Voice::FPatchSplitterPtr Splitter;
+	};
+
+	/** One channel the game thread wants mixed, with its outputs (full mix, mixes minus a player) in the mixer's output order. */
+	struct FChannel
+	{
+		SandwichSteam::Voice::FChannelMixer Mixer;
+		TArray<SandwichSteam::Voice::FPatchSplitterPtr> Splitters;
+		TArray<bool> Active;
 	};
 
 	struct FDelayedPacket
@@ -105,7 +118,10 @@ private:
 	void HandleIncoming(uint64 Sender, const uint8* Data, int32 Size, double Now, bool bFake, double Stamp);
 	void DeliverFakePackets(double Now);
 	void Playout(double Now);
-	void Decode(FTalker& Talker, TConstArrayView<uint8> Payload, double Now, double Stamp);
+	/** Decodes one played packet and routes it to the mouth and to the channels it carries. */
+	void Decode(FTalker& Talker, const SandwichSteam::Voice::FPacketView& Packet, double Now, double Stamp);
+	void ApplyChannelOutputs();
+	void MixChannels(double Now);
 	void CheckDecode(double Stamp, const int16* Samples, int32 NumSamples, double Now);
 	void UpdateActivity(double Now);
 	void PublishStats(double Now);
@@ -114,6 +130,7 @@ private:
 	FTalker& FindOrAddTalker(uint64 Id, bool bFake);
 	void RemoveTalker(uint64 Id);
 	void PostEvent(SandwichSteam::Voice::EWorkerEvent Type, const FTalker* Talker, uint64 Id);
+	void PostChannelEvent(SandwichSteam::Voice::EWorkerEvent Type, int32 Channel, uint64 Excluded, const SandwichSteam::Voice::FPatchSplitterPtr& Splitter);
 
 	bool IsPeer(uint64 Id) const { return PeerSet.Contains(Id); }
 
@@ -144,6 +161,7 @@ private:
 	SandwichSteam::Voice::FRoutingSnapshotPtr Snapshot;
 	TSet<uint64> PeerSet;
 	TMap<uint64, TUniquePtr<FTalker>> Talkers;
+	TMap<int32, TUniquePtr<FChannel>> Channels;
 	TMap<uint64, double> PendingSessions;
 	TArray<FDelayedPacket> DelayedPackets;
 

@@ -32,12 +32,30 @@ namespace SandwichSteam::Voice
 		int32 DelayMs = 100;
 		int32 StaggerMs = 250;
 		float LossPercent = 0.0f;
-		/** Reserved for channel tests (channel playback is not built yet). -1 = mouth only. */
+		/** -1: the fakes talk with their mouth. A channel id: they talk on that channel only (radio), for testing Channel speakers. */
 		int32 Channel = -1;
 
 		bool operator==(const FFakeTalkerConfig& Other) const
 		{
 			return Count == Other.Count && DelayMs == Other.DelayMs && StaggerMs == Other.StaggerMs && LossPercent == Other.LossPercent && Channel == Other.Channel;
+		}
+	};
+
+	using FPatchSplitterPtr = TSharedPtr<Audio::FPatchSplitter, ESPMode::ThreadSafe>;
+
+	/**
+	 * One mix the game thread wants from the worker: everyone on Channel, minus Excluded (0 = nobody, the full mix).
+	 * The game thread creates the splitter and connects the Channel speakers to it; the worker pushes the mix into it.
+	 */
+	struct FChannelOutput
+	{
+		int32 Channel = INDEX_NONE;
+		uint64 Excluded = 0;
+		FPatchSplitterPtr Splitter;
+
+		bool operator==(const FChannelOutput& Other) const
+		{
+			return Channel == Other.Channel && Excluded == Other.Excluded && Splitter == Other.Splitter;
 		}
 	};
 
@@ -57,10 +75,11 @@ namespace SandwichSteam::Voice
 		FFakeTalkerConfig Fake;
 		/** Steam.Voice.SimLoss: percent of real received packets dropped (non-Shipping). */
 		float SimLossPercent = 0.0f;
+		/** The channel mixes Channel speakers play, sorted by channel. Channels nobody plays are not decoded or mixed. */
+		TArray<FChannelOutput> ChannelOutputs;
 	};
 
 	using FRoutingSnapshotPtr = TSharedPtr<const FRoutingSnapshot, ESPMode::ThreadSafe>;
-	using FPatchSplitterPtr = TSharedPtr<Audio::FPatchSplitter, ESPMode::ThreadSafe>;
 
 	/** Fixed for the life of one worker (from the settings). */
 	struct FWorkerConfig
@@ -74,6 +93,8 @@ namespace SandwichSteam::Voice
 		float ActivationThreshold = 0.0f;
 		/** How long the gate stays open after the level fell below the threshold. */
 		float ActivationHoldSeconds = 0.3f;
+		/** How far ahead of the mix clock a talker starts on a channel (absorbs network jitter, like a mouth speaker's playout delay). */
+		float ChannelLeadSeconds = 0.08f;
 	};
 
 	enum class EWorkerEvent : uint8
@@ -90,13 +111,20 @@ namespace SandwichSteam::Voice
 		/** Over the rate limit for 5 s in a row: muted for the session. */
 		Flood,
 		/** The talker left (removed from the worker). */
-		TalkerRemoved
+		TalkerRemoved,
+		/** A channel output (Channel, Talker = excluded player, Splitter = the output's) got audio: start its speakers. */
+		ChannelActive,
+		/** A channel output had no audio for a second: stop its speakers. */
+		ChannelIdle
 	};
 
 	struct FWorkerEvent
 	{
 		EWorkerEvent Type = EWorkerEvent::TalkerIdle;
+		/** The talker; for channel events the output's excluded player (0 = full mix). */
 		uint64 Talker = 0;
+		/** Channel events only. */
+		int32 Channel = INDEX_NONE;
 		bool bFake = false;
 		int32 SampleRate = 0;
 		FPatchSplitterPtr Splitter;
@@ -124,6 +152,19 @@ namespace SandwichSteam::Voice
 		float Level = 0.0f;
 		/** Capture to speaker buffer (fake talkers only, ms). -1 = unknown. */
 		float PipelineLatencyMs = -1.0f;
+	};
+
+	/** Per channel output numbers for Steam.Voice.Dump. */
+	struct FChannelOutputStats
+	{
+		int32 Channel = INDEX_NONE;
+		uint64 Excluded = 0;
+		bool bRunning = false;
+		bool bActive = false;
+		int32 ActiveTalkers = 0;
+		float Gain = 1.0f;
+		uint64 Limited = 0;
+		uint64 OverflowSamples = 0;
 	};
 
 	/** Worker numbers for Steam.Voice.Dump, copied out under a lock a few times per second. */
@@ -172,6 +213,9 @@ namespace SandwichSteam::Voice
 		int32 SessionsPending = 0;
 		float LoopMaxMs = 0.0f;
 		float LoopAverageMs = 0.0f;
+		/** Received voice packets with neither mouth nor a channel anybody here plays: not decoded. */
+		uint64 NotPlayed = 0;
 		TArray<FTalkerStats> Talkers;
+		TArray<FChannelOutputStats> Channels;
 	};
 }

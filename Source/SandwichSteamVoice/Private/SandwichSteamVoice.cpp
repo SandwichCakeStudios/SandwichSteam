@@ -156,7 +156,7 @@ namespace
 
 		if (Args.IsEmpty())
 		{
-			Output.Log(TEXT("Usage: Steam.Voice.FakeTalker <count 0..8> [delayMs=100] [lossPct=0] [staggerMs=250] [channel=-1]. Fake i plays delayMs + i * staggerMs late. Open the microphone (Steam.Voice.Talk 1 or open mic) to hear yourself as fake talkers."));
+			Output.Log(TEXT("Usage: Steam.Voice.FakeTalker <count 0..8> [delayMs=100] [lossPct=0] [staggerMs=250] [channel=-1]. Fake i plays delayMs + i * staggerMs late. channel -1: the fakes talk with their mouth; a channel id: on that channel only (radio, for Channel speakers). Open the microphone (Steam.Voice.Talk 1 or open mic) to hear yourself as fake talkers."));
 			return;
 		}
 
