@@ -32,6 +32,22 @@ namespace
 	/** Decoded samples for one packet (one second at 48 kHz). */
 	constexpr int32 MaxDecodedSamples = 48000;
 	constexpr int32 MaxCaptureReadsPerLoop = 8;
+
+	float ComputeRms(const int16* Samples, int32 NumSamples)
+	{
+		if (NumSamples <= 0)
+		{
+			return 0.0f;
+		}
+
+		float SumSquares = 0.0f;
+		for (int32 Index = 0; Index < NumSamples; ++Index)
+		{
+			const float Sample = static_cast<float>(Samples[Index]) / 32768.0f;
+			SumSquares += Sample * Sample;
+		}
+		return FMath::Sqrt(SumSquares / static_cast<float>(NumSamples));
+	}
 }
 
 FSteamVoiceWorker::FSteamVoiceWorker(const FWorkerConfig& InConfig, TSharedRef<FSteamVoiceTransport> InTransport)
@@ -51,9 +67,13 @@ FSteamVoiceWorker::FSteamVoiceWorker(const FWorkerConfig& InConfig, TSharedRef<F
 
 	CaptureBuffer.SetNumUninitialized(CaptureBufferBytes);
 	PacketBuffer.Reserve(MaxPacketBytes);
+	PreRollBuffer.Reserve(MaxPacketBytes);
 	PcmBuffer.SetNumUninitialized(MaxDecodedSamples);
 	FloatBuffer.SetNumUninitialized(MaxDecodedSamples);
 	WriteHelloPacket(HelloBuffer);
+
+	Gate.Configure(Config.ActivationHoldSeconds);
+	SetActivationThreshold(Config.ActivationThreshold);
 
 	Stats.OptimalSampleRate = OptimalSampleRate;
 	Stats.DecodeSampleRate = DecodeSampleRate;
@@ -305,6 +325,7 @@ void FSteamVoiceWorker::Capture(double Now)
 		User->StartVoiceRecording();
 		bRecording = true;
 		bDrainingTail = false;
+		Gate.Reset();
 		if (Snapshot->bMuteSteamFriendsWhileTalking && Snapshot->LocalId != 0)
 		{
 			if (ISteamFriends* Friends = SteamFriends())
@@ -360,13 +381,65 @@ void FSteamVoiceWorker::HandleCaptured(const uint8* Data, int32 Size, double Now
 {
 	++Stats.CapturedChunks;
 	Stats.CapturedBytes += static_cast<uint64>(Size);
-	LastLocalAudio = Now;
+	LastCapture = Now;
 
 	const TConstArrayView<uint8> Captured(Data, Size);
 	const bool bIdMatches = Snapshot->LocalId != 0 && ReadPayloadSpeaker(Captured) == Snapshot->LocalId;
 	const bool bCrcMatches = HasValidPayloadCrc(Captured);
 	Stats.PayloadIdMatches += bIdMatches ? 1 : 0;
 	Stats.PayloadCrcMatches += bCrcMatches ? 1 : 0;
+
+	// Steam has no input gain: our own packet is decoded once to measure it (level meter, voice activation).
+	const float Level = MeasureCaptured(Data, Size);
+	LocalLevel.store(FMath::Max(Level, 0.0f), std::memory_order_relaxed);
+
+	Gate.SetThreshold(ActivationThreshold.load(std::memory_order_relaxed));
+	switch (Gate.Evaluate(Level, Now))
+	{
+	case FActivationGate::EDecision::Hold:
+		PreRollBuffer.Reset();
+		PreRollBuffer.Append(Data, Size);
+		bPreRollIdMatches = bIdMatches;
+		bPreRollCrcMatches = bCrcMatches;
+		return;
+
+	case FActivationGate::EDecision::SendWithPreRoll:
+		SendCaptured(PreRollBuffer.GetData(), PreRollBuffer.Num(), Now, bPreRollIdMatches, bPreRollCrcMatches);
+		break;
+
+	default:
+		break;
+	}
+	SendCaptured(Data, Size, Now, bIdMatches, bCrcMatches);
+}
+
+float FSteamVoiceWorker::MeasureCaptured(const uint8* Data, int32 Size)
+{
+#if SANDWICHSTEAM_WITH_STEAMWORKS
+	ISteamUser* User = SteamUser();
+	if (!User)
+	{
+		return -1.0f;
+	}
+
+	// Our own speaker id has its own decoder state: nobody else's audio passes through it (received packets with our id are dropped).
+	uint32 BytesWritten = 0;
+	const EVoiceResult Result = User->DecompressVoice(Data, static_cast<uint32>(Size), PcmBuffer.GetData(),
+		static_cast<uint32>(PcmBuffer.Num() * sizeof(int16)), &BytesWritten, static_cast<uint32>(DecodeSampleRate));
+	if (Result != k_EVoiceResultOK)
+	{
+		++Stats.LevelDecodeErrors;
+		return -1.0f;
+	}
+	return ComputeRms(PcmBuffer.GetData(), FMath::Min(static_cast<int32>(BytesWritten / sizeof(int16)), MaxDecodedSamples));
+#else
+	return -1.0f;
+#endif
+}
+
+void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, bool bIdMatches, bool bCrcMatches)
+{
+	LastLocalAudio = Now;
 
 	const uint16 PacketSequence = Sequence++;
 	if (!WriteVoicePacket(PacketSequence, PacketFlags::Mouth, TConstArrayView<int32>(), TConstArrayView<uint8>(Data, Size), PacketBuffer))
@@ -663,6 +736,12 @@ void FSteamVoiceWorker::UpdateActivity(double Now)
 		}
 	}
 
+	if (LastCapture >= 0.0 && Now - LastCapture > TalkingHoldSeconds)
+	{
+		LastCapture = -1.0;
+		LocalLevel.store(0.0f, std::memory_order_relaxed);
+	}
+
 	const bool bLocal = LastLocalAudio >= 0.0 && Now - LastLocalAudio <= TalkingHoldSeconds;
 	if (bLocal != bLocalTalking && Snapshot->LocalId != 0)
 	{
@@ -759,12 +838,15 @@ void FSteamVoiceWorker::CloseAll()
 	PendingSessions.Reset();
 	DelayedPackets.Reset();
 	DecodeReferences.Reset();
+	LocalLevel.store(0.0f, std::memory_order_relaxed);
 }
 
 // ---- Stats ----
 
 void FSteamVoiceWorker::PublishStats(double /*Now*/)
 {
+	Stats.GatedChunks = Gate.GetHeld();
+	Stats.ActivationThreshold = ActivationThreshold.load(std::memory_order_relaxed);
 	Stats.LoopAverageMs = LoopCount > 0 ? static_cast<float>(LoopTotalMs / static_cast<double>(LoopCount)) : 0.0f;
 	Stats.Talkers.Reset();
 	for (const TPair<uint64, TUniquePtr<FTalker>>& Pair : Talkers)

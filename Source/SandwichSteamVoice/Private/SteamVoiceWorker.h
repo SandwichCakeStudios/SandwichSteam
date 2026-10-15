@@ -7,6 +7,7 @@
 #include "HAL/CriticalSection.h"
 #include "HAL/Runnable.h"
 #include "Math/RandomStream.h"
+#include "SteamVoiceActivationGate.h"
 #include "SteamVoiceJitterBuffer.h"
 #include "SteamVoiceRateLimiter.h"
 #include "SteamVoiceRouting.h"
@@ -21,10 +22,10 @@ class FSteamVoiceTransport;
  * The real-time half of Steam voice, on its own thread (10 ms loop), so game-thread hitches (loading, GC, streaming) never stop
  * or burst voice. Never touches a UObject.
  *
- * Each loop: routing snapshot -> session requests -> hello -> capture (GetVoice) and send -> receive -> validate, rate limit,
+ * Each loop: routing snapshot -> session requests -> hello -> capture (GetVoice), level, voice activation and send -> receive -> validate, rate limit,
  * mute -> jitter (reorder) -> DecompressVoice -> talker patch splitter -> talking / activity events.
  *
- * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats.
+ * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats, SetActivationThreshold, GetLocalLevel.
  */
 class FSteamVoiceWorker : public FRunnable
 {
@@ -49,6 +50,12 @@ public:
 
 	/** Copy of the latest numbers (any thread). */
 	SandwichSteam::Voice::FWorkerStats GetStats() const;
+
+	/** Voice activation level (RMS, 0 to 1; 0 = off). Captured packets below it are not sent. Any thread, applies to the next packet. */
+	void SetActivationThreshold(float Threshold) { ActivationThreshold.store(FMath::Clamp(Threshold, 0.0f, 1.0f), std::memory_order_relaxed); }
+
+	/** Level (RMS, 0 to 1) of the last captured packet, 0 while nothing is captured. Any thread. */
+	float GetLocalLevel() const { return LocalLevel.load(std::memory_order_relaxed); }
 
 	/** The rate the worker decodes at; fixed for its life. */
 	int32 GetDecodeSampleRate() const { return DecodeSampleRate; }
@@ -92,6 +99,9 @@ private:
 	void SendHellos(double Now);
 	void Capture(double Now);
 	void HandleCaptured(const uint8* Data, int32 Size, double Now);
+	void SendCaptured(const uint8* Data, int32 Size, double Now, bool bIdMatches, bool bCrcMatches);
+	/** Decodes a captured packet of ours and returns its level (RMS), or -1 when it could not be decoded. */
+	float MeasureCaptured(const uint8* Data, int32 Size);
 	void HandleIncoming(uint64 Sender, const uint8* Data, int32 Size, double Now, bool bFake, double Stamp);
 	void DeliverFakePackets(double Now);
 	void Playout(double Now);
@@ -120,6 +130,10 @@ private:
 	mutable FCriticalSection SnapshotLock;
 	SandwichSteam::Voice::FRoutingSnapshotPtr PendingSnapshot;
 	std::atomic<bool> bSnapshotDirty{false};
+	std::atomic<float> ActivationThreshold{0.0f};
+
+	// Worker -> any thread.
+	std::atomic<float> LocalLevel{0.0f};
 
 	// Worker -> game thread.
 	TQueue<SandwichSteam::Voice::FWorkerEvent, EQueueMode::Spsc> Events;
@@ -143,6 +157,11 @@ private:
 	TMap<uint64, FDecodeReference> DecodeReferences;
 	FRandomStream Random;
 	SandwichSteam::Voice::FWorkerStats Stats;
+	SandwichSteam::Voice::FActivationGate Gate;
+	/** The last packet the gate held back, with the format check results it was captured with. Sent first when the gate opens. */
+	TArray<uint8> PreRollBuffer;
+	bool bPreRollIdMatches = false;
+	bool bPreRollCrcMatches = false;
 	TArray<uint8> CaptureBuffer;
 	TArray<uint8> PacketBuffer;
 	TArray<uint8> HelloBuffer;
@@ -154,6 +173,7 @@ private:
 	bool bSpeakingFlagSet = false;
 	bool bLocalTalking = false;
 	double LastLocalAudio = -1.0;
+	double LastCapture = -1.0;
 	double NextHello = 0.0;
 	double NextStats = 0.0;
 	double LoopTotalMs = 0.0;

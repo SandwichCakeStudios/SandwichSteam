@@ -70,6 +70,10 @@ namespace SandwichSteam::Voice
 		int32 RequestedSampleRate = 0;
 		float PacketsPerSecond = 60.0f;
 		float BytesPerSecond = 8192.0f;
+		/** Voice activation level the worker starts with (RMS, 0 = off). Changed at runtime with FSteamVoiceWorker::SetActivationThreshold. */
+		float ActivationThreshold = 0.0f;
+		/** How long the gate stays open after the level fell below the threshold. */
+		float ActivationHoldSeconds = 0.3f;
 	};
 
 	enum class EWorkerEvent : uint8
@@ -133,6 +137,11 @@ namespace SandwichSteam::Voice
 		uint64 CapturedChunks = 0;
 		uint64 CapturedBytes = 0;
 		uint64 CaptureTooLarge = 0;
+		/** Captured packets not sent because they were below the voice activation threshold. */
+		uint64 GatedChunks = 0;
+		/** Captured packets whose level could not be measured (sent anyway). */
+		uint64 LevelDecodeErrors = 0;
+		float ActivationThreshold = 0.0f;
 		/** Format check of the captured Steam payloads: starts with our Steam ID / ends with a valid CRC-32. */
 		uint64 PayloadIdMatches = 0;
 		uint64 PayloadCrcMatches = 0;
