@@ -7,6 +7,7 @@
 #include "Core/SteamEngineCompat.h"
 #include "Math/RandomStream.h"
 #include "SteamVoiceActivationGate.h"
+#include "SteamVoiceChannelMixer.h"
 #include "SteamVoiceJitterBuffer.h"
 #include "SteamVoicePacket.h"
 #include "SteamVoiceRateLimiter.h"
@@ -383,6 +384,136 @@ bool FSteamVoiceActivationGateTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Reset keeps the threshold"), Gate.GetThreshold(), 0.05f);
 	TestTrue(TEXT("Reset forgets the pre-roll"), Gate.Evaluate(0.2f, 4.05) == EDecision::Send);
 	TestTrue(TEXT("Exactly at the threshold opens"), Gate.Evaluate(0.05f, 10.0) == EDecision::Send);
+	return true;
+}
+
+namespace
+{
+	/** Runs the mixer clock to NowSeconds and appends what each output emitted. */
+	void AdvanceInto(FChannelMixer& Mixer, double NowSeconds, TArray<TArray<float>>& Out)
+	{
+		Out.SetNum(Mixer.NumOutputs());
+		Mixer.Advance(NowSeconds, [&Out](int32 Output, TConstArrayView<float> Samples)
+		{
+			Out[Output].Append(Samples.GetData(), Samples.Num());
+		});
+	}
+
+	TArray<float> MakeConstant(int32 NumSamples, float Value)
+	{
+		TArray<float> Samples;
+		Samples.Init(Value, NumSamples);
+		return Samples;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceChannelMixerTimingTest, "SandwichSteam.Voice.Pipeline.ChannelMixerTiming",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamVoiceChannelMixerTimingTest::RunTest(const FString& Parameters)
+{
+	// 8 kHz, 10 ms lead = 80 samples. Output 0: full mix, output 1: everyone but player 7.
+	FChannelMixer Mixer;
+	Mixer.Configure(8000, 0.01);
+	const uint64 Outputs[] = { 0, 7 };
+	Mixer.SetOutputs(Outputs);
+	TestFalse(TEXT("Idle before any audio"), Mixer.IsRunning());
+
+	const TArray<float> Block = MakeConstant(160, 0.25f);
+	Mixer.Add(5, Block.GetData(), Block.Num(), 1.0);
+	TestTrue(TEXT("Audio starts the clock"), Mixer.IsRunning());
+
+	TArray<TArray<float>> Out;
+	AdvanceInto(Mixer, 1.0, Out);
+	TestEqual(TEXT("Nothing is due at the start"), Out[0].Num(), 0);
+
+	AdvanceInto(Mixer, 1.01, Out);
+	TestEqual(TEXT("10 ms emitted"), Out[0].Num(), 80);
+	TestEqual(TEXT("Every output emits the same length"), Out[1].Num(), 80);
+	TestEqual(TEXT("The lead is silence"), Out[0][79], 0.0f);
+
+	AdvanceInto(Mixer, 1.04, Out);
+	TestEqual(TEXT("40 ms emitted in total"), Out[0].Num(), 320);
+	TestEqual(TEXT("Talker starts one lead late"), Out[0][80], 0.25f);
+	TestEqual(TEXT("Talker plays its whole block"), Out[0][239], 0.25f);
+	TestEqual(TEXT("Gap after the block is silence"), Out[0][240], 0.0f);
+	TestEqual(TEXT("Mix minus another player plays the talker"), Out[1][80], 0.25f);
+
+	// Player 7 talks: the full mix gets them, the mix minus 7 does not.
+	Mixer.Add(7, Block.GetData(), Block.Num(), 1.05);
+	TestEqual(TEXT("Full mix got audio"), Mixer.GetOutputLastAudio(0), 1.05);
+	TestEqual(TEXT("Mix minus 7 did not"), Mixer.GetOutputLastAudio(1), 1.0);
+	AdvanceInto(Mixer, 1.08, Out);
+	TestTrue(TEXT("Full mix plays player 7 (two talkers: with headroom)"), Out[0][320 + 80 + 40] > 0.1f);
+	TestEqual(TEXT("Mix minus 7 stays silent"), Out[1][320 + 80 + 40], 0.0f);
+
+	// A kept output keeps its audio when the outputs change; a new one starts empty.
+	Mixer.Add(5, Block.GetData(), Block.Num(), 1.08);
+	const uint64 NewOutputs[] = { 9, 0 };
+	Mixer.SetOutputs(NewOutputs);
+	TestEqual(TEXT("Outputs follow the new order"), Mixer.GetOutputExcluded(1), static_cast<uint64>(0));
+	TArray<TArray<float>> After;
+	AdvanceInto(Mixer, 1.12, After);
+	TestTrue(TEXT("Kept output still has the audio"), After[1].ContainsByPredicate([](float Sample) { return Sample > 0.0f; }));
+	TestFalse(TEXT("New output starts empty"), After[0].ContainsByPredicate([](float Sample) { return Sample != 0.0f; }));
+
+	// One second without audio: the channel stops; a stall emits at most one ring.
+	TArray<TArray<float>> Stall;
+	AdvanceInto(Mixer, 3.0, Stall);
+	TestEqual(TEXT("A stall emits at most one second"), Stall[0].Num(), 8000);
+	TestFalse(TEXT("Idle after a second of silence"), Mixer.IsRunning());
+	TArray<TArray<float>> Stopped;
+	AdvanceInto(Mixer, 3.5, Stopped);
+	TestEqual(TEXT("A stopped channel emits nothing"), Stopped[0].Num(), 0);
+
+	// Audio more than one second ahead of the clock is dropped and counted.
+	const TArray<float> Long = MakeConstant(10000, 0.1f);
+	Mixer.Add(5, Long.GetData(), Long.Num(), 4.0);
+	TestEqual(TEXT("Overflow counted"), static_cast<int32>(Mixer.GetOverflowSamples()), 10000 - (8000 - 80));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceChannelMixerLevelTest, "SandwichSteam.Voice.Pipeline.ChannelMixerLevel",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamVoiceChannelMixerLevelTest::RunTest(const FString& Parameters)
+{
+	const uint64 FullMix[] = { 0 };
+
+	// Two talkers at once: -3 dB, ramped over the first block, steady after.
+	{
+		FChannelMixer Mixer;
+		Mixer.Configure(8000, 0.0);
+		Mixer.SetOutputs(FullMix);
+		const TArray<float> Block = MakeConstant(800, 0.5f);
+		Mixer.Add(1, Block.GetData(), Block.Num(), 0.0);
+		Mixer.Add(2, Block.GetData(), Block.Num(), 0.0);
+
+		TArray<TArray<float>> Out;
+		AdvanceInto(Mixer, 0.05, Out);
+		AdvanceInto(Mixer, 0.1, Out);
+		const float Expected = 1.0f * FMath::Pow(10.0f, -3.0f / 20.0f);
+		TestTrue(TEXT("Ramp starts near unity gain"), Out[0][0] > Expected);
+		TestTrue(TEXT("Two talkers get -3 dB"), FMath::IsNearlyEqual(Out[0][500], Expected, 0.001f));
+		TestEqual(TEXT("Two active talkers"), Mixer.GetOutputStats(0, 0.1).ActiveTalkers, 2);
+	}
+
+	// Too loud: the soft limiter keeps it below full scale, quiet audio passes unchanged.
+	{
+		FChannelMixer Mixer;
+		Mixer.Configure(8000, 0.0);
+		Mixer.SetOutputs(FullMix);
+		const TArray<float> Loud = MakeConstant(400, 1.5f);
+		const TArray<float> Quiet = MakeConstant(400, -0.3f);
+		Mixer.Add(1, Loud.GetData(), Loud.Num(), 0.0);
+		Mixer.Add(1, Quiet.GetData(), Quiet.Num(), 0.0);
+
+		TArray<TArray<float>> Out;
+		AdvanceInto(Mixer, 0.1, Out);
+		TestTrue(TEXT("Limited below full scale"), Out[0][0] < 1.0f && Out[0][0] > FChannelMixer::LimiterKnee);
+		TestEqual(TEXT("Quiet audio is untouched"), Out[0][400], -0.3f);
+		TestEqual(TEXT("Limited samples counted"), static_cast<int32>(Mixer.GetOutputStats(0, 0.1).Limited), 400);
+	}
 	return true;
 }
 
