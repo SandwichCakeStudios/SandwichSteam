@@ -27,8 +27,9 @@ class APawn;
  * speaker keeps its pawn silent: no speaker is added in its place.
  * Any speaker without a sound class gets the Voice Sound Class of the settings.
  *
- * The voice worker decodes each talker and pushes the audio into a patch; this component reads it on the audio render thread
- * and keeps PlayoutDelayMs of audio buffered (fades in after a gap, fades out on an underrun).
+ * The voice worker decodes each talker (and mixes each channel) and pushes the audio into a patch; this component reads it on the audio
+ * render thread and keeps it buffered: Playout Delay for an Owner speaker, a short buffer for a Channel speaker, whose mix already absorbs
+ * the network jitter (fades in after a gap, fades out on an underrun).
  */
 UCLASS(ClassGroup = Audio, meta = (BlueprintSpawnableComponent, DisplayName = "Steam Voice"))
 class SANDWICHSTEAMVOICE_API USteamVoiceComponent : public USynthComponent
@@ -54,12 +55,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (ToolTip = "Switches this Channel speaker to another channel (walkie dial)."))
 	void SetChannel(FSteamVoiceChannel NewChannel);
 
-	/** The players this speaker plays right now (an Owner speaker: its owner once their voice is connected). */
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "The players this speaker plays right now."))
+	/** The player an Owner speaker plays right now (its owner once their voice is connected). Empty for a Channel speaker. */
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "The player an Owner speaker plays right now. Empty for a Channel speaker."))
 	TArray<FSteamId> GetTalkers() const;
 
-	/** True while one of the players this speaker plays talks. */
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "True while one of the players this speaker plays talks."))
+	/** Owner: true while its player talks. Channel: true while the channel has voice (until a second after the last word). */
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "Owner speaker: true while its player talks. Channel speaker: true while the channel has voice (until a second after the last word)."))
 	bool IsAnyoneTalking() const;
 
 	/** True while the speaker is switched on (Activate / Deactivate). Is Playing tells whether it makes sound right now. */
@@ -70,13 +71,17 @@ public:
 	APawn* GetOwningPawn() const;
 
 	/**
-	 * Connects the component to a talker's decoded audio (game thread, called by the voice subsystem). Call before Start, or while playing
-	 * to swap the source. InSampleRate is the rate the worker decodes at; it is fixed once the component has started playing.
+	 * Connects the component to decoded voice (game thread, called by the voice subsystem): a talker's audio (Owner) or a channel mix
+	 * (Channel, InTalker invalid). Call before Start, or while playing to swap the source. InSampleRate is the rate the worker decodes at;
+	 * it is fixed once the component has started playing. InBufferMs is the audio kept buffered before playing.
 	 */
-	void SetVoiceSource(FSteamId InTalker, Audio::FPatchOutputStrongPtr InOutput, int32 InSampleRate, int32 InPlayoutDelayMs);
+	void SetVoiceSource(FSteamId InTalker, Audio::FPatchOutputStrongPtr InOutput, int32 InSampleRate, int32 InBufferMs);
 
-	/** Stops the sound and releases the talker's audio (game thread, called by the voice subsystem). */
+	/** Stops the sound and releases the voice it plays (game thread, called by the voice subsystem). */
 	void ClearVoiceSource();
+
+	/** True while connected to a talker or a channel mix. */
+	bool HasVoiceSource() const { return bHasVoiceSource; }
 
 	/** The talker this component plays. Invalid while it plays nobody. */
 	FSteamId GetTalker() const { return Talker; }
@@ -96,6 +101,13 @@ public:
 	virtual void Deactivate() override;
 	//~ End UActorComponent
 
+#if WITH_EDITOR
+	//~ Begin UObject
+	/** Channel or Include Owner edited in the details panel while playing: routes the speaker again, like Set Channel. */
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	//~ End UObject
+#endif
+
 protected:
 	//~ Begin USynthComponent
 	virtual bool Init(int32& SampleRate) override;
@@ -105,6 +117,9 @@ protected:
 private:
 	/** Tells the voice subsystem the speaker was switched on or off (silences it at once when off). */
 	void NotifySwitched(bool bWasOn);
+
+	/** A Channel speaker's channel or owner rule changed: silences it and lets the routing connect it again on the next update. */
+	void RerouteChannelSpeaker();
 
 	/** Audio render thread state. Only touched there (set through SynthCommand). */
 	struct FRenderState
@@ -123,6 +138,7 @@ private:
 	bool bSpeakerOn = false;
 	bool bSpeakerSwitched = false;
 	bool bRegistered = false;
+	bool bHasVoiceSource = false;
 
 	std::atomic<int32> LastBufferedSamples{0};
 	std::atomic<uint32> Underruns{0};

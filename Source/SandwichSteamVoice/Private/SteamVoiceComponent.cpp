@@ -109,6 +109,11 @@ void USteamVoiceComponent::SetChannel(FSteamVoiceChannel NewChannel)
 	}
 
 	Channel = NewChannel;
+	RerouteChannelSpeaker();
+}
+
+void USteamVoiceComponent::RerouteChannelSpeaker()
+{
 	if (bRegistered && Source == ESteamVoiceSpeakerSource::Channel)
 	{
 		// The routing picks the new channel up on the next update.
@@ -119,6 +124,20 @@ void USteamVoiceComponent::SetChannel(FSteamVoiceChannel NewChannel)
 		}
 	}
 }
+
+#if WITH_EDITOR
+void USteamVoiceComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// MemberProperty: an edit inside the Channel struct (its Id or Tag) reports the struct here.
+	const FName Name = PropertyChangedEvent.MemberProperty ? PropertyChangedEvent.MemberProperty->GetFName() : NAME_None;
+	if (Name == GET_MEMBER_NAME_CHECKED(USteamVoiceComponent, Channel) || Name == GET_MEMBER_NAME_CHECKED(USteamVoiceComponent, bIncludeOwner))
+	{
+		RerouteChannelSpeaker();
+	}
+}
+#endif
 
 TArray<FSteamId> USteamVoiceComponent::GetTalkers() const
 {
@@ -132,8 +151,12 @@ TArray<FSteamId> USteamVoiceComponent::GetTalkers() const
 
 bool USteamVoiceComponent::IsAnyoneTalking() const
 {
-	const USteamVoiceSubsystem* Voice = Talker.IsValid() ? USteamVoiceSubsystem::Get(this) : nullptr;
-	return Voice && Voice->IsPlayerTalking(Talker);
+	const USteamVoiceSubsystem* Voice = bHasVoiceSource ? USteamVoiceSubsystem::Get(this) : nullptr;
+	if (!Voice)
+	{
+		return false;
+	}
+	return Source == ESteamVoiceSpeakerSource::Channel ? Voice->IsChannelSpeakerActive(this) : Voice->IsPlayerTalking(Talker);
 }
 
 APawn* USteamVoiceComponent::GetOwningPawn() const
@@ -148,14 +171,15 @@ APawn* USteamVoiceComponent::GetOwningPawn() const
 	return nullptr;
 }
 
-void USteamVoiceComponent::SetVoiceSource(FSteamId InTalker, Audio::FPatchOutputStrongPtr InOutput, int32 InSampleRate, int32 InPlayoutDelayMs)
+void USteamVoiceComponent::SetVoiceSource(FSteamId InTalker, Audio::FPatchOutputStrongPtr InOutput, int32 InSampleRate, int32 InBufferMs)
 {
 	check(IsInGameThread());
 
 	Talker = InTalker;
+	bHasVoiceSource = true;
 	VoiceSampleRate = FMath::Clamp(InSampleRate, 8000, 48000);
 
-	const int32 TargetSamples = FMath::Max(VoiceSampleRate * FMath::Clamp(InPlayoutDelayMs, 0, 1000) / 1000, 1);
+	const int32 TargetSamples = FMath::Max(VoiceSampleRate * FMath::Clamp(InBufferMs, 0, 1000) / 1000, 1);
 	const int32 FadeSamples = FMath::Max(FMath::RoundToInt(VoiceSampleRate * FadeMs / 1000.0f), 1);
 
 	// The render state belongs to the audio render thread; the command runs there before the next render.
@@ -172,12 +196,13 @@ void USteamVoiceComponent::ClearVoiceSource()
 {
 	check(IsInGameThread());
 
-	if (!Talker.IsValid())
+	if (!bHasVoiceSource)
 	{
 		return;
 	}
 
 	Talker = FSteamId();
+	bHasVoiceSource = false;
 	Stop();
 	SynthCommand([this]()
 	{

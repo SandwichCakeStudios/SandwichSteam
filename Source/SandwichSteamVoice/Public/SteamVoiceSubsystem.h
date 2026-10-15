@@ -157,6 +157,9 @@ public:
 	/** A speaker was switched on or off, or changed channel: route again on the next tick (called by the component). */
 	void MarkSpeakersDirty() { bSpeakersDirty = true; }
 
+	/** True while the channel mix a Channel speaker plays has audio (it stays true for a second after the last word). */
+	bool IsChannelSpeakerActive(const USteamVoiceComponent* Speaker) const;
+
 	/** True when the Steam voice pipeline runs (false: Online Subsystem voice, or voice disabled). */
 	bool IsUsingSteamPipeline() const { return bUseSteamPipeline; }
 
@@ -225,8 +228,32 @@ private:
 		TArray<TWeakObjectPtr<USteamVoiceComponent>> Connected;
 	};
 
-	/** Connects every talker to its pawn's Owner speakers (auto-adding one), or to a 2D speaker without a pawn. Runs when bSpeakersDirty. */
+	/** One channel mix: everyone on Channel minus the player Excluded (0 = the full mix). */
+	struct FChannelOutputKey
+	{
+		int32 Channel = INDEX_NONE;
+		int64 Excluded = 0;
+
+		bool operator==(const FChannelOutputKey& Other) const { return Channel == Other.Channel && Excluded == Other.Excluded; }
+		friend uint32 GetTypeHash(const FChannelOutputKey& Key) { return HashCombine(::GetTypeHash(Key.Channel), ::GetTypeHash(Key.Excluded)); }
+	};
+
+	struct FChannelOutputState
+	{
+		/** Created here, filled by the worker. */
+		TSharedPtr<Audio::FPatchSplitter, ESPMode::ThreadSafe> Splitter;
+		bool bActive = false;
+		/** Channel speakers that read a patch of Splitter. */
+		TArray<TWeakObjectPtr<USteamVoiceComponent>> Connected;
+	};
+
+	/**
+	 * Connects every talker to its pawn's Owner speakers (auto-adding one), or to a 2D speaker without a pawn, and every switched on
+	 * Channel speaker to its channel mix. Runs when bSpeakersDirty.
+	 */
 	void UpdateSpeakers();
+	/** Channel speakers: one mix per channel and excluded owner; publishes the routing when the set of mixes changed. */
+	void UpdateChannelSpeakers(UWorld* World);
 	void ConnectSpeakers(int64 Talker, FSpeakerSource& Source, TConstArrayView<USteamVoiceComponent*> Wanted);
 	void DisconnectSpeakers(int64 Talker, FSpeakerSource& Source);
 	USteamVoiceComponent* AddAutoSpeaker(int64 Talker, APawn* Pawn);
@@ -264,6 +291,10 @@ private:
 	UPROPERTY(Transient)
 	TMap<int64, TObjectPtr<USteamVoiceComponent>> FallbackSpeakers;
 	TWeakObjectPtr<UWorld> SpeakerWorld;
+	/** The channel mixes the Channel speakers of the current world play. */
+	TMap<FChannelOutputKey, FChannelOutputState> ChannelOutputs;
+	/** ChannelOutputs gained or lost a mix since the last routing publish. */
+	bool bChannelOutputsChanged = false;
 	/** Talker player states (from the player poll), for talker -> pawn. Their OnPawnSet is bound. */
 	TMap<int64, TWeakObjectPtr<APlayerState>> PlayerStates;
 	/** Speakers, pawns or talkers changed: run UpdateSpeakers on the next tick. */

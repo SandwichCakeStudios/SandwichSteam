@@ -37,6 +37,18 @@ namespace
 	/** Steam has one microphone and one message channel per process: only one game instance (PIE) runs the pipeline. Game thread only. */
 	TWeakObjectPtr<USteamVoiceSubsystem> GPipelineOwner;
 
+	/**
+	 * What a Channel speaker keeps buffered. The network jitter is absorbed in the mix (it runs one playout delay ahead), so the speaker only
+	 * covers the worker's 10 ms steps and the audio callback.
+	 */
+	constexpr int32 ChannelSpeakerBufferMs = 40;
+
+	/** The id a speaker's channel plays. Tag channels are not mapped to ids yet: only Id channels play. */
+	int32 ResolveChannelId(const FSteamVoiceChannel& Channel)
+	{
+		return Channel.Tag.IsValid() ? INDEX_NONE : Channel.Id;
+	}
+
 	/** The signed in Steam user (raw). Invalid when Steam is not ready. */
 	FSteamId GetSignedInSteamId(const UGameInstance* GameInstance)
 	{
@@ -785,6 +797,7 @@ bool USteamVoiceSubsystem::StartPipeline()
 		Config.PacketsPerSecond = static_cast<float>(Settings->MaxPacketsPerSecond);
 		Config.BytesPerSecond = static_cast<float>(Settings->MaxBytesPerSecond);
 		Config.ActivationHoldSeconds = static_cast<float>(FMath::Max(Settings->VoiceActivationHoldMs, 0)) / 1000.0f;
+		Config.ChannelLeadSeconds = static_cast<float>(FMath::Clamp(Settings->PlayoutDelayMs, 0, 500)) / 1000.0f;
 	}
 	Config.ActivationThreshold = ActivationThreshold;
 
@@ -830,6 +843,7 @@ void USteamVoiceSubsystem::StopPipeline()
 
 	DestroySpeakers();
 	SpeakerSources.Reset();
+	ChannelOutputs.Reset();
 	ForgetPlayerStates();
 	PipelineTalking.Reset();
 	bRoutingPublished = false;
@@ -872,7 +886,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	Muted.Sort();
 	Blocked.Sort();
 
-	if (bRoutingPublished && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked)
+	if (bRoutingPublished && !bChannelOutputsChanged && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked)
 	{
 		return;
 	}
@@ -891,7 +905,20 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->Fake.LossPercent = FakeTalkerLossPercent;
 	Snapshot->Fake.Channel = FakeTalkerChannel;
 	Snapshot->SimLossPercent = SimulatedLossPercent;
+	Snapshot->ChannelOutputs.Reserve(ChannelOutputs.Num());
+	for (const TPair<FChannelOutputKey, FChannelOutputState>& Pair : ChannelOutputs)
+	{
+		SandwichSteam::Voice::FChannelOutput& Output = Snapshot->ChannelOutputs.AddDefaulted_GetRef();
+		Output.Channel = Pair.Key.Channel;
+		Output.Excluded = static_cast<uint64>(Pair.Key.Excluded);
+		Output.Splitter = Pair.Value.Splitter;
+	}
+	Snapshot->ChannelOutputs.Sort([](const SandwichSteam::Voice::FChannelOutput& A, const SandwichSteam::Voice::FChannelOutput& B)
+	{
+		return A.Channel != B.Channel ? A.Channel < B.Channel : A.Excluded < B.Excluded;
+	});
 	Worker->Publish(Snapshot);
+	bChannelOutputsChanged = false;
 
 	PublishedPeers = MoveTemp(Peers);
 	PublishedMuted = MoveTemp(Muted);
@@ -955,6 +982,35 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 			}
 			break;
 
+		case EWorkerEvent::ChannelActive:
+		case EWorkerEvent::ChannelIdle:
+		{
+			// Only for the mix the event is about: a mix created again since then has its own events.
+			FChannelOutputState* Output = ChannelOutputs.Find(FChannelOutputKey{ Event.Channel, Talker });
+			if (!Output || Output->Splitter != Event.Splitter)
+			{
+				break;
+			}
+
+			Output->bActive = Event.Type == EWorkerEvent::ChannelActive;
+			for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Output->Connected)
+			{
+				if (!Speaker.IsValid())
+				{
+					continue;
+				}
+				if (!Output->bActive)
+				{
+					Speaker->Stop();
+				}
+				else if (!Speaker->IsPlaying())
+				{
+					Speaker->Start();
+				}
+			}
+			break;
+		}
+
 		case EWorkerEvent::TalkingStarted:
 			PipelineTalking.Add(Talker);
 			break;
@@ -988,6 +1044,18 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 	{
 		UpdateSpeakers();
 	}
+}
+
+bool USteamVoiceSubsystem::IsChannelSpeakerActive(const USteamVoiceComponent* Speaker) const
+{
+	for (const TPair<FChannelOutputKey, FChannelOutputState>& Pair : ChannelOutputs)
+	{
+		if (Pair.Value.Connected.Contains(Speaker))
+		{
+			return Pair.Value.bActive;
+		}
+	}
+	return false;
 }
 
 TArray<USteamVoiceComponent*> USteamVoiceSubsystem::GetPlayerVoiceComponents(FSteamId Player) const
@@ -1052,7 +1120,7 @@ void USteamVoiceSubsystem::UpdateSpeakers()
 		SpeakerWorld = World;
 	}
 
-	// Owner speakers by the pawn they belong to, switched off ones included (they still claim the pawn). Channel speakers are fed by the channel mix.
+	// Owner speakers by the pawn they belong to, switched off ones included (they still claim the pawn). Channel speakers: UpdateChannelSpeakers.
 	TMap<const APawn*, TArray<USteamVoiceComponent*, TInlineAllocator<2>>> PawnSpeakers;
 	for (auto It = RegisteredSpeakers.CreateIterator(); It; ++It)
 	{
@@ -1147,6 +1215,109 @@ void USteamVoiceSubsystem::UpdateSpeakers()
 		}
 
 		ConnectSpeakers(Talker, Source, Wanted);
+	}
+
+	UpdateChannelSpeakers(World);
+}
+
+void USteamVoiceSubsystem::UpdateChannelSpeakers(UWorld* World)
+{
+	// Talker by player state, for the mix without a speaker's owner.
+	TMap<const APlayerState*, int64> TalkerByState;
+	for (const TPair<int64, TWeakObjectPtr<APlayerState>>& Pair : PlayerStates)
+	{
+		if (const APlayerState* PlayerState = Pair.Value.Get())
+		{
+			TalkerByState.Add(PlayerState, Pair.Key);
+		}
+	}
+
+	TMap<FChannelOutputKey, TArray<USteamVoiceComponent*, TInlineAllocator<4>>> Wanted;
+	for (const TWeakObjectPtr<USteamVoiceComponent>& Registered : RegisteredSpeakers)
+	{
+		USteamVoiceComponent* Speaker = Registered.Get();
+		if (!IsValid(Speaker) || Speaker->Source != ESteamVoiceSpeakerSource::Channel || Speaker->GetWorld() != World || !Speaker->IsSpeakerOn())
+		{
+			continue;
+		}
+
+		FChannelOutputKey Key;
+		Key.Channel = ResolveChannelId(Speaker->Channel);
+		if (Key.Channel < 0)
+		{
+			continue;
+		}
+
+		// The local player's own voice never comes back, so only a remote owner needs a mix without them.
+		if (!Speaker->bIncludeOwner)
+		{
+			const APawn* Pawn = Speaker->GetOwningPawn();
+			const int64* Owner = Pawn ? TalkerByState.Find(Pawn->GetPlayerState()) : nullptr;
+			Key.Excluded = Owner ? *Owner : 0;
+		}
+		Wanted.FindOrAdd(Key).Add(Speaker);
+	}
+
+	// Disconnect first: a speaker that moved to another mix (new channel, new owner) is cleared before it connects there.
+	for (auto It = ChannelOutputs.CreateIterator(); It; ++It)
+	{
+		const TArray<USteamVoiceComponent*, TInlineAllocator<4>>* Speakers = Wanted.Find(It.Key());
+		FChannelOutputState& Output = It.Value();
+		for (int32 Index = Output.Connected.Num() - 1; Index >= 0; --Index)
+		{
+			USteamVoiceComponent* Speaker = Output.Connected[Index].Get();
+			// Without a voice source the speaker was switched off or changed channel since: it connects again below.
+			if (Speaker && Speaker->HasVoiceSource() && Speakers && Speakers->Contains(Speaker))
+			{
+				continue;
+			}
+			if (Speaker)
+			{
+				Speaker->ClearVoiceSource();
+			}
+			Output.Connected.RemoveAtSwap(Index);
+		}
+
+		if (!Speakers)
+		{
+			It.RemoveCurrent();
+			bChannelOutputsChanged = true;
+		}
+	}
+
+	const int32 SampleRate = Worker.IsValid() ? Worker->GetDecodeSampleRate() : 0;
+	if (SampleRate > 0)
+	{
+		for (const TPair<FChannelOutputKey, TArray<USteamVoiceComponent*, TInlineAllocator<4>>>& Pair : Wanted)
+		{
+			FChannelOutputState* Output = ChannelOutputs.Find(Pair.Key);
+			if (!Output)
+			{
+				Output = &ChannelOutputs.Add(Pair.Key);
+				Output->Splitter = MakeShared<Audio::FPatchSplitter, ESPMode::ThreadSafe>();
+				bChannelOutputsChanged = true;
+			}
+
+			for (USteamVoiceComponent* Speaker : Pair.Value)
+			{
+				if (Output->Connected.Contains(Speaker))
+				{
+					continue;
+				}
+
+				Speaker->SetVoiceSource(FSteamId(), Output->Splitter->AddNewPatch(SampleRate, 1.0f), SampleRate, ChannelSpeakerBufferMs);
+				Output->Connected.Add(Speaker);
+				if (Output->bActive && !Speaker->IsPlaying())
+				{
+					Speaker->Start();
+				}
+			}
+		}
+	}
+
+	if (bChannelOutputsChanged)
+	{
+		PublishRouting();
 	}
 }
 
@@ -1287,6 +1458,19 @@ void USteamVoiceSubsystem::DestroySpeakers()
 		DisconnectSpeakers(Pair.Key, Pair.Value);
 		Pair.Value.Pawn.Reset();
 	}
+
+	for (TPair<FChannelOutputKey, FChannelOutputState>& Pair : ChannelOutputs)
+	{
+		for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Pair.Value.Connected)
+		{
+			if (Speaker.IsValid())
+			{
+				Speaker->ClearVoiceSource();
+			}
+		}
+	}
+	bChannelOutputsChanged |= !ChannelOutputs.IsEmpty();
+	ChannelOutputs.Reset();
 
 	for (TMap<int64, TObjectPtr<USteamVoiceComponent>>* Map : { &AutoSpeakers, &FallbackSpeakers })
 	{
@@ -1623,6 +1807,30 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		}
 
 		Report += FString::Printf(TEXT("    Speakers: %d registered, %d added to pawns, %d without a pawn (2D)\n"), RegisteredSpeakers.Num(), AutoSpeakers.Num(), FallbackSpeakers.Num());
+		Report += FString::Printf(TEXT("    Channels: %d mix(es), %llu voice packet(s) not decoded (no mouth and no channel played here)\n"), Stats.Channels.Num(), Stats.NotPlayed);
+		for (const SandwichSteam::Voice::FChannelOutputStats& Channel : Stats.Channels)
+		{
+			const FChannelOutputState* Output = ChannelOutputs.Find(FChannelOutputKey{ Channel.Channel, static_cast<int64>(Channel.Excluded) });
+			const USteamVoiceComponent* Component = nullptr;
+			int32 NumSpeakers = 0;
+			if (Output)
+			{
+				for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Output->Connected)
+				{
+					if (const USteamVoiceComponent* Connected = Speaker.Get())
+					{
+						Component = Component ? Component : Connected;
+						++NumSpeakers;
+					}
+				}
+			}
+
+			Report += FString::Printf(TEXT("      channel %d%s: %s%s, %d talker(s), gain %.2f, limited %llu sample(s), overflow %llu sample(s); speakers: %d, first %s, buffered %.0f ms, underruns %u\n"),
+				Channel.Channel, Channel.Excluded != 0 ? *FString::Printf(TEXT(" minus %s"), *FSteamId(static_cast<int64>(Channel.Excluded)).ToString()) : TEXT(""),
+				Channel.bRunning ? TEXT("mixing") : TEXT("idle"), Channel.bActive ? TEXT(", speakers on") : TEXT(""), Channel.ActiveTalkers, Channel.Gain,
+				Channel.Limited, Channel.OverflowSamples, NumSpeakers, Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"),
+				Component ? Component->GetBufferedMs() : 0.0f, Component ? Component->GetUnderruns() : 0u);
+		}
 		for (const SandwichSteam::Voice::FTalkerStats& Talker : Stats.Talkers)
 		{
 			const FSpeakerSource* Source = SpeakerSources.Find(static_cast<int64>(Talker.Talker));
