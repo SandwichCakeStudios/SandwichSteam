@@ -126,6 +126,25 @@ namespace
 		LogResult(Output, TEXT("Steam.Voice.Volume"), Voice->SetMasterVolume(FCString::Atof(*Args[0])), TEXT("volume set"));
 	}
 
+	/** Steam.Voice.Threshold [0..1] */
+	void SetThreshold(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			Output.Logf(TEXT("Steam.Voice.Threshold: %.3f (0 = off), microphone level now %.3f. Usage: Steam.Voice.Threshold <0..1>; speech is usually 0.03 to 0.2."),
+				Voice->GetVoiceActivationThreshold(), Voice->GetLocalMicLevel());
+			return;
+		}
+
+		LogResult(Output, TEXT("Steam.Voice.Threshold"), Voice->SetVoiceActivationThreshold(FCString::Atof(*Args[0])), TEXT("voice activation threshold set"));
+	}
+
 	/** Steam.Voice.FakeTalker <count> [delayMs] [lossPct] [channel] */
 	void FakeTalker(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
 	{
@@ -223,6 +242,10 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.Volume"),
 		TEXT("Sets (or reads) the master volume of the voice sound class: Steam.Voice.Volume [0..2]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SetVolume));
+
+	Commands.Add(TEXT("Steam.Voice.Threshold"),
+		TEXT("Sets (or reads, with the live microphone level) the voice activation threshold: Steam.Voice.Threshold [0..1], 0 = off."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SetThreshold));
 #endif
 }
 

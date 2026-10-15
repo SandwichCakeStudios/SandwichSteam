@@ -79,8 +79,22 @@ public:
 	/** True while the local microphone is open and picks up voice. */
 	bool IsLocalTalking() const;
 
-	/** True when a headset or microphone is present. */
+	/**
+	 * True when a headset or microphone is present, as far as Steam tells. Not reliable with the Steam voice pipeline: Steam reports
+	 * a missing microphone like silence, so this is only false when Steam's voice capture is not initialized. Show the local mic level
+	 * (Get Local Mic Level) while the player talks to let them see that their microphone works.
+	 */
 	bool IsHeadsetPresent() const;
+
+	/**
+	 * Voice activation level (RMS, 0 to 1; 0 = off): captured audio below it is not sent. Steam has no input gain, so this is the
+	 * microphone sensitivity of your options menu. Kept for the life of the game instance. Steam voice pipeline only.
+	 */
+	FSteamResult SetVoiceActivationThreshold(float Threshold);
+	float GetVoiceActivationThreshold() const { return ActivationThreshold; }
+
+	/** Level (RMS, 0 to 1) of the local microphone while it is open and picks up sound, else 0. Same scale as the activation threshold. Steam voice pipeline only. */
+	float GetLocalMicLevel() const;
 
 	/** Steam ID of the local player. Invalid until Steam answered. */
 	FSteamId GetLocalPlayerId() const { return LocalId; }
@@ -241,6 +255,7 @@ private:
 	/** The microphone state last given to the Steam pipeline or the Online Subsystem fallback. */
 	bool bMicOpen = false;
 	float MasterVolume = 1.0f;
+	float ActivationThreshold = 0.0f;
 
 	FSteamId LocalId;
 

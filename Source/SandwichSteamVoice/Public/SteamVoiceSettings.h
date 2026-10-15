@@ -45,10 +45,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Steam mutes the player's Steam friends voice chat while they talk in game (SetInGameVoiceSpeaking). Off by default because it changes the player's Steam chat; offer it in your options menu. Steam voice pipeline only."))
 	bool bMuteSteamFriendsVoiceWhileTalking = false;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Microphone", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMax = "0.2", ToolTip = "Voice activation: the microphone only sends while its level is at least this loud, so breathing, keyboard and room noise stay quiet. Steam has no input gain; this is the sensitivity control. 0 = off (Steam's own silence detection only). The level is the loudness of the audio (RMS): 0 is silence, 1 the loudest possible signal. Speech is usually 0.03 to 0.2, so the slider stops at 0.2; type a higher value if you need one. Steam.Voice.Threshold shows the live level and sets the value for testing. The player can change it at runtime with Set Voice Activation Threshold. Steam voice pipeline only."))
+	float VoiceActivationThreshold = 0.0f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Microphone", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "2000", ForceUnits = "ms", ToolTip = "How long the microphone keeps sending after the level fell below the voice activation threshold, so word ends and short pauses are kept."))
+	int32 VoiceActivationHoldMs = 300;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "255", ToolTip = "Steam networking messages channel used for voice. Change it only when your game uses SteamNetworkingMessages on channel 7 itself."))
 	int32 SteamMessageChannel = 7;
 
-	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "20", ClampMax = "500", Units = "Milliseconds", ToolTip = "Audio each speaker keeps buffered before it plays. Higher survives worse networks, lower is more direct. 80 ms suits most connections."))
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "20", ClampMax = "500", ForceUnits = "ms", ToolTip = "Audio each speaker keeps buffered before it plays. Higher survives worse networks, lower is more direct. 80 ms suits most connections."))
 	int32 PlayoutDelayMs = 80;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "48000", ToolTip = "Sample rate voice is decoded at. 0 uses Steam's optimal rate for the codec (recommended); 48000 is the fallback if voice sounds wrong."))

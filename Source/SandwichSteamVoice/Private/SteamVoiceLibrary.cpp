@@ -72,6 +72,24 @@ bool USteamVoiceLibrary::IsSteamHeadsetPresent(const UObject* WorldContextObject
 	return Voice && Voice->IsHeadsetPresent();
 }
 
+FSteamResult USteamVoiceLibrary::SetSteamVoiceActivationThreshold(const UObject* WorldContextObject, float Threshold)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetVoiceActivationThreshold(Threshold) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamVoiceActivationThreshold(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetVoiceActivationThreshold() : 0.0f;
+}
+
+float USteamVoiceLibrary::GetSteamLocalMicLevel(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetLocalMicLevel() : 0.0f;
+}
+
 bool USteamVoiceLibrary::IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);

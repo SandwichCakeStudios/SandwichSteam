@@ -110,6 +110,7 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	bEnabled = Settings ? Settings->bEnabledByDefault : true;
 	Mode = Settings ? Settings->DefaultMode : ESteamVoiceMode::PushToTalk;
 	MasterVolume = Settings ? Settings->DefaultMasterVolume : 1.0f;
+	ActivationThreshold = Settings ? FMath::Clamp(Settings->VoiceActivationThreshold, 0.0f, 1.0f) : 0.0f;
 
 	LocalId = GetSignedInSteamId(GetGameInstance());
 	bTalkRequested = false;
@@ -254,13 +255,39 @@ bool USteamVoiceSubsystem::IsHeadsetPresent() const
 	if (bUseSteamPipeline)
 	{
 #if SANDWICHSTEAM_WITH_STEAMWORKS
-		// Steam has no headset query: the capture says NotInitialized when there is no recording device.
+		// Steam has no headset query. The capture says NotInitialized when voice capture failed to start; a machine without a
+		// microphone still reports NoData, exactly like silence, so this stays true there.
 		return Worker.IsValid() && Worker->GetStats().LastCaptureResult != static_cast<int32>(k_EVoiceResultNotInitialized);
 #else
 		return false;
 #endif
 	}
 	return OssFallback.IsValid() && OssFallback->IsHeadsetPresent();
+}
+
+FSteamResult USteamVoiceSubsystem::SetVoiceActivationThreshold(float Threshold)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+
+	ActivationThreshold = FMath::Clamp(Threshold, 0.0f, 1.0f);
+	if (!bUseSteamPipeline)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceActivationNeedsPipeline", "Voice activation needs the Steam voice pipeline (Use Steam Voice Pipeline in the Voice settings)."));
+	}
+	if (Worker.IsValid())
+	{
+		Worker->SetActivationThreshold(ActivationThreshold);
+	}
+	return FSteamResult::Success();
+}
+
+float USteamVoiceSubsystem::GetLocalMicLevel() const
+{
+	return Worker.IsValid() ? Worker->GetLocalLevel() : 0.0f;
 }
 
 TArray<FSteamId> USteamVoiceSubsystem::GetPlayersInGame() const
@@ -730,7 +757,9 @@ bool USteamVoiceSubsystem::StartPipeline()
 		Config.RequestedSampleRate = Settings->DecodeSampleRate;
 		Config.PacketsPerSecond = static_cast<float>(Settings->MaxPacketsPerSecond);
 		Config.BytesPerSecond = static_cast<float>(Settings->MaxBytesPerSecond);
+		Config.ActivationHoldSeconds = static_cast<float>(FMath::Max(Settings->VoiceActivationHoldMs, 0)) / 1000.0f;
 	}
+	Config.ActivationThreshold = ActivationThreshold;
 
 	TSharedRef<FSteamVoiceTransport> NewTransport = MakeShared<FSteamVoiceTransport>(Config.MessageChannel);
 	if (!NewTransport->IsAvailable())
@@ -1251,6 +1280,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		Report += FString::Printf(TEXT("    Sample rate: Steam optimal %d Hz, decoding at %d Hz\n"), Stats.OptimalSampleRate, Stats.DecodeSampleRate);
 		Report += FString::Printf(TEXT("    Capture: %llu chunk(s), %llu bytes, %llu too large; sent %llu packet(s), %llu failed, %llu hello(s)\n"),
 			Stats.CapturedChunks, Stats.CapturedBytes, Stats.CaptureTooLarge, Stats.PacketsSent, Stats.SendFailures, Stats.HellosSent);
+		Report += FString::Printf(TEXT("    Microphone: level %.3f, voice activation %s, %llu packet(s) below it not sent, %llu could not be measured\n"),
+			Worker->GetLocalLevel(), Stats.ActivationThreshold > 0.0f ? *FString::Printf(TEXT("%.3f"), Stats.ActivationThreshold) : TEXT("off"), Stats.GatedChunks, Stats.LevelDecodeErrors);
 		Report += FString::Printf(TEXT("    Payload format: %llu/%llu start with our Steam ID, %llu/%llu end with a valid CRC-32 -> %s\n"),
 			Stats.PayloadIdMatches, Stats.CapturedChunks, Stats.PayloadCrcMatches, Stats.CapturedChunks,
 			Stats.CapturedChunks == 0 ? TEXT("no capture yet")

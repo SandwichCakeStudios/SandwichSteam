@@ -50,8 +50,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the local microphone picks up voice. Use it for a 'you are talking' indicator."))
 	static bool IsSteamLocalPlayerTalking(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True when a headset or microphone is present."))
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True when a headset or microphone is present, as far as Steam tells. Not reliable with the Steam voice pipeline: Steam reports a missing microphone like silence. Show Get Steam Local Mic Level while the player talks instead."))
 	static bool IsSteamHeadsetPresent(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Microphone sensitivity: audio quieter than this level (0 to 1, 0 = off) is not sent. Use it with Get Steam Local Mic Level for an options slider. Steam voice pipeline only."))
+	static FSteamResult SetSteamVoiceActivationThreshold(const UObject* WorldContextObject, float Threshold);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The current voice activation threshold (0 = off)."))
+	static float GetSteamVoiceActivationThreshold(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Level of the local microphone (0 to 1, same scale as the activation threshold) while it is open and picks up sound, else 0. Drive a mic meter with it. Steam voice pipeline only."))
+	static float GetSteamLocalMicLevel(const UObject* WorldContextObject);
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the player talks. Updated at the poll rate of the Voice settings."))
 	static bool IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player);
