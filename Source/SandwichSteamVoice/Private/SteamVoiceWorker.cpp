@@ -508,34 +508,53 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 {
 	LastLocalAudio = Now;
 
-	const uint16 PacketSequence = Sequence++;
-	if (!WriteVoicePacket(PacketSequence, PacketFlags::Mouth, TConstArrayView<int32>(), TConstArrayView<uint8>(Data, Size), PacketBuffer))
+	// Where our voice goes travels in every packet, so a speaker starts and stops on the right syllable.
+	const uint8 Flags = Snapshot->bTransmitMouth ? PacketFlags::Mouth : 0;
+	const TConstArrayView<int32> TransmitChannels = Snapshot->TransmitChannels;
+	const bool bTransmits = Flags != 0 || !TransmitChannels.IsEmpty();
+
+	const FFakeTalkerConfig& Fake = Snapshot->Fake;
+	const int32 FakeChannel = Fake.Channel;
+	const bool bFakes = Fake.Count > 0 && (bTransmits || FakeChannel >= 0);
+	if (!bTransmits)
 	{
-		++Stats.CaptureTooLarge;
-		return;
+		++Stats.NotTransmitted;
+		if (!bFakes)
+		{
+			return;
+		}
 	}
 
-	for (const uint64 Peer : Snapshot->Peers)
+	const uint16 PacketSequence = Sequence++;
+	if (bTransmits)
 	{
-		if (Snapshot->Blocked.Contains(Peer))
+		if (!WriteVoicePacket(PacketSequence, Flags, TransmitChannels, TConstArrayView<uint8>(Data, Size), PacketBuffer))
 		{
-			continue;
+			++Stats.CaptureTooLarge;
+			return;
 		}
-		if (Transport->SendVoice(Peer, PacketBuffer.GetData(), PacketBuffer.Num()))
+
+		// Every peer gets the same packet: without server rules every player may hear every channel.
+		for (const uint64 Peer : Snapshot->Peers)
 		{
-			++Stats.PacketsSent;
-		}
-		else
-		{
-			++Stats.SendFailures;
+			if (Snapshot->Blocked.Contains(Peer))
+			{
+				continue;
+			}
+			if (Transport->SendVoice(Peer, PacketBuffer.GetData(), PacketBuffer.Num()))
+			{
+				++Stats.PacketsSent;
+			}
+			else
+			{
+				++Stats.SendFailures;
+			}
 		}
 	}
 
 	// Fake talkers: the same packet comes back later as somebody else, through the full receive path.
 	// With a fake channel they talk on that channel only (radio), so Channel speakers can be tested alone.
-	const FFakeTalkerConfig& Fake = Snapshot->Fake;
-	const int32 FakeChannel = Fake.Channel;
-	for (int32 Index = 0; Index < FMath::Min(Fake.Count, MaxFakeTalkers); ++Index)
+	for (int32 Index = 0; bFakes && Index < FMath::Min(Fake.Count, MaxFakeTalkers); ++Index)
 	{
 		if (Fake.LossPercent > 0.0f && Random.FRand() * 100.0f < Fake.LossPercent)
 		{

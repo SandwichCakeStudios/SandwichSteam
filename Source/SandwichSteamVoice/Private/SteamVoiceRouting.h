@@ -32,7 +32,7 @@ namespace SandwichSteam::Voice
 		int32 DelayMs = 100;
 		int32 StaggerMs = 250;
 		float LossPercent = 0.0f;
-		/** -1: the fakes talk with their mouth. A channel id: they talk on that channel only (radio), for testing Channel speakers. */
+		/** -1: the fakes send what we send (mouth and transmit channels). A channel id: they talk on that channel only (radio), for testing Channel speakers. */
 		int32 Channel = -1;
 
 		bool operator==(const FFakeTalkerConfig& Other) const
@@ -66,6 +66,10 @@ namespace SandwichSteam::Voice
 		/** Microphone open (push to talk held or open mic). */
 		bool bRecord = false;
 		bool bMuteSteamFriendsWhileTalking = false;
+		/** Our voice plays on our own pawn (packet Mouth flag). */
+		bool bTransmitMouth = true;
+		/** The channels we transmit on: resolved ids, unique, sorted, at most MaxPacketChannels. Travel in every packet. */
+		TArray<int32> TransmitChannels;
 		/** The other players of the current game: the only peers we send to and accept. */
 		TArray<uint64> Peers;
 		/** Mute: their audio is dropped here, we still send to them. */
@@ -188,6 +192,8 @@ namespace SandwichSteam::Voice
 		uint64 PayloadCrcMatches = 0;
 		uint64 PacketsSent = 0;
 		uint64 SendFailures = 0;
+		/** Captured packets not sent because we transmit to neither the mouth nor a channel. */
+		uint64 NotTransmitted = 0;
 		uint64 HellosSent = 0;
 		uint64 PacketsReceived = 0;
 		uint64 Invalid = 0;
