@@ -12,6 +12,7 @@ class UInputAction;
 class UInputMappingContext;
 class USoundClass;
 class USoundMix;
+class USteamVoiceComponent;
 
 /** Project Settings > Plugins > Sandwich Steam - Voice */
 UCLASS(Config = Game, DefaultConfig, meta = (DisplayName = "Sandwich Steam - Voice"))
@@ -66,6 +67,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", AdvancedDisplay, meta = (ClampMin = "1024", ClampMax = "65536", ToolTip = "Most voice bytes per second accepted from one player (Steam voice is about 3 KB/s)."))
 	int32 MaxBytesPerSecond = 8192;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "A talker's pawn without an Owner Steam Voice component gets one, attached to the pawn's root with absolute rotation, so voice comes from the player without any setup. Turn off to place your own speakers; talkers without one are then not heard while they have a pawn. Channel speakers are never added. Steam voice pipeline only."))
+	bool bAutoAddVoiceComponent = true;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "The component class the plugin adds to pawns (Auto Add Voice Component) and uses for players without a pawn (menus, lobby, spectators; unattached and always 2D). Make a Blueprint child of Steam Voice to give it an attenuation, concurrency and effects. Empty = Steam Voice (2D, no attenuation)."))
+	TSoftClassPtr<USteamVoiceComponent> VoiceComponentClass;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Push To Talk", meta = (ToolTip = "The Enhanced Input action that is held to talk (a digital action). The plugin binds it on the local player controller's Enhanced Input component: pressed = start talking, released = stop. Leave empty to drive Start Talking / Stop Talking yourself."))
 	TSoftObjectPtr<UInputAction> PushToTalkAction;
 
@@ -78,7 +85,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Push To Talk", meta = (ToolTip = "Bind the push to talk action automatically once the local player controller has an Enhanced Input component (checked after every map load). Turn off to call Bind Steam Push To Talk yourself."))
 	bool bAutoBindPushToTalk = true;
 
-	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ToolTip = "The sound class the voice audio plays through. Needed for Set Master Volume. Route the voice output to this class in your audio setup."))
+	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ToolTip = "The sound class the voice audio plays through. Every Steam Voice speaker without its own sound class gets this one. Needed for Set Master Volume."))
 	TSoftObjectPtr<USoundClass> VoiceSoundClass;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ToolTip = "A sound mix (can be empty) the plugin uses to change the volume of the voice sound class at runtime."))

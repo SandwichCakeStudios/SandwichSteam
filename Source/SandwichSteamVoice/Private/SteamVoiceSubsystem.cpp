@@ -11,6 +11,7 @@
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "InputAction.h"
@@ -155,6 +156,7 @@ void USteamVoiceSubsystem::ShutdownFeature()
 	}
 
 	StopPipeline();
+	RegisteredSpeakers.Reset();
 	if (WorldCleanupHandle.IsValid())
 	{
 		FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
@@ -559,17 +561,10 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	{
 		DrainWorkerEvents();
 
-		// A new world: connect speakers for the talkers the worker knows, and play the ones that are talking.
-		if (Worker.IsValid() && World && !World->bIsTearingDown && SpeakerWorld.Get() != World)
+		// A new world, or speakers / pawns changed: connect the talkers to their speakers again.
+		if (Worker.IsValid() && (bSpeakersDirty || (!SpeakerSources.IsEmpty() && SpeakerWorld.Get() != World)))
 		{
-			for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
-			{
-				USteamVoiceComponent* Speaker = EnsureSpeaker(Source.Key);
-				if (Speaker && Source.Value.bActive && !Speaker->IsPlaying())
-				{
-					Speaker->Start();
-				}
-			}
+			UpdateSpeakers();
 		}
 
 		PollAccumulator += DeltaTime;
@@ -630,7 +625,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	SeenNotSteamId = 0;
 	if (GameState)
 	{
-		for (const APlayerState* PlayerState : GameState->PlayerArray)
+		for (APlayerState* PlayerState : GameState->PlayerArray)
 		{
 			if (!PlayerState)
 			{
@@ -658,6 +653,10 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 
 			NowPresent.Add(Id.Value);
 			Others.Emplace(Id, NetId);
+			if (Worker.IsValid())
+			{
+				TrackPlayerState(Id.Value, PlayerState);
+			}
 			if (bUseSteamPipeline ? PipelineTalking.Contains(Id.Value) : OssFallback->IsRemoteTalking(*NetId))
 			{
 				NowTalking.Add(Id.Value);
@@ -678,6 +677,34 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		}
 	}
 	Present = MoveTemp(NowPresent);
+
+	if (Worker.IsValid())
+	{
+		for (auto It = PlayerStates.CreateIterator(); It; ++It)
+		{
+			if (!Present.Contains(It.Key()))
+			{
+				if (APlayerState* PlayerState = It.Value().Get())
+				{
+					PlayerState->OnPawnSet.RemoveDynamic(this, &USteamVoiceSubsystem::HandlePawnSet);
+				}
+				It.RemoveCurrent();
+				bSpeakersDirty = true;
+			}
+		}
+
+		// Fallback for OnPawnSet: a talker whose pawn changed since the last speaker update.
+		for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
+		{
+			const TWeakObjectPtr<APlayerState>* PlayerState = PlayerStates.Find(Source.Key);
+			const APawn* Pawn = PlayerState && PlayerState->IsValid() ? (*PlayerState)->GetPawn() : nullptr;
+			if (Pawn != Source.Value.Pawn.Get())
+			{
+				bSpeakersDirty = true;
+				break;
+			}
+		}
+	}
 
 	for (const TPair<FSteamId, TSharedPtr<const FUniqueNetId>>& Other : Others)
 	{
@@ -803,6 +830,7 @@ void USteamVoiceSubsystem::StopPipeline()
 
 	DestroySpeakers();
 	SpeakerSources.Reset();
+	ForgetPlayerStates();
 	PipelineTalking.Reset();
 	bRoutingPublished = false;
 }
@@ -890,33 +918,25 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 		case EWorkerEvent::TalkerAdded:
 		{
 			FSpeakerSource& Source = SpeakerSources.FindOrAdd(Talker);
+			// Speakers of an earlier source of this talker read a dead patch: connect them again.
+			DisconnectSpeakers(Talker, Source);
 			Source.Splitter = Event.Splitter;
 			Source.SampleRate = Event.SampleRate;
 			Source.bFake = Event.bFake;
 			Source.bActive = false;
-
-			// A speaker from an earlier source of this talker reads a dead patch: replace it.
-			if (TObjectPtr<USteamVoiceComponent>* Existing = Speakers.Find(Talker))
-			{
-				if (IsValid(*Existing))
-				{
-					(*Existing)->DestroyComponent();
-				}
-				Speakers.Remove(Talker);
-			}
-			EnsureSpeaker(Talker);
+			bSpeakersDirty = true;
 			break;
 		}
 		case EWorkerEvent::TalkerActive:
 			if (FSpeakerSource* Source = SpeakerSources.Find(Talker))
 			{
 				Source->bActive = true;
-			}
-			if (USteamVoiceComponent* Speaker = EnsureSpeaker(Talker))
-			{
-				if (!Speaker->IsPlaying())
+				for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Source->Connected)
 				{
-					Speaker->Start();
+					if (Speaker.IsValid() && !Speaker->IsPlaying())
+					{
+						Speaker->Start();
+					}
 				}
 			}
 			break;
@@ -925,12 +945,12 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 			if (FSpeakerSource* Source = SpeakerSources.Find(Talker))
 			{
 				Source->bActive = false;
-			}
-			if (TObjectPtr<USteamVoiceComponent>* Speaker = Speakers.Find(Talker))
-			{
-				if (IsValid(*Speaker))
+				for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Source->Connected)
 				{
-					(*Speaker)->Stop();
+					if (Speaker.IsValid())
+					{
+						Speaker->Stop();
+					}
 				}
 			}
 			break;
@@ -948,83 +968,341 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 			break;
 
 		case EWorkerEvent::TalkerRemoved:
+			if (FSpeakerSource* Source = SpeakerSources.Find(Talker))
+			{
+				DisconnectSpeakers(Talker, *Source);
+			}
 			SpeakerSources.Remove(Talker);
 			PipelineTalking.Remove(Talker);
-			if (TObjectPtr<USteamVoiceComponent>* Speaker = Speakers.Find(Talker))
-			{
-				if (IsValid(*Speaker))
-				{
-					(*Speaker)->DestroyComponent();
-				}
-				Speakers.Remove(Talker);
-			}
+			DestroyPluginSpeaker(AutoSpeakers, Talker);
+			DestroyPluginSpeaker(FallbackSpeakers, Talker);
 			break;
 
 		default:
 			break;
 		}
 	}
+
+	// Connect new talkers in the same frame, so their first word is kept.
+	if (bSpeakersDirty)
+	{
+		UpdateSpeakers();
+	}
 }
 
-USteamVoiceComponent* USteamVoiceSubsystem::EnsureSpeaker(int64 Talker)
+TArray<USteamVoiceComponent*> USteamVoiceSubsystem::GetPlayerVoiceComponents(FSteamId Player) const
+{
+	TArray<USteamVoiceComponent*> Result;
+	if (const FSpeakerSource* Source = SpeakerSources.Find(Player.Value))
+	{
+		for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Source->Connected)
+		{
+			if (USteamVoiceComponent* Component = Speaker.Get())
+			{
+				Result.Add(Component);
+			}
+		}
+	}
+	return Result;
+}
+
+void USteamVoiceSubsystem::RegisterSpeaker(USteamVoiceComponent* Speaker)
+{
+	if (!IsValid(Speaker))
+	{
+		return;
+	}
+
+	if (!Speaker->SoundClass)
+	{
+		const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+		if (Settings && !Settings->VoiceSoundClass.IsNull())
+		{
+			Speaker->SoundClass = Settings->VoiceSoundClass.LoadSynchronous();
+		}
+	}
+
+	RegisteredSpeakers.Add(Speaker);
+	bSpeakersDirty = true;
+}
+
+void USteamVoiceSubsystem::UnregisterSpeaker(USteamVoiceComponent* Speaker)
+{
+	// The component clears its own voice source; the next update drops it from its talker.
+	if (RegisteredSpeakers.Remove(Speaker) > 0)
+	{
+		bSpeakersDirty = true;
+	}
+}
+
+void USteamVoiceSubsystem::UpdateSpeakers()
 {
 	UGameInstance* GameInstance = GetGameInstance();
 	UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
 	if (!World || World->bIsTearingDown)
 	{
-		return nullptr;
+		return; // Stays dirty: runs again once the next world is up.
 	}
+	bSpeakersDirty = false;
 
 	if (SpeakerWorld.Get() != World)
 	{
 		DestroySpeakers();
+		bSpeakersDirty = false;
 		SpeakerWorld = World;
 	}
 
-	if (TObjectPtr<USteamVoiceComponent>* Existing = Speakers.Find(Talker))
+	// Owner speakers by the pawn they belong to, switched off ones included (they still claim the pawn). Channel speakers are fed by the channel mix.
+	TMap<const APawn*, TArray<USteamVoiceComponent*, TInlineAllocator<2>>> PawnSpeakers;
+	for (auto It = RegisteredSpeakers.CreateIterator(); It; ++It)
+	{
+		USteamVoiceComponent* Speaker = It->Get();
+		if (!IsValid(Speaker))
+		{
+			It.RemoveCurrent();
+			continue;
+		}
+		if (Speaker->Source != ESteamVoiceSpeakerSource::Owner || Speaker->GetWorld() != World)
+		{
+			continue;
+		}
+		if (const APawn* Pawn = Speaker->GetOwningPawn())
+		{
+			PawnSpeakers.FindOrAdd(Pawn).Add(Speaker);
+		}
+	}
+
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	const bool bAutoAdd = Settings ? Settings->bAutoAddVoiceComponent : true;
+
+	for (TPair<int64, FSpeakerSource>& Pair : SpeakerSources)
+	{
+		const int64 Talker = Pair.Key;
+		FSpeakerSource& Source = Pair.Value;
+
+		const TWeakObjectPtr<APlayerState>* PlayerState = PlayerStates.Find(Talker);
+		APawn* Pawn = PlayerState && PlayerState->IsValid() ? (*PlayerState)->GetPawn() : nullptr;
+		if (Pawn && (!IsValid(Pawn) || Pawn->GetWorld() != World))
+		{
+			Pawn = nullptr;
+		}
+		Source.Pawn = Pawn;
+
+		TArray<USteamVoiceComponent*, TInlineAllocator<2>> Wanted;
+		if (Pawn)
+		{
+			DestroyPluginSpeaker(FallbackSpeakers, Talker);
+			const TArray<USteamVoiceComponent*, TInlineAllocator<2>>* OnPawn = PawnSpeakers.Find(Pawn);
+			if (OnPawn)
+			{
+				for (USteamVoiceComponent* Speaker : *OnPawn)
+				{
+					if (Speaker->IsSpeakerOn())
+					{
+						Wanted.Add(Speaker);
+					}
+				}
+			}
+
+			// The added speaker belongs to one pawn; after a respawn the new pawn gets its own.
+			const TObjectPtr<USteamVoiceComponent>* Auto = AutoSpeakers.Find(Talker);
+			USteamVoiceComponent* AutoSpeaker = Auto && IsValid(*Auto) ? Auto->Get() : nullptr;
+			if (AutoSpeaker && AutoSpeaker->GetOwningPawn() != Pawn)
+			{
+				Wanted.Remove(AutoSpeaker);
+				DestroyPluginSpeaker(AutoSpeakers, Talker);
+				AutoSpeaker = nullptr;
+			}
+
+			// The added speaker steps aside as soon as the pawn has one of its own, even a switched off one (walkie off means silent).
+			const bool bHasOwnSpeaker = OnPawn && OnPawn->ContainsByPredicate([AutoSpeaker](const USteamVoiceComponent* Speaker) { return Speaker != AutoSpeaker; });
+			if (bHasOwnSpeaker || !bAutoAdd)
+			{
+				if (AutoSpeaker)
+				{
+					Wanted.Remove(AutoSpeaker);
+					DestroyPluginSpeaker(AutoSpeakers, Talker);
+				}
+			}
+			else if (!AutoSpeaker)
+			{
+				if (USteamVoiceComponent* Added = AddAutoSpeaker(Talker, Pawn))
+				{
+					Wanted.AddUnique(Added);
+				}
+			}
+			else if (AutoSpeaker->IsSpeakerOn())
+			{
+				Wanted.AddUnique(AutoSpeaker); // Switched off by the game: stays silent.
+			}
+		}
+		else
+		{
+			// No pawn (menus, lobby, spectators): one unattached 2D speaker.
+			DestroyPluginSpeaker(AutoSpeakers, Talker);
+			if (USteamVoiceComponent* Fallback = EnsureFallbackSpeaker(Talker))
+			{
+				Wanted.Add(Fallback);
+			}
+		}
+
+		ConnectSpeakers(Talker, Source, Wanted);
+	}
+}
+
+void USteamVoiceSubsystem::ConnectSpeakers(int64 Talker, FSpeakerSource& Source, TConstArrayView<USteamVoiceComponent*> Wanted)
+{
+	// A speaker may have moved to another talker meanwhile (pawn possessed by someone else): only clear it while it still plays this one.
+	for (int32 Index = Source.Connected.Num() - 1; Index >= 0; --Index)
+	{
+		USteamVoiceComponent* Speaker = Source.Connected[Index].Get();
+		const bool bStillThisTalker = Speaker && Speaker->GetTalker().Value == Talker;
+		if (bStillThisTalker && Wanted.Contains(Speaker))
+		{
+			continue;
+		}
+		if (bStillThisTalker)
+		{
+			Speaker->ClearVoiceSource();
+		}
+		Source.Connected.RemoveAtSwap(Index);
+	}
+
+	if (!Source.Splitter.IsValid() || Source.SampleRate <= 0)
+	{
+		return;
+	}
+
+	// The patch holds up to one second; the speaker keeps it near the playout delay.
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	const int32 PlayoutDelayMs = Settings ? Settings->PlayoutDelayMs : 80;
+	for (USteamVoiceComponent* Speaker : Wanted)
+	{
+		if (!IsValid(Speaker) || Source.Connected.Contains(Speaker))
+		{
+			continue;
+		}
+
+		Speaker->SetVoiceSource(FSteamId(Talker), Source.Splitter->AddNewPatch(Source.SampleRate, 1.0f), Source.SampleRate, PlayoutDelayMs);
+		Source.Connected.Add(Speaker);
+		if (Source.bActive && !Speaker->IsPlaying())
+		{
+			Speaker->Start();
+		}
+	}
+}
+
+void USteamVoiceSubsystem::DisconnectSpeakers(int64 Talker, FSpeakerSource& Source)
+{
+	for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Source.Connected)
+	{
+		if (Speaker.IsValid() && Speaker->GetTalker().Value == Talker)
+		{
+			Speaker->ClearVoiceSource();
+		}
+	}
+	Source.Connected.Reset();
+}
+
+USteamVoiceComponent* USteamVoiceSubsystem::AddAutoSpeaker(int64 Talker, APawn* Pawn)
+{
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	UClass* Class = Settings ? Settings->VoiceComponentClass.LoadSynchronous() : nullptr;
+	if (!Class)
+	{
+		Class = USteamVoiceComponent::StaticClass();
+	}
+
+	USteamVoiceComponent* Speaker = NewObject<USteamVoiceComponent>(Pawn, Class, NAME_None, RF_Transient);
+	Speaker->Source = ESteamVoiceSpeakerSource::Owner;
+	Speaker->SetUsingAbsoluteRotation(true);
+	if (USceneComponent* Root = Pawn->GetRootComponent())
+	{
+		Speaker->SetupAttachment(Root);
+	}
+	Speaker->RegisterComponent(); // Begins play on a pawn that already plays, which registers the speaker.
+	if (!Speaker->IsSpeakerOn())
+	{
+		Speaker->Activate(); // The class may have Auto Activate off; an added speaker always starts on.
+	}
+
+	AutoSpeakers.Add(Talker, Speaker);
+	return Speaker;
+}
+
+USteamVoiceComponent* USteamVoiceSubsystem::EnsureFallbackSpeaker(int64 Talker)
+{
+	if (const TObjectPtr<USteamVoiceComponent>* Existing = FallbackSpeakers.Find(Talker))
 	{
 		if (IsValid(*Existing))
 		{
 			return *Existing;
 		}
-		Speakers.Remove(Talker);
+		FallbackSpeakers.Remove(Talker);
 	}
 
-	const FSpeakerSource* Source = SpeakerSources.Find(Talker);
-	if (!Source || !Source->Splitter.IsValid() || Source->SampleRate <= 0)
+	UWorld* World = SpeakerWorld.Get();
+	if (!World)
 	{
 		return nullptr;
 	}
 
-	// One unattached 2D speaker per talker for now. Pawn speakers and channels come with the full component setup.
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
-	USteamVoiceComponent* Speaker = NewObject<USteamVoiceComponent>(World, NAME_None, RF_Transient);
-	if (Settings && !Settings->VoiceSoundClass.IsNull())
+	UClass* Class = Settings ? Settings->VoiceComponentClass.LoadSynchronous() : nullptr;
+	if (!Class)
+	{
+		Class = USteamVoiceComponent::StaticClass();
+	}
+
+	// Unattached, so always 2D: an attenuation would measure the distance to the world origin.
+	USteamVoiceComponent* Speaker = NewObject<USteamVoiceComponent>(World, Class, NAME_None, RF_Transient);
+	Speaker->Source = ESteamVoiceSpeakerSource::Owner;
+	Speaker->bAllowSpatialization = false;
+	Speaker->bOverrideAttenuation = false;
+	Speaker->AttenuationSettings = nullptr;
+	if (!Speaker->SoundClass && Settings && !Settings->VoiceSoundClass.IsNull())
 	{
 		Speaker->SoundClass = Settings->VoiceSoundClass.LoadSynchronous();
 	}
 	Speaker->RegisterComponentWithWorld(World);
 
-	// The patch holds up to one second; the speaker keeps it near the playout delay.
-	const int32 PlayoutDelayMs = Settings ? Settings->PlayoutDelayMs : 80;
-	Speaker->SetVoiceSource(FSteamId(Talker), Source->Splitter->AddNewPatch(Source->SampleRate, 1.0f), Source->SampleRate, PlayoutDelayMs);
-
-	Speakers.Add(Talker, Speaker);
+	FallbackSpeakers.Add(Talker, Speaker);
 	return Speaker;
+}
+
+void USteamVoiceSubsystem::DestroyPluginSpeaker(TMap<int64, TObjectPtr<USteamVoiceComponent>>& Map, int64 Talker)
+{
+	TObjectPtr<USteamVoiceComponent> Speaker;
+	if (Map.RemoveAndCopyValue(Talker, Speaker) && IsValid(Speaker))
+	{
+		Speaker->ClearVoiceSource();
+		Speaker->DestroyComponent();
+	}
 }
 
 void USteamVoiceSubsystem::DestroySpeakers()
 {
-	for (const TPair<int64, TObjectPtr<USteamVoiceComponent>>& Pair : Speakers)
+	for (TPair<int64, FSpeakerSource>& Pair : SpeakerSources)
 	{
-		if (IsValid(Pair.Value))
-		{
-			Pair.Value->Stop();
-			Pair.Value->DestroyComponent();
-		}
+		DisconnectSpeakers(Pair.Key, Pair.Value);
+		Pair.Value.Pawn.Reset();
 	}
-	Speakers.Reset();
+
+	for (TMap<int64, TObjectPtr<USteamVoiceComponent>>* Map : { &AutoSpeakers, &FallbackSpeakers })
+	{
+		for (const TPair<int64, TObjectPtr<USteamVoiceComponent>>& Pair : *Map)
+		{
+			if (IsValid(Pair.Value))
+			{
+				Pair.Value->ClearVoiceSource();
+				Pair.Value->DestroyComponent();
+			}
+		}
+		Map->Reset();
+	}
+
 	SpeakerWorld.Reset();
+	bSpeakersDirty = true;
 }
 
 void USteamVoiceSubsystem::HandleWorldCleanup(UWorld* World, bool /*bSessionEnded*/, bool /*bCleanupResources*/)
@@ -1034,6 +1312,40 @@ void USteamVoiceSubsystem::HandleWorldCleanup(UWorld* World, bool /*bSessionEnde
 	{
 		DestroySpeakers();
 	}
+}
+
+void USteamVoiceSubsystem::TrackPlayerState(int64 Player, APlayerState* PlayerState)
+{
+	TWeakObjectPtr<APlayerState>& Known = PlayerStates.FindOrAdd(Player);
+	if (Known.Get() == PlayerState)
+	{
+		return;
+	}
+
+	if (APlayerState* Old = Known.Get())
+	{
+		Old->OnPawnSet.RemoveDynamic(this, &USteamVoiceSubsystem::HandlePawnSet);
+	}
+	Known = PlayerState;
+	PlayerState->OnPawnSet.AddUniqueDynamic(this, &USteamVoiceSubsystem::HandlePawnSet);
+	bSpeakersDirty = true;
+}
+
+void USteamVoiceSubsystem::ForgetPlayerStates()
+{
+	for (const TPair<int64, TWeakObjectPtr<APlayerState>>& Pair : PlayerStates)
+	{
+		if (APlayerState* PlayerState = Pair.Value.Get())
+		{
+			PlayerState->OnPawnSet.RemoveDynamic(this, &USteamVoiceSubsystem::HandlePawnSet);
+		}
+	}
+	PlayerStates.Reset();
+}
+
+void USteamVoiceSubsystem::HandlePawnSet(APlayerState* /*Player*/, APawn* /*NewPawn*/, APawn* /*OldPawn*/)
+{
+	bSpeakersDirty = true;
 }
 
 // ---- Push to talk ----
@@ -1310,10 +1622,28 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 				Stats.DecodeCompared, Stats.DecodeIdentical, Stats.DecodeLengthMismatch, Stats.DecodeMaxDifference, Verdict);
 		}
 
+		Report += FString::Printf(TEXT("    Speakers: %d registered, %d added to pawns, %d without a pawn (2D)\n"), RegisteredSpeakers.Num(), AutoSpeakers.Num(), FallbackSpeakers.Num());
 		for (const SandwichSteam::Voice::FTalkerStats& Talker : Stats.Talkers)
 		{
-			const TObjectPtr<USteamVoiceComponent>* Speaker = Speakers.Find(static_cast<int64>(Talker.Talker));
-			const USteamVoiceComponent* Component = Speaker && IsValid(*Speaker) ? Speaker->Get() : nullptr;
+			const FSpeakerSource* Source = SpeakerSources.Find(static_cast<int64>(Talker.Talker));
+			const USteamVoiceComponent* Component = nullptr;
+			int32 NumSpeakers = 0;
+			if (Source)
+			{
+				for (const TWeakObjectPtr<USteamVoiceComponent>& Speaker : Source->Connected)
+				{
+					if (const USteamVoiceComponent* Connected = Speaker.Get())
+					{
+						Component = Component ? Component : Connected;
+						++NumSpeakers;
+					}
+				}
+			}
+			const TObjectPtr<USteamVoiceComponent>* Fallback = FallbackSpeakers.Find(static_cast<int64>(Talker.Talker));
+			const TObjectPtr<USteamVoiceComponent>* Auto = AutoSpeakers.Find(static_cast<int64>(Talker.Talker));
+			const FString Placement = Fallback && IsValid(*Fallback) ? FString(TEXT("no pawn, 2D"))
+				: Source && Source->Pawn.IsValid() ? FString::Printf(TEXT("pawn %s%s"), *Source->Pawn->GetName(), Auto && IsValid(*Auto) ? TEXT(", added") : TEXT(""))
+				: FString(TEXT("not placed"));
 			const float BufferedMs = Component ? Component->GetBufferedMs() : 0.0f;
 
 			FString Latency = TEXT("n/a");
@@ -1327,8 +1657,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 				Talker.bTalking ? TEXT("TALKING") : TEXT("silent"), Talker.bActive ? TEXT(", speaker on") : TEXT(""),
 				Talker.Level, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
 				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.Queued);
-			Report += FString::Printf(TEXT("      speaker: %s, buffered %.0f ms, underruns %u (incl. ends of speech), latency %s\n"),
-				Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs, Component ? Component->GetUnderruns() : 0u, *Latency);
+			Report += FString::Printf(TEXT("      speakers: %d (%s), first %s, buffered %.0f ms, underruns %u (incl. ends of speech), latency %s\n"),
+				NumSpeakers, *Placement, Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs, Component ? Component->GetUnderruns() : 0u, *Latency);
 		}
 	}
 	return Report;

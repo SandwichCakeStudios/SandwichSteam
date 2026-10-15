@@ -12,7 +12,9 @@
 #include "SteamVoiceSubsystem.generated.h"
 
 class AGameStateBase;
+class APawn;
 class APlayerController;
+class APlayerState;
 class FSteamVoiceOssFallback;
 class FSteamVoiceTransport;
 class FSteamVoiceWorker;
@@ -34,7 +36,8 @@ namespace Audio
  *
  * Two pipelines, picked once when the feature starts by Use Steam Voice Pipeline (Configure Steam writes the matching ini):
  * - Steam voice pipeline (default; the Online Subsystem has no voice interface): Steam capture and codec, SteamNetworkingMessages between the
- *   players of the game, a voice worker thread (jitter, decode), and USteamVoiceComponent speakers (one 2D speaker per talker for now).
+ *   players of the game, a voice worker thread (jitter, decode), and USteamVoiceComponent speakers: the talker's pawn speakers
+ *   (added when the pawn has none), or one unattached 2D speaker while the talker has no pawn.
  * - Online Subsystem voice, the fallback ([OnlineSubsystem] bHasVoiceEnabled=true and [Voice] bEnabled=true): the engine carries voice
  *   over the game connection (IOnlineVoice). [/Script/Engine.GameSession] bRequiresPushToTalk=true keeps the engine from opening the microphone.
  * When the ini does not match the setting, the path the ini allows runs and an error is logged.
@@ -142,6 +145,18 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when a player was muted or unmuted, also when a blocked Steam player was muted automatically."))
 	FSteamVoiceMuteChanged OnPlayerMuteChanged;
 
+	/** The speakers that play the player right now (their pawn's Owner speakers, or the 2D speaker while they have no pawn). Steam voice pipeline only. */
+	TArray<USteamVoiceComponent*> GetPlayerVoiceComponents(FSteamId Player) const;
+
+	/** A Steam Voice speaker began play, switched on or off (called by the component). */
+	void RegisterSpeaker(USteamVoiceComponent* Speaker);
+
+	/** A Steam Voice speaker ended play (called by the component). */
+	void UnregisterSpeaker(USteamVoiceComponent* Speaker);
+
+	/** A speaker was switched on or off, or changed channel: route again on the next tick (called by the component). */
+	void MarkSpeakersDirty() { bSpeakersDirty = true; }
+
 	/** True when the Steam voice pipeline runs (false: Online Subsystem voice, or voice disabled). */
 	bool IsUsingSteamPipeline() const { return bUseSteamPipeline; }
 
@@ -198,17 +213,35 @@ private:
 	/** Handles the worker's events: speakers, talking. Runs every frame while the pipeline is up. */
 	void DrainWorkerEvents();
 
-	USteamVoiceComponent* EnsureSpeaker(int64 Talker);
-	void DestroySpeakers();
-	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
-
 	struct FSpeakerSource
 	{
 		TSharedPtr<Audio::FPatchSplitter, ESPMode::ThreadSafe> Splitter;
 		int32 SampleRate = 0;
 		bool bFake = false;
 		bool bActive = false;
+		/** The talker's pawn at the last speaker update (nullptr: no pawn, the 2D speaker plays). */
+		TWeakObjectPtr<APawn> Pawn;
+		/** Speakers that read a patch of Splitter. */
+		TArray<TWeakObjectPtr<USteamVoiceComponent>> Connected;
 	};
+
+	/** Connects every talker to its pawn's Owner speakers (auto-adding one), or to a 2D speaker without a pawn. Runs when bSpeakersDirty. */
+	void UpdateSpeakers();
+	void ConnectSpeakers(int64 Talker, FSpeakerSource& Source, TConstArrayView<USteamVoiceComponent*> Wanted);
+	void DisconnectSpeakers(int64 Talker, FSpeakerSource& Source);
+	USteamVoiceComponent* AddAutoSpeaker(int64 Talker, APawn* Pawn);
+	USteamVoiceComponent* EnsureFallbackSpeaker(int64 Talker);
+	void DestroyPluginSpeaker(TMap<int64, TObjectPtr<USteamVoiceComponent>>& Map, int64 Talker);
+	/** Disconnects all talkers and destroys the plugin-created speakers (world change, pipeline stop). */
+	void DestroySpeakers();
+	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
+
+	/** Remembers a talker's player state and listens to its pawn changes. */
+	void TrackPlayerState(int64 Player, APlayerState* PlayerState);
+	void ForgetPlayerStates();
+
+	UFUNCTION()
+	void HandlePawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn);
 
 	TSharedPtr<FSteamVoiceOssFallback> OssFallback;
 	TSharedPtr<FSteamVoiceTransport> Transport;
@@ -222,10 +255,19 @@ private:
 	TMap<int64, FSpeakerSource> SpeakerSources;
 	TSet<int64> PipelineTalking;
 
-	/** Plugin-created speakers of the current world. Cleared before the world is destroyed. */
+	/** Speakers that play in a world, switched on or off (developer-placed and auto-added). */
+	TSet<TWeakObjectPtr<USteamVoiceComponent>> RegisteredSpeakers;
+
+	/** Plugin-created speakers of the current world: added to a talker's pawn, or unattached 2D while the talker has no pawn. Cleared before the world is destroyed. */
 	UPROPERTY(Transient)
-	TMap<int64, TObjectPtr<USteamVoiceComponent>> Speakers;
+	TMap<int64, TObjectPtr<USteamVoiceComponent>> AutoSpeakers;
+	UPROPERTY(Transient)
+	TMap<int64, TObjectPtr<USteamVoiceComponent>> FallbackSpeakers;
 	TWeakObjectPtr<UWorld> SpeakerWorld;
+	/** Talker player states (from the player poll), for talker -> pawn. Their OnPawnSet is bound. */
+	TMap<int64, TWeakObjectPtr<APlayerState>> PlayerStates;
+	/** Speakers, pawns or talkers changed: run UpdateSpeakers on the next tick. */
+	bool bSpeakersDirty = false;
 	FDelegateHandle WorldCleanupHandle;
 
 	/** What the worker was last sent, to publish only changes. */

@@ -102,6 +102,12 @@ TArray<FSteamId> USteamVoiceLibrary::GetSteamTalkingPlayers(const UObject* World
 	return Voice ? Voice->GetTalkingPlayers() : TArray<FSteamId>();
 }
 
+TArray<USteamVoiceComponent*> USteamVoiceLibrary::GetSteamPlayerVoiceComponents(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceComponents(Player) : TArray<USteamVoiceComponent*>();
+}
+
 FSteamResult USteamVoiceLibrary::MuteSteamPlayer(const UObject* WorldContextObject, FSteamId Player, bool bSystemWide)
 {
 	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
