@@ -6,6 +6,7 @@
 
 #include "Core/SteamEngineCompat.h"
 #include "Math/RandomStream.h"
+#include "SteamVoiceActivationGate.h"
 #include "SteamVoiceJitterBuffer.h"
 #include "SteamVoicePacket.h"
 #include "SteamVoiceRateLimiter.h"
@@ -345,6 +346,43 @@ bool FSteamVoiceJitterBufferTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Popped"), Buffer.Pop(0.5, 0.06, Payload, Stamp) == FJitterBuffer::EPopResult::Packet);
 		TestEqual(TEXT("Stamp carried"), Stamp, 0.25);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceActivationGateTest, "SandwichSteam.Voice.Pipeline.ActivationGate",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamVoiceActivationGateTest::RunTest(const FString& Parameters)
+{
+	using EDecision = FActivationGate::EDecision;
+
+	FActivationGate Gate;
+	Gate.Configure(0.3);
+
+	// Off: everything is sent, also silence.
+	TestTrue(TEXT("Threshold 0 sends silence"), Gate.Evaluate(0.0f, 0.0) == EDecision::Send);
+
+	Gate.SetThreshold(0.05f);
+	TestTrue(TEXT("Quiet packet is held"), Gate.Evaluate(0.01f, 1.0) == EDecision::Hold);
+	TestTrue(TEXT("Unknown level is sent"), Gate.Evaluate(-1.0f, 1.0625) == EDecision::Send);
+	TestTrue(TEXT("Quiet packet is held again"), Gate.Evaluate(0.01f, 1.125) == EDecision::Hold);
+	TestTrue(TEXT("Loud packet opens the gate with the pre-roll"), Gate.Evaluate(0.2f, 1.1875) == EDecision::SendWithPreRoll);
+	TestTrue(TEXT("Loud packet while open has no pre-roll"), Gate.Evaluate(0.2f, 1.25) == EDecision::Send);
+
+	// Hold: quiet packets within 0.3 s of the last loud one are sent.
+	TestTrue(TEXT("Word end within the hold is sent"), Gate.Evaluate(0.01f, 1.5) == EDecision::Send);
+	TestTrue(TEXT("Quiet after the hold is held"), Gate.Evaluate(0.01f, 1.6) == EDecision::Hold);
+	TestEqual(TEXT("Held packets counted"), static_cast<int32>(Gate.GetHeld()), 3);
+
+	// A pre-roll from an earlier phrase is not sent.
+	TestTrue(TEXT("Stale pre-roll is dropped"), Gate.Evaluate(0.2f, 3.0) == EDecision::Send);
+
+	// Reset closes the gate and forgets the pre-roll, keeps the threshold.
+	Gate.Evaluate(0.01f, 4.0);
+	Gate.Reset();
+	TestEqual(TEXT("Reset keeps the threshold"), Gate.GetThreshold(), 0.05f);
+	TestTrue(TEXT("Reset forgets the pre-roll"), Gate.Evaluate(0.2f, 4.05) == EDecision::Send);
+	TestTrue(TEXT("Exactly at the threshold opens"), Gate.Evaluate(0.05f, 10.0) == EDecision::Send);
 	return true;
 }
 
