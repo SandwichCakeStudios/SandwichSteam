@@ -156,7 +156,7 @@ namespace
 
 		if (Args.IsEmpty())
 		{
-			Output.Log(TEXT("Usage: Steam.Voice.FakeTalker <count 0..8> [delayMs=100] [lossPct=0] [staggerMs=250] [channel=-1]. Fake i plays delayMs + i * staggerMs late. channel -1: the fakes talk with their mouth; a channel id: on that channel only (radio, for Channel speakers). Open the microphone (Steam.Voice.Talk 1 or open mic) to hear yourself as fake talkers."));
+			Output.Log(TEXT("Usage: Steam.Voice.FakeTalker <count 0..8> [delayMs=100] [lossPct=0] [staggerMs=250] [channel=-1]. Fake i plays delayMs + i * staggerMs late. channel -1: the fakes send what you send (mouth and transmit channels, see Steam.Voice.Transmit); a channel id: on that channel only (radio, for Channel speakers). Open the microphone (Steam.Voice.Talk 1 or open mic) to hear yourself as fake talkers."));
 			return;
 		}
 
@@ -166,6 +166,38 @@ namespace
 		const int32 StaggerMs = Args.IsValidIndex(3) ? FCString::Atoi(*Args[3]) : 250;
 		const int32 Channel = Args.IsValidIndex(4) ? FCString::Atoi(*Args[4]) : -1;
 		LogResult(Output, TEXT("Steam.Voice.FakeTalker"), Voice->SetFakeTalkers(Count, DelayMs, LossPercent, StaggerMs, Channel), Count > 0 ? TEXT("fake talkers on") : TEXT("fake talkers off"));
+	}
+
+	/** Steam.Voice.Transmit <mouth 0|1> [channel ids...] */
+	void Transmit(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			FString Ids;
+			for (const FSteamVoiceChannel& Channel : Voice->GetTransmitChannels())
+			{
+				Ids += Ids.IsEmpty() ? TEXT("") : TEXT(" ");
+				Ids += Channel.Tag.IsValid() ? Channel.Tag.ToString() : FString::FromInt(Channel.Id);
+			}
+			Output.Logf(TEXT("Steam.Voice.Transmit: mouth %d, channels: %s. Usage: Steam.Voice.Transmit <mouth 0|1> [channel ids...]; no ids clears the channels."),
+				Voice->IsTransmittingToOwner() ? 1 : 0, Ids.IsEmpty() ? TEXT("none") : *Ids);
+			return;
+		}
+
+		TArray<FSteamVoiceChannel> Channels;
+		for (int32 Index = 1; Index < Args.Num(); ++Index)
+		{
+			FSteamVoiceChannel& Channel = Channels.AddDefaulted_GetRef();
+			Channel.Id = FCString::Atoi(*Args[Index]);
+		}
+		LogResult(Output, TEXT("Steam.Voice.Transmit"), Voice->SetTransmitToOwner(FCString::Atoi(*Args[0]) != 0), TEXT("mouth set"));
+		LogResult(Output, TEXT("Steam.Voice.Transmit"), Voice->SetTransmitChannels(Channels), TEXT("transmit channels set"));
 	}
 
 	/** Steam.Voice.SimLoss <pct> */
@@ -234,6 +266,10 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.FakeTalker"),
 		TEXT("Plays your own microphone back as fake talkers through the full receive path: Steam.Voice.FakeTalker <count 0..8> [delayMs] [lossPct] [staggerMs] [channel]. With 2+ fakes the dump runs a decoder check."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&FakeTalker));
+
+	Commands.Add(TEXT("Steam.Voice.Transmit"),
+		TEXT("Sets (or reads) where your voice goes: Steam.Voice.Transmit <mouth 0|1> [channel ids...]. Mouth 0 with a channel = radio only."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&Transmit));
 
 	Commands.Add(TEXT("Steam.Voice.SimLoss"),
 		TEXT("Drops a percent of the voice packets received from real players: Steam.Voice.SimLoss <0..100>."),

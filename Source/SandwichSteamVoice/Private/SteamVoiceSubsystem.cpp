@@ -304,6 +304,102 @@ float USteamVoiceSubsystem::GetLocalMicLevel() const
 	return Worker.IsValid() ? Worker->GetLocalLevel() : 0.0f;
 }
 
+bool USteamVoiceSubsystem::CanSetTransmit(FSteamResult& OutResult) const
+{
+	if (!RequireActive(OutResult))
+	{
+		return false;
+	}
+	if (!bUseSteamPipeline)
+	{
+		OutResult = FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceTransmitNeedsPipeline", "Transmit channels need the Steam voice pipeline (Use Steam Voice Pipeline in the Voice settings)."));
+		return false;
+	}
+	return true;
+}
+
+FSteamResult USteamVoiceSubsystem::SetTransmitChannels(const TArray<FSteamVoiceChannel>& Channels)
+{
+	FSteamResult Result;
+	if (!CanSetTransmit(Result))
+	{
+		return Result;
+	}
+
+	TArray<FSteamVoiceChannel> Unique;
+	Unique.Reserve(Channels.Num());
+	for (const FSteamVoiceChannel& Channel : Channels)
+	{
+		if (!Channel.IsSet())
+		{
+			return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoiceTransmitChannelNotSet", "A transmit channel has neither a tag nor an id."));
+		}
+		Unique.AddUnique(Channel);
+	}
+	if (Unique.Num() > SandwichSteam::Voice::MaxPacketChannels)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, FText::Format(NSLOCTEXT("SandwichSteam", "VoiceTransmitTooManyChannels", "At most {0} transmit channels."), SandwichSteam::Voice::MaxPacketChannels));
+	}
+
+	TransmitChannels = MoveTemp(Unique);
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::AddTransmitChannel(const FSteamVoiceChannel& Channel)
+{
+	if (TransmitChannels.Contains(Channel))
+	{
+		FSteamResult Result;
+		return CanSetTransmit(Result) ? FSteamResult::Success() : Result;
+	}
+
+	TArray<FSteamVoiceChannel> Channels = TransmitChannels;
+	Channels.Add(Channel);
+	return SetTransmitChannels(Channels);
+}
+
+FSteamResult USteamVoiceSubsystem::RemoveTransmitChannel(const FSteamVoiceChannel& Channel)
+{
+	TArray<FSteamVoiceChannel> Channels = TransmitChannels;
+	Channels.Remove(Channel);
+	return SetTransmitChannels(Channels);
+}
+
+FSteamResult USteamVoiceSubsystem::ClearTransmitChannels()
+{
+	return SetTransmitChannels(TArray<FSteamVoiceChannel>());
+}
+
+FSteamResult USteamVoiceSubsystem::SetTransmitToOwner(bool bTransmit)
+{
+	FSteamResult Result;
+	if (!CanSetTransmit(Result))
+	{
+		return Result;
+	}
+
+	bTransmitToOwner = bTransmit;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
+TArray<int32> USteamVoiceSubsystem::ResolveTransmitChannels() const
+{
+	TArray<int32> Ids;
+	Ids.Reserve(TransmitChannels.Num());
+	for (const FSteamVoiceChannel& Channel : TransmitChannels)
+	{
+		const int32 Id = ResolveChannelId(Channel);
+		if (Id >= 0)
+		{
+			Ids.AddUnique(Id);
+		}
+	}
+	Ids.Sort();
+	return Ids;
+}
+
 TArray<FSteamId> USteamVoiceSubsystem::GetPlayersInGame() const
 {
 	TArray<FSteamId> Players;
@@ -885,8 +981,10 @@ void USteamVoiceSubsystem::PublishRouting()
 	}
 	Muted.Sort();
 	Blocked.Sort();
+	TArray<int32> Transmit = ResolveTransmitChannels();
 
-	if (bRoutingPublished && !bChannelOutputsChanged && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked)
+	if (bRoutingPublished && !bChannelOutputsChanged && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
+		&& bPublishedTransmitMouth == bTransmitToOwner && PublishedTransmitChannels == Transmit)
 	{
 		return;
 	}
@@ -896,6 +994,8 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->LocalId = static_cast<uint64>(LocalId.Value);
 	Snapshot->bRecord = bMicOpen;
 	Snapshot->bMuteSteamFriendsWhileTalking = Settings && Settings->bMuteSteamFriendsVoiceWhileTalking;
+	Snapshot->bTransmitMouth = bTransmitToOwner;
+	Snapshot->TransmitChannels = Transmit;
 	Snapshot->Peers = Peers;
 	Snapshot->Muted.Append(Muted);
 	Snapshot->Blocked.Append(Blocked);
@@ -923,6 +1023,8 @@ void USteamVoiceSubsystem::PublishRouting()
 	PublishedPeers = MoveTemp(Peers);
 	PublishedMuted = MoveTemp(Muted);
 	PublishedBlocked = MoveTemp(Blocked);
+	PublishedTransmitChannels = MoveTemp(Transmit);
+	bPublishedTransmitMouth = bTransmitToOwner;
 	PublishedLocalId = LocalId.Value;
 	bPublishedRecord = bMicOpen;
 	bRoutingPublished = true;
@@ -1734,6 +1836,18 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		bEnabled ? TEXT("enabled") : TEXT("disabled"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"),
 		bMicOpen ? TEXT("open") : TEXT("closed"), bTalkRequested ? TEXT("yes") : TEXT("no"), IsHeadsetPresent() ? TEXT("present") : TEXT("not found"));
 	Report += FString::Printf(TEXT("  Local user: %s, local talking: %s\n"), *LocalId.ToString(), IsLocalTalking() ? TEXT("yes") : TEXT("no"));
+	{
+		FString Channels;
+		for (const FSteamVoiceChannel& Channel : TransmitChannels)
+		{
+			const int32 Id = ResolveChannelId(Channel);
+			const FString Name = Channel.Tag.IsValid() ? Channel.Tag.ToString() : FString::FromInt(Channel.Id);
+			Channels += Channels.IsEmpty() ? TEXT("") : TEXT(", ");
+			Channels += Id < 0 ? FString::Printf(TEXT("%s (unmapped, not sent)"), *Name)
+				: (Channel.Tag.IsValid() ? FString::Printf(TEXT("%s (%d)"), *Name, Id) : Name);
+		}
+		Report += FString::Printf(TEXT("  Transmit: mouth %s, channels %s\n"), bTransmitToOwner ? TEXT("on") : TEXT("off"), Channels.IsEmpty() ? TEXT("none") : *Channels);
+	}
 
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
 	Report += FString::Printf(TEXT("  Push to talk: action %s, %s\n"),
@@ -1774,8 +1888,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		Report += FString::Printf(TEXT("    Worker: %s, loop avg %.2f ms / max %.2f ms, recording %s, last capture result %d\n"),
 			Stats.bRunning ? TEXT("running") : TEXT("stopped"), Stats.LoopAverageMs, Stats.LoopMaxMs, Stats.bRecording ? TEXT("yes") : TEXT("no"), Stats.LastCaptureResult);
 		Report += FString::Printf(TEXT("    Sample rate: Steam optimal %d Hz, decoding at %d Hz\n"), Stats.OptimalSampleRate, Stats.DecodeSampleRate);
-		Report += FString::Printf(TEXT("    Capture: %llu chunk(s), %llu bytes, %llu too large; sent %llu packet(s), %llu failed, %llu hello(s)\n"),
-			Stats.CapturedChunks, Stats.CapturedBytes, Stats.CaptureTooLarge, Stats.PacketsSent, Stats.SendFailures, Stats.HellosSent);
+		Report += FString::Printf(TEXT("    Capture: %llu chunk(s), %llu bytes, %llu too large, %llu not transmitted (no mouth, no channel); sent %llu packet(s), %llu failed, %llu hello(s)\n"),
+			Stats.CapturedChunks, Stats.CapturedBytes, Stats.CaptureTooLarge, Stats.NotTransmitted, Stats.PacketsSent, Stats.SendFailures, Stats.HellosSent);
 		Report += FString::Printf(TEXT("    Microphone: level %.3f, voice activation %s, %llu packet(s) below it not sent, %llu could not be measured\n"),
 			Worker->GetLocalLevel(), Stats.ActivationThreshold > 0.0f ? *FString::Printf(TEXT("%.3f"), Stats.ActivationThreshold) : TEXT("off"), Stats.GatedChunks, Stats.LevelDecodeErrors);
 		Report += FString::Printf(TEXT("    Payload format: %llu/%llu start with our Steam ID, %llu/%llu end with a valid CRC-32 -> %s\n"),

@@ -99,6 +99,22 @@ public:
 	/** Level (RMS, 0 to 1) of the local microphone while it is open and picks up sound, else 0. Same scale as the activation threshold. Steam voice pipeline only. */
 	float GetLocalMicLevel() const;
 
+	/**
+	 * The channels the local player talks on (walkie, radio, PA), at most 8. Everyone's Channel speakers on these channels play the local voice.
+	 * Applies to the next captured packet, so the radio starts and stops on the right syllable. Kept for the life of the game instance.
+	 * Invalid channels (neither a tag nor an id) are refused. Steam voice pipeline only.
+	 */
+	FSteamResult SetTransmitChannels(const TArray<FSteamVoiceChannel>& Channels);
+	FSteamResult AddTransmitChannel(const FSteamVoiceChannel& Channel);
+	FSteamResult RemoveTransmitChannel(const FSteamVoiceChannel& Channel);
+	FSteamResult ClearTransmitChannels();
+	const TArray<FSteamVoiceChannel>& GetTransmitChannels() const { return TransmitChannels; }
+	bool IsTransmittingOn(const FSteamVoiceChannel& Channel) const { return TransmitChannels.Contains(Channel); }
+
+	/** Whether the local voice plays on the local player's own pawn (Owner speakers, proximity). Default true; false = radio only. Steam voice pipeline only. */
+	FSteamResult SetTransmitToOwner(bool bTransmit);
+	bool IsTransmittingToOwner() const { return bTransmitToOwner; }
+
 	/** Steam ID of the local player. Invalid until Steam answered. */
 	FSteamId GetLocalPlayerId() const { return LocalId; }
 
@@ -213,6 +229,12 @@ private:
 	/** Sends the current routing (players, mutes, microphone) to the worker when it changed. */
 	void PublishRouting();
 
+	/** Shared checks of the transmit setters: feature active, Steam pipeline. */
+	bool CanSetTransmit(FSteamResult& OutResult) const;
+
+	/** TransmitChannels as packet ids: resolved, unique, sorted. Unresolved channels are left out. */
+	TArray<int32> ResolveTransmitChannels() const;
+
 	/** Handles the worker's events: speakers, talking. Runs every frame while the pipeline is up. */
 	void DrainWorkerEvents();
 
@@ -305,8 +327,10 @@ private:
 	TArray<uint64> PublishedPeers;
 	TArray<uint64> PublishedMuted;
 	TArray<uint64> PublishedBlocked;
+	TArray<int32> PublishedTransmitChannels;
 	int64 PublishedLocalId = 0;
 	bool bPublishedRecord = false;
+	bool bPublishedTransmitMouth = true;
 	bool bRoutingPublished = false;
 	int32 FakeTalkerCount = 0;
 	int32 FakeTalkerDelayMs = 100;
@@ -329,6 +353,9 @@ private:
 	bool bMicOpen = false;
 	float MasterVolume = 1.0f;
 	float ActivationThreshold = 0.0f;
+	/** What the local player transmits on (talker side). */
+	TArray<FSteamVoiceChannel> TransmitChannels;
+	bool bTransmitToOwner = true;
 
 	FSteamId LocalId;
 

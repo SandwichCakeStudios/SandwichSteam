@@ -90,6 +90,54 @@ float USteamVoiceLibrary::GetSteamLocalMicLevel(const UObject* WorldContextObjec
 	return Voice ? Voice->GetLocalMicLevel() : 0.0f;
 }
 
+FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitChannels(const UObject* WorldContextObject, const TArray<FSteamVoiceChannel>& Channels)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetTransmitChannels(Channels) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::AddSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->AddTransmitChannel(Channel) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::RemoveSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->RemoveTransmitChannel(Channel) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ClearSteamVoiceTransmitChannels(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ClearTransmitChannels() : NotAvailable();
+}
+
+TArray<FSteamVoiceChannel> USteamVoiceLibrary::GetSteamVoiceTransmitChannels(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetTransmitChannels() : TArray<FSteamVoiceChannel>();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceTransmittingOn(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsTransmittingOn(Channel);
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitToOwner(const UObject* WorldContextObject, bool bTransmit)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetTransmitToOwner(bTransmit) : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceTransmittingToOwner(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsTransmittingToOwner();
+}
+
 bool USteamVoiceLibrary::IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
