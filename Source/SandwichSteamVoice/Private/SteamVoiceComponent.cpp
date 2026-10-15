@@ -1,6 +1,8 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "SteamVoiceComponent.h"
+#include "GameFramework/Pawn.h"
+#include "SteamVoiceSubsystem.h"
 
 namespace
 {
@@ -12,7 +14,138 @@ USteamVoiceComponent::USteamVoiceComponent(const FObjectInitializer& ObjectIniti
 	: Super(ObjectInitializer)
 {
 	NumChannels = 1;
-	bAutoActivate = false;
+	// Auto Activate is the speaker's on / off state at begin play; the sound itself only starts when voice arrives.
+	bAutoActivate = true;
+}
+
+void USteamVoiceComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!bSpeakerSwitched)
+	{
+		bSpeakerOn = bAutoActivate;
+	}
+
+	// Registered for the whole time it plays in the world, on or off: a switched off Owner speaker still claims its pawn (no speaker is added).
+	if (!HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+	{
+		if (USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(this))
+		{
+			bRegistered = true;
+			Voice->RegisterSpeaker(this);
+		}
+	}
+}
+
+void USteamVoiceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (bRegistered)
+	{
+		bRegistered = false;
+		if (USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(this))
+		{
+			Voice->UnregisterSpeaker(this);
+		}
+	}
+	ClearVoiceSource();
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void USteamVoiceComponent::Activate(bool bReset)
+{
+	// Not the synth's Activate: that would start a silent sound. The plugin starts the sound on voice activity.
+	const bool bWasOn = bSpeakerOn;
+	bSpeakerSwitched = true;
+	bSpeakerOn = true;
+	NotifySwitched(bWasOn);
+
+	if (!bWasOn || bReset)
+	{
+		OnComponentActivated.Broadcast(this, bReset);
+	}
+}
+
+void USteamVoiceComponent::Deactivate()
+{
+	const bool bWasOn = bSpeakerOn;
+	bSpeakerSwitched = true;
+	bSpeakerOn = false;
+	NotifySwitched(bWasOn);
+
+	if (bWasOn)
+	{
+		OnComponentDeactivated.Broadcast(this);
+	}
+}
+
+void USteamVoiceComponent::NotifySwitched(bool bWasOn)
+{
+	if (bWasOn == bSpeakerOn)
+	{
+		return;
+	}
+
+	if (!bSpeakerOn)
+	{
+		ClearVoiceSource(); // Silent at once; the routing drops it on the next update.
+	}
+
+	if (bRegistered)
+	{
+		if (USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(this))
+		{
+			Voice->MarkSpeakersDirty();
+		}
+	}
+}
+
+void USteamVoiceComponent::SetChannel(FSteamVoiceChannel NewChannel)
+{
+	if (NewChannel == Channel)
+	{
+		return;
+	}
+
+	Channel = NewChannel;
+	if (bRegistered && Source == ESteamVoiceSpeakerSource::Channel)
+	{
+		// The routing picks the new channel up on the next update.
+		ClearVoiceSource();
+		if (USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(this))
+		{
+			Voice->MarkSpeakersDirty();
+		}
+	}
+}
+
+TArray<FSteamId> USteamVoiceComponent::GetTalkers() const
+{
+	TArray<FSteamId> Talkers;
+	if (Talker.IsValid())
+	{
+		Talkers.Add(Talker);
+	}
+	return Talkers;
+}
+
+bool USteamVoiceComponent::IsAnyoneTalking() const
+{
+	const USteamVoiceSubsystem* Voice = Talker.IsValid() ? USteamVoiceSubsystem::Get(this) : nullptr;
+	return Voice && Voice->IsPlayerTalking(Talker);
+}
+
+APawn* USteamVoiceComponent::GetOwningPawn() const
+{
+	for (AActor* Actor = GetOwner(); Actor; Actor = Actor->GetOwner())
+	{
+		if (APawn* Pawn = Cast<APawn>(Actor))
+		{
+			return Pawn;
+		}
+	}
+	return nullptr;
 }
 
 void USteamVoiceComponent::SetVoiceSource(FSteamId InTalker, Audio::FPatchOutputStrongPtr InOutput, int32 InSampleRate, int32 InPlayoutDelayMs)
@@ -31,6 +164,24 @@ void USteamVoiceComponent::SetVoiceSource(FSteamId InTalker, Audio::FPatchOutput
 		Render.Output = MoveTemp(Output);
 		Render.TargetSamples = TargetSamples;
 		Render.FadeSamples = FadeSamples;
+		Render.bPlaying = false;
+	});
+}
+
+void USteamVoiceComponent::ClearVoiceSource()
+{
+	check(IsInGameThread());
+
+	if (!Talker.IsValid())
+	{
+		return;
+	}
+
+	Talker = FSteamId();
+	Stop();
+	SynthCommand([this]()
+	{
+		Render.Output.Reset();
 		Render.bPlaying = false;
 	});
 }
