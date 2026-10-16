@@ -11,6 +11,7 @@
 #include "SteamAuthLibrary.h"
 #include "SteamAuthSubsystem.h"
 #include "SteamAuthTypes.h"
+#include "UObject/Package.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamTestAuth"
 
