@@ -17,26 +17,19 @@
 #include "Publish/SteamPublishActions.h"
 #include "Publish/SteamPublishSettings.h"
 #include "SandwichSteamEditor.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamCmdSetupService"
 
 namespace
 {
+	using SandwichSteam::Editor::Notify;
+
 	TSharedPtr<FSteamCmdSetupService> Instance;
 
 	/** A focus change sooner than this after the terminal opened is the terminal itself taking focus, not the user coming back. */
 	constexpr double TerminalLoginGraceSeconds = 3.0;
-
-	void Notify(const FText& Text, SNotificationItem::ECompletionState State, float Duration = 8.f)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = Duration;
-		if (const TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
 
 	/** Absolute steamcmd path and trimmed account name, or false with OutError. */
 	bool GetLoginSetup(FString& OutExe, FString& OutUser, FString& OutError)

@@ -15,13 +15,16 @@
 #include "Misc/ScopedSlowTask.h"
 #include "SandwichSteamEditor.h"
 #include "Presence/SteamPresenceVdfWriter.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamPresenceLocalization"
 
 namespace
 {
-	FText GetTitle()
+	using SandwichSteam::Editor::NotifyFileWritten;
+
+	FText GetPresenceLocalizationTitle()
 	{
 		return LOCTEXT("Title", "Generate Rich Presence Localization");
 	}
@@ -34,24 +37,6 @@ namespace
 		TSet<FString> Keys;
 	};
 
-	void ShowNotification(const FText& Text, const FString& FilePath, bool bSuccess)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 12.0f;
-		if (bSuccess && !FilePath.IsEmpty())
-		{
-			Info.HyperlinkText = LOCTEXT("ShowFile", "Show file");
-			Info.Hyperlink = FSimpleDelegate::CreateLambda([FilePath]()
-			{
-				FPlatformProcess::ExploreFolder(*FPaths::ConvertRelativePathToFull(FilePath));
-			});
-		}
-
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(bSuccess ? SNotificationItem::CS_Success : SNotificationItem::CS_Fail);
-		}
-	}
 }
 
 FString SandwichSteam::Editor::GetPresenceLocalizationPath(int32 SteamAppId)
@@ -69,7 +54,7 @@ void SandwichSteam::Editor::GeneratePresenceLocalization(USteamAppDefinition* De
 
 	if (!Definition)
 	{
-		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoDefinition", "No Steam App Definition is assigned. Assign one in Project Settings > Plugins > Sandwich Steam."), GetTitle());
+		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoDefinition", "No Steam App Definition is assigned. Assign one in Project Settings > Plugins > Sandwich Steam."), GetPresenceLocalizationTitle());
 		return;
 	}
 
@@ -101,7 +86,7 @@ void SandwichSteam::Editor::GeneratePresenceLocalization(USteamAppDefinition* De
 
 	if (Rows.IsEmpty())
 	{
-		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoRows", "The Steam App Definition has no presence status with a token and a text. Add rows to its Presence array first."), GetTitle());
+		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoRows", "The Steam App Definition has no presence status with a token and a text. Add rows to its Presence array first."), GetPresenceLocalizationTitle());
 		return;
 	}
 
@@ -160,7 +145,7 @@ void SandwichSteam::Editor::GeneratePresenceLocalization(USteamAppDefinition* De
 	const FString Content = FSteamPresenceVdfWriter::Build(Languages);
 	if (Content.IsEmpty())
 	{
-		ShowNotification(LOCTEXT("NothingToWrite", "No text was found for any Steam language. Nothing was written."), FString(), false);
+		NotifyFileWritten(LOCTEXT("NothingToWrite", "No text was found for any Steam language. Nothing was written."), FString(), false);
 		return;
 	}
 
@@ -168,7 +153,7 @@ void SandwichSteam::Editor::GeneratePresenceLocalization(USteamAppDefinition* De
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), /*Tree*/ true);
 	if (!FFileHelper::SaveStringToFile(Content, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 	{
-		ShowNotification(FText::Format(LOCTEXT("WriteFailed", "Could not write {0}."), FText::FromString(Path)), FString(), false);
+		NotifyFileWritten(FText::Format(LOCTEXT("WriteFailed", "Could not write {0}."), FText::FromString(Path)), FString(), false);
 		return;
 	}
 
@@ -189,7 +174,7 @@ void SandwichSteam::Editor::GeneratePresenceLocalization(USteamAppDefinition* De
 	}
 
 	UE_LOG(LogSandwichSteamEditor, Log, TEXT("Rich presence localization written to %s"), *Path);
-	ShowNotification(Summary, Path, true);
+	NotifyFileWritten(Summary, Path, true);
 }
 
 #undef LOCTEXT_NAMESPACE

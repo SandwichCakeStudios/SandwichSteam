@@ -2,6 +2,7 @@
 
 #include "Dashboard/SteamConfirmDialog.h"
 #include "Editor.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -19,13 +20,14 @@
 
 namespace
 {
+	using SandwichSteam::Editor::BodyFont;
+
 	constexpr float WindowWidth = 680.f;
 	constexpr float MaxBodyHeight = 520.f;
 	constexpr float LabelWidth = 180.f;
 	constexpr float DotSize = 10.f;
 	constexpr float BannerDotSize = 14.f;
 
-	FSlateFontInfo BodyFont() { return FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f); }
 	FSlateFontInfo NoteFont() { return FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.1f); }
 	FSlateFontInfo SectionFont() { return FSteamToolStyle::ScaleFont(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"), 1.3f); }
 

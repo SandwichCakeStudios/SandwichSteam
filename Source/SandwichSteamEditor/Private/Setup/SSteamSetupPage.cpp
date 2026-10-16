@@ -13,6 +13,7 @@
 #include "Publish/SteamPublishSettings.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Setup/SteamSetupSteps.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -38,22 +39,14 @@
 
 namespace
 {
+	using SandwichSteam::Editor::BodyFont;
+	using SandwichSteam::Editor::Notify;
+
 	constexpr float StatusIconSize = 18.f;
 	constexpr float BlockedOpacity = 0.55f;
 
-	FSlateFontInfo BodyFont() { return FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f); }
 	FSlateFontInfo HintFont() { return FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.1f); }
 	FSlateFontInfo TitleFont() { return FSteamToolStyle::ScaleFont(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"), 1.4f); }
-
-	void Notify(const FText& Text, SNotificationItem::ECompletionState State)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 8.0f;
-		if (const TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
 
 	/** Opens Project Settings (or Editor Preferences) on the section of these settings. */
 	void OpenSettings(const UDeveloperSettings* Settings)
@@ -74,7 +67,7 @@ namespace
 		Object->PostEditChangeProperty(Event);
 	}
 
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, bool bPrimary, TAttribute<bool> bEnabled = true)
+	TSharedRef<SWidget> MakeSetupButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, bool bPrimary, TAttribute<bool> bEnabled = true)
 	{
 		return SNew(SButton)
 			.ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>(bPrimary ? "PrimaryButton" : "Button"))
@@ -316,12 +309,12 @@ namespace
 						SNew(SHorizontalBox)
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 6.f, 0.f)
 						[
-							MakeButton(LOCTEXT("OpenPublish", "Open Publish"), LOCTEXT("OpenPublishTip", "Goes to the Publish page."),
+							MakeSetupButton(LOCTEXT("OpenPublish", "Open Publish"), LOCTEXT("OpenPublishTip", "Goes to the Publish page."),
 								[]() { SandwichSteam::Editor::OpenDashboardPage(TEXT("Publish")); }, /*bPrimary*/ true)
 						]
 						+ SHorizontalBox::Slot().AutoWidth()
 						[
-							MakeButton(LOCTEXT("Validate", "Validate project"), LOCTEXT("ValidateTip", "Runs every Sandwich Steam check and opens the Message Log when something needs attention."),
+							MakeSetupButton(LOCTEXT("Validate", "Validate project"), LOCTEXT("ValidateTip", "Runs every Sandwich Steam check and opens the Message Log when something needs attention."),
 								[]() { FSteamProjectValidator::RunAndLog(/*bOpen*/ true); }, /*bPrimary*/ false)
 						]
 					]
@@ -473,7 +466,7 @@ namespace
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 					[
-						MakeButton(LOCTEXT("SaveAppId", "Save App ID"),
+						MakeSetupButton(LOCTEXT("SaveAppId", "Save App ID"),
 							LOCTEXT("SaveAppIdTip", "Saves the App ID in the Sandwich Steam settings, then shows the matching DefaultEngine.ini change (SteamDevAppId) and applies it."),
 							[this]() { ApplyAppId(); }, bIsNext, TAttribute<bool>::CreateLambda([this]() { return CanApplyAppId(); }))
 					]
@@ -494,9 +487,9 @@ namespace
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[
 					bOnlyCook
-					? MakeButton(LOCTEXT("AddToCook", "Add to cook"), LOCTEXT("AddToCookTip", "Makes sure packaged builds include the assigned App Definition."),
+					? MakeSetupButton(LOCTEXT("AddToCook", "Add to cook"), LOCTEXT("AddToCookTip", "Makes sure packaged builds include the assigned App Definition."),
 						[this]() { FSteamCookHelper::EnsureAppDefinitionCooked(); RequestRefresh(); }, bIsNext)
-					: MakeButton(LOCTEXT("CreateDefinition", "Create & assign"),
+					: MakeSetupButton(LOCTEXT("CreateDefinition", "Create & assign"),
 						LOCTEXT("CreateDefinitionTip", "Creates /Game/Steam/DA_SteamAppDefinition, saves it, assigns it in the Sandwich Steam settings and adds it to the cook."),
 						[this]()
 						{
@@ -540,7 +533,7 @@ namespace
 						]
 						+ SHorizontalBox::Slot().AutoWidth()
 						[
-							MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelDownloadTip", "Stops the download or extraction."),
+							MakeSetupButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelDownloadTip", "Stops the download or extraction."),
 								[]() { FSteamCmdSetupService::Get().CancelDownload(); }, /*bPrimary*/ false)
 						]
 					];
@@ -549,7 +542,7 @@ namespace
 			return SNew(SVerticalBox)
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[
-					MakeButton(LOCTEXT("InstallSteamCmd", "Install SteamCMD"),
+					MakeSetupButton(LOCTEXT("InstallSteamCmd", "Install SteamCMD"),
 						LOCTEXT("InstallSteamCmdTip", "Downloads Valve's official SteamCMD for this platform into <Data Directory>/SteamCMD, extracts and updates it, and sets the SteamCMD path for you."),
 						[]() { SandwichSteam::Editor::ConfirmAndDownloadSteamCmd(ESteamCmdTaskMode::Automatic); }, bIsNext)
 				]
@@ -599,7 +592,7 @@ namespace
 				return SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Left)
 					[
-						MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelLoginTip", "Stops the login check."),
+						MakeSetupButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelLoginTip", "Stops the login check."),
 							[]() { FSteamCmdSetupService::Get().CancelLoginCheck(); }, /*bPrimary*/ false)
 					];
 			}
@@ -626,7 +619,7 @@ namespace
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
 					[
-						MakeButton(LOCTEXT("LogIn", "Log in..."),
+						MakeSetupButton(LOCTEXT("LogIn", "Log in..."),
 							LOCTEXT("LogInTip", "Opens a terminal running SteamCMD. Type your password and Steam Guard code there once; SteamCMD remembers the login. It is checked automatically when you come back to the editor."),
 							[this]()
 							{
@@ -636,7 +629,7 @@ namespace
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 					[
-						MakeButton(LOCTEXT("Verify", "Verify"),
+						MakeSetupButton(LOCTEXT("Verify", "Verify"),
 							LOCTEXT("VerifyTip", "Checks the login SteamCMD remembers (steamcmd +login <account> +quit). A Steam Guard prompt opens a dialog."),
 							[this]()
 							{
@@ -666,7 +659,7 @@ namespace
 			{
 				Box->AddSlot().AutoHeight().HAlign(HAlign_Left)
 				[
-					MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelFetchTip", "Stops reading the app info."),
+					MakeSetupButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelFetchTip", "Stops reading the app info."),
 						[]() { FSteamCmdSetupService::Get().CancelAppInfoFetch(); }, /*bPrimary*/ false)
 				];
 				return Box;
@@ -674,7 +667,7 @@ namespace
 
 			Box->AddSlot().AutoHeight().HAlign(HAlign_Left)
 			[
-				MakeButton(LOCTEXT("FetchDepots", "Fetch from Steam"),
+				MakeSetupButton(LOCTEXT("FetchDepots", "Fetch from Steam"),
 					LOCTEXT("FetchDepotsTip", "Reads your app's depots and branches with SteamCMD (app_info_print) and adds them to Project Settings > Plugins > Sandwich Steam - Publish. Existing entries are kept."),
 					[]() { SandwichSteam::Editor::ConfirmAndFetchAppInfo(ESteamCmdTaskMode::Automatic); }, bIsNext)
 			];
