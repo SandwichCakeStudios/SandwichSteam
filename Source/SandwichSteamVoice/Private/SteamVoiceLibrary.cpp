@@ -72,6 +72,72 @@ bool USteamVoiceLibrary::IsSteamHeadsetPresent(const UObject* WorldContextObject
 	return Voice && Voice->IsHeadsetPresent();
 }
 
+FSteamResult USteamVoiceLibrary::SetSteamVoiceActivationThreshold(const UObject* WorldContextObject, float Threshold)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetVoiceActivationThreshold(Threshold) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamVoiceActivationThreshold(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetVoiceActivationThreshold() : 0.0f;
+}
+
+float USteamVoiceLibrary::GetSteamLocalMicLevel(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetLocalMicLevel() : 0.0f;
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitChannels(const UObject* WorldContextObject, const TArray<FSteamVoiceChannel>& Channels)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetTransmitChannels(Channels) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::AddSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->AddTransmitChannel(Channel) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::RemoveSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->RemoveTransmitChannel(Channel) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ClearSteamVoiceTransmitChannels(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ClearTransmitChannels() : NotAvailable();
+}
+
+TArray<FSteamVoiceChannel> USteamVoiceLibrary::GetSteamVoiceTransmitChannels(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetTransmitChannels() : TArray<FSteamVoiceChannel>();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceTransmittingOn(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsTransmittingOn(Channel);
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitToOwner(const UObject* WorldContextObject, bool bTransmit)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetTransmitToOwner(bTransmit) : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceTransmittingToOwner(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsTransmittingToOwner();
+}
+
 bool USteamVoiceLibrary::IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
@@ -82,6 +148,12 @@ TArray<FSteamId> USteamVoiceLibrary::GetSteamTalkingPlayers(const UObject* World
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetTalkingPlayers() : TArray<FSteamId>();
+}
+
+TArray<USteamVoiceComponent*> USteamVoiceLibrary::GetSteamPlayerVoiceComponents(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceComponents(Player) : TArray<USteamVoiceComponent*>();
 }
 
 FSteamResult USteamVoiceLibrary::MuteSteamPlayer(const UObject* WorldContextObject, FSteamId Player, bool bSystemWide)
@@ -118,4 +190,16 @@ float USteamVoiceLibrary::GetSteamVoiceMasterVolume(const UObject* WorldContextO
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetMasterVolume() : 1.0f;
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player, float Volume)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetPlayerVolume(Player, Volume) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVolume(Player) : 1.0f;
 }

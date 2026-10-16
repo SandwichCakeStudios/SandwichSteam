@@ -10,6 +10,7 @@
 #include "SteamVoiceLibrary.generated.h"
 
 class APlayerController;
+class USteamVoiceComponent;
 
 /**
  * In-session voice chat for Blueprints. The events (On Player Talking Changed, On Voice Mode Changed, On Player Mute Changed) are on the
@@ -50,14 +51,50 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the local microphone picks up voice. Use it for a 'you are talking' indicator."))
 	static bool IsSteamLocalPlayerTalking(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True when a headset or microphone is present."))
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True when a headset or microphone is present, as far as Steam tells. Not reliable with the Steam voice pipeline: Steam reports a missing microphone like silence. Show Get Steam Local Mic Level while the player talks instead."))
 	static bool IsSteamHeadsetPresent(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Microphone sensitivity: audio quieter than this level (0 to 1, 0 = off) is not sent. Use it with Get Steam Local Mic Level for an options slider. Steam voice pipeline only."))
+	static FSteamResult SetSteamVoiceActivationThreshold(const UObject* WorldContextObject, float Threshold);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The current voice activation threshold (0 = off)."))
+	static float GetSteamVoiceActivationThreshold(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Level of the local microphone (0 to 1, same scale as the activation threshold) while it is open and picks up sound, else 0. Drive a mic meter with it. Steam voice pipeline only."))
+	static float GetSteamLocalMicLevel(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "The channels you talk on (walkie, radio, PA), at most 8. Everyone's Channel speakers on these channels play your voice. Empty = no channel. Steam voice pipeline only."))
+	static FSteamResult SetSteamVoiceTransmitChannels(const UObject* WorldContextObject, const TArray<FSteamVoiceChannel>& Channels);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "Starts talking on one more channel (press the radio key). Nothing happens when you already talk on it."))
+	static FSteamResult AddSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "Stops talking on a channel (release the radio key)."))
+	static FSteamResult RemoveSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "Stops talking on every channel. Your voice still plays on your own pawn while Transmit To Owner is on."))
+	static FSteamResult ClearSteamVoiceTransmitChannels(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "The channels you talk on."))
+	static TArray<FSteamVoiceChannel> GetSteamVoiceTransmitChannels(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "True when you talk on the channel."))
+	static bool IsSteamVoiceTransmittingOn(const UObject* WorldContextObject, FSteamVoiceChannel Channel);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "Whether your voice plays on your own pawn (its Owner speakers, proximity). On by default; off with a channel = radio only. Steam voice pipeline only."))
+	static FSteamResult SetSteamVoiceTransmitToOwner(const UObject* WorldContextObject, bool bTransmit);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "True while your voice plays on your own pawn."))
+	static bool IsSteamVoiceTransmittingToOwner(const UObject* WorldContextObject);
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the player talks. Updated at the poll rate of the Voice settings."))
 	static bool IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player);
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Everybody who talks right now, the local player included."))
 	static TArray<FSteamId> GetSteamTalkingPlayers(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The Steam Voice speakers that play the player right now: their pawn's Owner speakers, or the 2D speaker while they have no pawn. Empty until their voice arrived. Steam voice pipeline only."))
+	static TArray<USteamVoiceComponent*> GetSteamPlayerVoiceComponents(const UObject* WorldContextObject, FSteamId Player);
 
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Mutes a player's voice for this game. The mute is kept until the game closes and applies as soon as the player is in the game. System Wide asks for a mute that also affects other games (Steam treats it like a game mute)."))
 	static FSteamResult MuteSteamPlayer(const UObject* WorldContextObject, FSteamId Player, bool bSystemWide = false);
@@ -76,4 +113,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The master volume of the voice audio."))
 	static float GetSteamVoiceMasterVolume(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Volume of one player's voice for you, 0 to 2 (1 = unchanged). Covers their pawn and every channel they talk on. 0 silences them but keeps their talking indicator (unlike a mute). Kept until the game closes. Steam voice pipeline only."))
+	static FSteamResult SetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player, float Volume = 1.0f);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The volume you set for the player's voice, 1 when none was set."))
+	static float GetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player);
 };

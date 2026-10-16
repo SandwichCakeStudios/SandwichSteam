@@ -62,16 +62,24 @@ public:
 	/**
 	 * The DefaultEngine.ini entries Sandwich Steam needs for the given Steam App ID.
 	 * With bWithSessions the SteamSockets net driver entries of the Sessions module are included.
-	 * With bWithVoice the Steam voice interface is switched on ([OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled).
 	 * With bWithRelaunchOff [OnlineSubsystemSteam] bRelaunchInSteam=false is included (USteamToolSettings::bWriteRelaunchInSteamOff).
 	 */
-	static TArray<FSteamIniEntry> BuildRequiredEntries(int32 SteamAppId, bool bWithSessions = false, bool bWithVoice = false, bool bWithRelaunchOff = true);
+	static TArray<FSteamIniEntry> BuildRequiredEntries(int32 SteamAppId, bool bWithSessions = false, bool bWithRelaunchOff = true);
 
 	/**
-	 * The DefaultGame.ini entries: with bWithVoice the game session asks for push to talk ([/Script/Engine.GameSession] bRequiresPushToTalk=true).
-	 * The Voice module opens the microphone itself in open mic mode, so the ini value does not depend on the mode.
+	 * The DefaultEngine.ini entries that switch on the Online Subsystem voice ([OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled).
+	 * Append only when the Voice module is installed. bOssVoice false (the Steam voice pipeline) makes them bRemove entries, because the
+	 * two paths would both read the microphone.
 	 */
-	static TArray<FSteamIniEntry> BuildGameEntries(bool bWithVoice);
+	static TArray<FSteamIniEntry> BuildVoiceEngineEntries(bool bOssVoice);
+
+	/**
+	 * The DefaultGame.ini entry of the Voice module: the game session asks for push to talk ([/Script/Engine.GameSession]
+	 * bRequiresPushToTalk=true), so the engine never opens the microphone by itself (the Voice module opens it, also in open mic mode).
+	 * Append when the Voice module is installed. Only the Online Subsystem voice needs it: bOssVoice false returns nothing, so the
+	 * Steam voice pipeline leaves DefaultGame.ini alone (an existing line is not removed; the pipeline ignores it).
+	 */
+	static TArray<FSteamIniEntry> BuildVoiceGameEntries(bool bOssVoice);
 
 	/**
 	 * The DefaultEngine.ini network tuning entries: IpNetDriver MaxClientRate, MaxInternetClientRate and InitialConnectTimeout, and

@@ -3,8 +3,9 @@
 using UnrealBuildTool;
 using System.IO;
 
-// Steam in-session voice chat (OSS IOnlineVoice over the game connection, Enhanced Input push to talk, a little raw ISteamFriends
-// for the blocked check). Remove this module (and its uplugin entry) to ship without it. It only needs the core.
+// Steam in-session voice chat: the Steam voice pipeline (Steam capture and codec, SteamNetworkingMessages, a voice worker thread,
+// USteamVoiceComponent speakers) or the OSS IOnlineVoice fallback, Enhanced Input push to talk, mute + Steam block list.
+// Remove this module (and its uplugin entry) to ship without it. It only needs the core.
 public class SandwichSteamVoice : ModuleRules
 {
     public SandwichSteamVoice(ReadOnlyTargetRules Target) : base(Target)
@@ -23,6 +24,8 @@ public class SandwichSteamVoice : ModuleRules
                 "DeveloperSettings",
                 "GameplayTags",
                 "OnlineSubsystem",
+                "AudioMixer",       // USynthComponent (USteamVoiceComponent derives from it)
+                "SignalProcessing", // Audio::FPatchSplitter / FPatchOutput between the voice worker and the speakers
                 "SandwichSteam"
             }
         );
