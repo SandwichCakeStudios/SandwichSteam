@@ -761,6 +761,20 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, doubl
 		Talker.LatencyMs = Talker.LatencyMs < 0.0f ? Latency : FMath::Lerp(Talker.LatencyMs, Latency, 0.1f);
 	}
 
+	// Player volume, before the mouth and the channel mixes (the level above stays the talker's own). A change ramps over this packet, no click.
+	const float* Volume = Snapshot->PlayerVolumes.Find(Talker.Id);
+	const float TargetGain = Volume ? *Volume : 1.0f;
+	const float StartGain = Talker.Gain < 0.0f ? TargetGain : Talker.Gain;
+	Talker.Gain = TargetGain;
+	if (StartGain != 1.0f || TargetGain != 1.0f)
+	{
+		const float GainStep = (TargetGain - StartGain) / static_cast<float>(NumSamples);
+		for (int32 Index = 0; Index < NumSamples; ++Index)
+		{
+			FloatBuffer[Index] = FMath::Clamp(FloatBuffer[Index] * (StartGain + GainStep * static_cast<float>(Index + 1)), -1.0f, 1.0f);
+		}
+	}
+
 	if (bMouth)
 	{
 		Talker.LastMouthAudio = Now;
@@ -1031,6 +1045,7 @@ void FSteamVoiceWorker::PublishStats(double Now)
 		Out.bFlooded = Talker.bFlooded;
 		Out.Queued = Talker.Jitter.GetQueued();
 		Out.Level = Talker.Level;
+		Out.Gain = Talker.Gain < 0.0f ? 1.0f : Talker.Gain;
 		Out.PipelineLatencyMs = Talker.LatencyMs;
 	}
 

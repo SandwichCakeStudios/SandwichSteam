@@ -76,6 +76,8 @@ namespace SandwichSteam::Voice
 		TSet<uint64> Muted;
 		/** Blocked on Steam: dropped both ways. */
 		TSet<uint64> Blocked;
+		/** Per player volume (0 to 2), applied before the mouth and the channel mixes. Only players not at 1. */
+		TMap<uint64, float> PlayerVolumes;
 		FFakeTalkerConfig Fake;
 		/** Steam.Voice.SimLoss: percent of real received packets dropped (non-Shipping). */
 		float SimLossPercent = 0.0f;
@@ -153,7 +155,10 @@ namespace SandwichSteam::Voice
 		int32 LastDecodedSamples = 0;
 		bool bFlooded = false;
 		int32 Queued = 0;
+		/** Level of the decoded voice, before the player volume. */
 		float Level = 0.0f;
+		/** Player volume applied to the last packet. */
+		float Gain = 1.0f;
 		/** Capture to speaker buffer (fake talkers only, ms). -1 = unknown. */
 		float PipelineLatencyMs = -1.0f;
 	};

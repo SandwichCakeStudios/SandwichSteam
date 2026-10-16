@@ -25,7 +25,7 @@ class FSteamVoiceTransport;
  * or burst voice. Never touches a UObject.
  *
  * Each loop: routing snapshot -> session requests -> hello -> capture (GetVoice), level, voice activation and send -> receive -> validate, rate limit,
- * mute -> jitter (reorder) -> DecompressVoice -> talker patch splitter (mouth) and channel mixes -> channel output splitters -> talking / activity events.
+ * mute -> jitter (reorder) -> DecompressVoice -> player volume -> talker patch splitter (mouth) and channel mixes -> channel output splitters -> talking / activity events.
  *
  * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats, SetActivationThreshold, GetLocalLevel.
  */
@@ -80,6 +80,8 @@ private:
 		/** Decoded audio for the mouth (the talker's speakers start and stop on it). */
 		double LastMouthAudio = -1.0;
 		float Level = 0.0f;
+		/** Player volume applied to the last packet; a change ramps from it over the next packet. -1 = no packet yet (start at the target). */
+		float Gain = -1.0f;
 		float LatencyMs = -1.0f;
 		uint64 FloodDrops = 0;
 		uint64 DecodeErrors = 0;
