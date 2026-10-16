@@ -143,6 +143,16 @@ public:
 	float GetMasterVolume() const { return MasterVolume; }
 
 	/**
+	 * Volume of one player's voice for the local player, 0 to 2 (1 = unchanged). 0 silences them without a mute: their talking indicator still works.
+	 * Applied on the voice thread before mixing, so it covers their Owner speakers and every channel they talk on; a change fades over one packet.
+	 * Kept for the life of the game instance and applies as soon as the player is in the game. Steam voice pipeline only.
+	 */
+	FSteamResult SetPlayerVolume(FSteamId Player, float Volume);
+
+	/** The volume set for the player, 1 when none was set. */
+	float GetPlayerVolume(FSteamId Player) const;
+
+	/**
 	 * Binds the push to talk action of the settings on the controller's Enhanced Input component (and adds the mapping context of the settings).
 	 * The plugin does this by itself after every map load when Auto Bind Push To Talk is on; call it yourself when it is off, or for split screen.
 	 */
@@ -331,6 +341,8 @@ private:
 	int64 PublishedLocalId = 0;
 	bool bPublishedRecord = false;
 	bool bPublishedTransmitMouth = true;
+	/** PlayerVolumes changed since the last routing publish. */
+	bool bPlayerVolumesChanged = false;
 	bool bRoutingPublished = false;
 	int32 FakeTalkerCount = 0;
 	int32 FakeTalkerDelayMs = 100;
@@ -356,6 +368,8 @@ private:
 	/** What the local player transmits on (talker side). */
 	TArray<FSteamVoiceChannel> TransmitChannels;
 	bool bTransmitToOwner = true;
+	/** Per player volume (receiver side). Only players not at 1. */
+	TMap<int64, float> PlayerVolumes;
 
 	FSteamId LocalId;
 

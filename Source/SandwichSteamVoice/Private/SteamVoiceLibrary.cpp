@@ -191,3 +191,15 @@ float USteamVoiceLibrary::GetSteamVoiceMasterVolume(const UObject* WorldContextO
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetMasterVolume() : 1.0f;
 }
+
+FSteamResult USteamVoiceLibrary::SetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player, float Volume)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetPlayerVolume(Player, Volume) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVolume(Player) : 1.0f;
+}

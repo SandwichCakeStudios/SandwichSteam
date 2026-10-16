@@ -113,4 +113,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The master volume of the voice audio."))
 	static float GetSteamVoiceMasterVolume(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Volume of one player's voice for you, 0 to 2 (1 = unchanged). Covers their pawn and every channel they talk on. 0 silences them but keeps their talking indicator (unlike a mute). Kept until the game closes. Steam voice pipeline only."))
+	static FSteamResult SetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player, float Volume = 1.0f);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The volume you set for the player's voice, 1 when none was set."))
+	static float GetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player);
 };

@@ -3,6 +3,7 @@
 #include "SandwichSteamVoice.h"
 #include "Core/SteamLog.h"
 #include "Debug/SteamDebugSection.h"
+#include "SteamVoiceRouting.h"
 #include "SteamVoiceSubsystem.h"
 
 #if SANDWICHSTEAM_WITH_DEBUG
@@ -124,6 +125,37 @@ namespace
 		}
 
 		LogResult(Output, TEXT("Steam.Voice.Volume"), Voice->SetMasterVolume(FCString::Atof(*Args[0])), TEXT("volume set"));
+	}
+
+	/** Steam.Voice.PlayerVolume <SteamID64 | fake index> [0..2] */
+	void SetPlayerVolume(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		// A small number is a fake talker index (Steam.Voice.FakeTalker), so the volume can be tested alone.
+		FSteamId Player;
+		const bool bFakeIndex = !Args.IsEmpty() && Args[0].IsNumeric() && FCString::Atoi64(*Args[0]) >= 0 && FCString::Atoi64(*Args[0]) < SandwichSteam::Voice::MaxFakeTalkers;
+		if (bFakeIndex)
+		{
+			Player = FSteamId(static_cast<int64>(SandwichSteam::Voice::FakeTalkerIdBase + static_cast<uint64>(FCString::Atoi64(*Args[0]))));
+		}
+		if (Args.IsEmpty() || (!bFakeIndex && !FSteamId::FromString(Args[0], Player)))
+		{
+			Output.Log(TEXT("Usage: Steam.Voice.PlayerVolume <SteamID64 | fake talker index 0..7> [0..2]"));
+			return;
+		}
+
+		if (Args.Num() < 2)
+		{
+			Output.Logf(TEXT("Steam.Voice.PlayerVolume: %s %.2f"), *Player.ToString(), Voice->GetPlayerVolume(Player));
+			return;
+		}
+
+		LogResult(Output, TEXT("Steam.Voice.PlayerVolume"), Voice->SetPlayerVolume(Player, FCString::Atof(*Args[1])), TEXT("player volume set"));
 	}
 
 	/** Steam.Voice.Threshold [0..1] */
@@ -278,6 +310,10 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.Volume"),
 		TEXT("Sets (or reads) the master volume of the voice sound class: Steam.Voice.Volume [0..2]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SetVolume));
+
+	Commands.Add(TEXT("Steam.Voice.PlayerVolume"),
+		TEXT("Sets (or reads) one player's voice volume: Steam.Voice.PlayerVolume <SteamID64 | fake talker index 0..7> [0..2]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SetPlayerVolume));
 
 	Commands.Add(TEXT("Steam.Voice.Threshold"),
 		TEXT("Sets (or reads, with the live microphone level) the voice activation threshold: Steam.Voice.Threshold [0..1], 0 = off."),

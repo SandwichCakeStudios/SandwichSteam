@@ -521,6 +521,48 @@ FSteamResult USteamVoiceSubsystem::SetMasterVolume(float Volume)
 	return FSteamResult::Success();
 }
 
+FSteamResult USteamVoiceSubsystem::SetPlayerVolume(FSteamId Player, float Volume)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+	if (!bUseSteamPipeline)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoicePlayerVolumeNeedsPipeline", "Per player volume needs the Steam voice pipeline (Use Steam Voice Pipeline in the Voice settings)."));
+	}
+	if (!Player.IsValid() || Player == LocalId)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoicePlayerVolumeInvalid", "Pass the Steam ID of another player."));
+	}
+
+	const float Clamped = FMath::Clamp(Volume, 0.0f, 2.0f);
+	const float Previous = GetPlayerVolume(Player);
+	if (Clamped == Previous)
+	{
+		return FSteamResult::Success();
+	}
+
+	if (Clamped == 1.0f)
+	{
+		PlayerVolumes.Remove(Player.Value);
+	}
+	else
+	{
+		PlayerVolumes.Add(Player.Value, Clamped);
+	}
+	bPlayerVolumesChanged = true;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
+float USteamVoiceSubsystem::GetPlayerVolume(FSteamId Player) const
+{
+	const float* Volume = PlayerVolumes.Find(Player.Value);
+	return Volume ? *Volume : 1.0f;
+}
+
 FSteamResult USteamVoiceSubsystem::BindPushToTalk(APlayerController* Controller)
 {
 	FSteamResult Result;
@@ -983,7 +1025,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	Blocked.Sort();
 	TArray<int32> Transmit = ResolveTransmitChannels();
 
-	if (bRoutingPublished && !bChannelOutputsChanged && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
+	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
 		&& bPublishedTransmitMouth == bTransmitToOwner && PublishedTransmitChannels == Transmit)
 	{
 		return;
@@ -999,6 +1041,11 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->Peers = Peers;
 	Snapshot->Muted.Append(Muted);
 	Snapshot->Blocked.Append(Blocked);
+	Snapshot->PlayerVolumes.Reserve(PlayerVolumes.Num());
+	for (const TPair<int64, float>& Pair : PlayerVolumes)
+	{
+		Snapshot->PlayerVolumes.Add(static_cast<uint64>(Pair.Key), Pair.Value);
+	}
 	Snapshot->Fake.Count = FakeTalkerCount;
 	Snapshot->Fake.DelayMs = FakeTalkerDelayMs;
 	Snapshot->Fake.StaggerMs = FakeTalkerStaggerMs;
@@ -1019,6 +1066,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	});
 	Worker->Publish(Snapshot);
 	bChannelOutputsChanged = false;
+	bPlayerVolumesChanged = false;
 
 	PublishedPeers = MoveTemp(Peers);
 	PublishedMuted = MoveTemp(Muted);
@@ -1879,6 +1927,12 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		}
 	}
 
+	Report += FString::Printf(TEXT("  Player volumes: %d set\n"), PlayerVolumes.Num());
+	for (const TPair<int64, float>& Pair : PlayerVolumes)
+	{
+		Report += FString::Printf(TEXT("    volume: %s %.2f%s\n"), *FSteamId(Pair.Key).ToString(), Pair.Value, Present.Contains(Pair.Key) ? TEXT("") : TEXT(" (not in the game)"));
+	}
+
 	Report += FString::Printf(TEXT("  Counters: %d talking events, %d mute call(s) not accepted yet\n"), TalkingEventsSent, MuteCallsFailed);
 
 	Report += FString::Printf(TEXT("  Pipeline: %s\n"), bUseSteamPipeline ? (Worker.IsValid() ? TEXT("Steam voice (running)") : TEXT("Steam voice (stopped)")) : TEXT("Online Subsystem voice"));
@@ -1974,10 +2028,10 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 				Latency = FString::Printf(TEXT("%.0f ms (capture to speaker %.0f + buffer %.0f)"), Talker.PipelineLatencyMs + BufferedMs, Talker.PipelineLatencyMs, BufferedMs);
 			}
 
-			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples), queued %d\n"),
+			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, volume %.2f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples), queued %d\n"),
 				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.bFake ? TEXT(" (fake)") : TEXT(""),
 				Talker.bTalking ? TEXT("TALKING") : TEXT("silent"), Talker.bActive ? TEXT(", speaker on") : TEXT(""),
-				Talker.Level, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
+				Talker.Level, Talker.Gain, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
 				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.Queued);
 			Report += FString::Printf(TEXT("      speakers: %d (%s), first %s, buffered %.0f ms, underruns %u (incl. ends of speech), latency %s\n"),
 				NumSpeakers, *Placement, Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs, Component ? Component->GetUnderruns() : 0u, *Latency);
