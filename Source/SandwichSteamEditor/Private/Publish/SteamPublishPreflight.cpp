@@ -14,15 +14,6 @@
 
 namespace
 {
-	FSteamValidationCheck MakeCheck(const TCHAR* Id, ESteamCheckSeverity Severity, const FText& Label, const FText& Detail)
-	{
-		FSteamValidationCheck Check;
-		Check.Id = Id;
-		Check.Severity = Severity;
-		Check.Label = Label;
-		Check.Detail = Detail;
-		return Check;
-	}
 }
 
 bool FSteamPublishPreflight::HasErrors(const TArray<FSteamValidationCheck>& Checks)
@@ -44,11 +35,11 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 	const int32 AppId = Settings->GetAppId();
 	if (AppId <= 0)
 	{
-		Checks.Add(MakeCheck(TEXT("AppId"), ESteamCheckSeverity::Error, LOCTEXT("AppId", "Steam App ID"), LOCTEXT("AppIdMissing", "Not set. Enter it in Project Settings > Sandwich Steam.")));
+		Checks.Add(FSteamValidationCheck::Make(TEXT("AppId"), ESteamCheckSeverity::Error, LOCTEXT("AppId", "Steam App ID"), LOCTEXT("AppIdMissing", "Not set. Enter it in Project Settings > Sandwich Steam.")));
 	}
 	else if (AppId == 480 && bUpload)
 	{
-		Checks.Add(MakeCheck(TEXT("AppId"), ESteamCheckSeverity::Warning, LOCTEXT("AppId", "Steam App ID"), LOCTEXT("AppIdSpacewar", "480 is Valve's Spacewar test app. You cannot upload builds to it; use your own App ID.")));
+		Checks.Add(FSteamValidationCheck::Make(TEXT("AppId"), ESteamCheckSeverity::Warning, LOCTEXT("AppId", "Steam App ID"), LOCTEXT("AppIdSpacewar", "480 is Valve's Spacewar test app. You cannot upload builds to it; use your own App ID.")));
 	}
 
 	// Depots
@@ -72,11 +63,11 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 	}
 	if (EnabledDepots == 0)
 	{
-		Checks.Add(MakeCheck(TEXT("Depots"), ESteamCheckSeverity::Error, LOCTEXT("Depots", "Depots"), LOCTEXT("NoDepot", "No enabled depot. Add one in the Setup page.")));
+		Checks.Add(FSteamValidationCheck::Make(TEXT("Depots"), ESteamCheckSeverity::Error, LOCTEXT("Depots", "Depots"), LOCTEXT("NoDepot", "No enabled depot. Add one in the Setup page.")));
 	}
 	else if (!bDepotsValid)
 	{
-		Checks.Add(MakeCheck(TEXT("Depots"), ESteamCheckSeverity::Error, LOCTEXT("Depots", "Depots"), LOCTEXT("BadDepot", "A depot has no Depot ID or an ID is listed twice.")));
+		Checks.Add(FSteamValidationCheck::Make(TEXT("Depots"), ESteamCheckSeverity::Error, LOCTEXT("Depots", "Depots"), LOCTEXT("BadDepot", "A depot has no Depot ID or an ID is listed twice.")));
 	}
 
 	if (bRun)
@@ -86,7 +77,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 		{
 			if (GEditor && GEditor->PlayWorld)
 			{
-				Checks.Add(MakeCheck(TEXT("PIE"), ESteamCheckSeverity::Error, LOCTEXT("Pie", "Play In Editor"), LOCTEXT("PieRunning", "Stop Play In Editor before packaging.")));
+				Checks.Add(FSteamValidationCheck::Make(TEXT("PIE"), ESteamCheckSeverity::Error, LOCTEXT("Pie", "Play In Editor"), LOCTEXT("PieRunning", "Stop Play In Editor before packaging.")));
 			}
 
 			TArray<UPackage*> Dirty;
@@ -94,7 +85,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			FEditorFileUtils::GetDirtyWorldPackages(Dirty);
 			if (!Dirty.IsEmpty())
 			{
-				FSteamValidationCheck Check = MakeCheck(TEXT("Unsaved"), ESteamCheckSeverity::Warning, LOCTEXT("Unsaved", "Unsaved assets"),
+				FSteamValidationCheck Check = FSteamValidationCheck::Make(TEXT("Unsaved"), ESteamCheckSeverity::Warning, LOCTEXT("Unsaved", "Unsaved assets"),
 					FText::Format(LOCTEXT("UnsavedDetail", "{0} asset(s) have unsaved changes. The build is cooked from the saved files."), Dirty.Num()));
 				Check.FixLabel = LOCTEXT("SaveAll", "Save all");
 				Check.Fix = []() { FEditorFileUtils::SaveDirtyPackages(true, true, true); };
@@ -104,7 +95,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			if (bMac)
 			{
 #if !PLATFORM_MAC
-				Checks.Add(MakeCheck(TEXT("MacHost"), ESteamCheckSeverity::Error, LOCTEXT("MacHost", "Mac depot"), LOCTEXT("MacHostDetail", "Mac builds can only be packaged on a Mac. Disable the Mac depot, or package on a Mac and use 'Upload staged build'.")));
+				Checks.Add(FSteamValidationCheck::Make(TEXT("MacHost"), ESteamCheckSeverity::Error, LOCTEXT("MacHost", "Mac depot"), LOCTEXT("MacHostDetail", "Mac builds can only be packaged on a Mac. Disable the Mac depot, or package on a Mac and use 'Upload staged build'.")));
 #endif
 			}
 
@@ -120,13 +111,13 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			const FString TargetName = Settings->TargetName.TrimStartAndEnd();
 			if (TargetName.IsEmpty() && TargetNames.Num() > 1)
 			{
-				Checks.Add(MakeCheck(TEXT("Target"), ESteamCheckSeverity::Warning, LOCTEXT("Target", "Build target"),
+				Checks.Add(FSteamValidationCheck::Make(TEXT("Target"), ESteamCheckSeverity::Warning, LOCTEXT("Target", "Build target"),
 					FText::Format(LOCTEXT("TargetAmbiguous", "This project has {0} build targets ({1}). Set 'Target Name' in the Setup page's Build settings, or BuildCookRun may pick the wrong one or fail with an ambiguous target error."),
 						TargetNames.Num(), FText::FromString(FString::Join(TargetNames, TEXT(", "))))));
 			}
 			else if (!TargetName.IsEmpty() && !TargetNames.IsEmpty() && !TargetNames.Contains(TargetName))
 			{
-				Checks.Add(MakeCheck(TEXT("Target"), ESteamCheckSeverity::Warning, LOCTEXT("Target", "Build target"),
+				Checks.Add(FSteamValidationCheck::Make(TEXT("Target"), ESteamCheckSeverity::Warning, LOCTEXT("Target", "Build target"),
 					FText::Format(LOCTEXT("TargetNotFound", "Target Name '{0}' does not match any Target.cs in Source/ ({1})."),
 						FText::FromString(TargetName), FText::FromString(FString::Join(TargetNames, TEXT(", "))))));
 			}
@@ -134,7 +125,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			// DebugGame only differs from Development in the project's own game modules.
 			if (Options.Config == ESteamPublishConfig::DebugGame && TargetNames.IsEmpty())
 			{
-				Checks.Add(MakeCheck(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
+				Checks.Add(FSteamValidationCheck::Make(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
 					LOCTEXT("DebugGameNoCode", "DebugGame only removes optimizations from the project's C++ game modules, and this project has no Target.cs in Source/. Use Development instead.")));
 			}
 		}
@@ -143,7 +134,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 		const TArray<FSteamValidationCheck> Setup = FSteamProjectValidator::Run();
 		if (Setup.ContainsByPredicate([](const FSteamValidationCheck& Check) { return Check.Severity == ESteamCheckSeverity::Error; }))
 		{
-			Checks.Add(MakeCheck(TEXT("Validator"), ESteamCheckSeverity::Error, LOCTEXT("Validator", "Steam setup"), LOCTEXT("ValidatorDetail", "The Steam setup has errors. Fix them on the Steam Dashboard's status panel (Tools > Sandwich Steam > Steam Dashboard).")));
+			Checks.Add(FSteamValidationCheck::Make(TEXT("Validator"), ESteamCheckSeverity::Error, LOCTEXT("Validator", "Steam setup"), LOCTEXT("ValidatorDetail", "The Steam setup has errors. Fix them on the Steam Dashboard's status panel (Tools > Sandwich Steam > Steam Dashboard).")));
 		}
 
 		if (bUpload)
@@ -151,7 +142,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			// SteamCMD
 			if (User->SteamCmdPath.FilePath.IsEmpty() || !IFileManager::Get().FileExists(*User->SteamCmdPath.FilePath))
 			{
-				FSteamValidationCheck Check = MakeCheck(TEXT("SteamCmd"), ESteamCheckSeverity::Error, LOCTEXT("SteamCmd", "SteamCMD"),
+				FSteamValidationCheck Check = FSteamValidationCheck::Make(TEXT("SteamCmd"), ESteamCheckSeverity::Error, LOCTEXT("SteamCmd", "SteamCMD"),
 					LOCTEXT("SteamCmdMissing", "SteamCMD was not found. Set its path (or download it) on the SteamCMD dashboard page."));
 				Check.FixLabel = LOCTEXT("OpenDashboard", "Open dashboard");
 				Check.Fix = []() { SandwichSteam::Editor::SandwichSteamDashboard(); };
@@ -159,7 +150,7 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			}
 			else if (!FSteamCmdCommandLine::IsValidUsername(User->SteamUsername.TrimStartAndEnd()))
 			{
-				FSteamValidationCheck Check = MakeCheck(TEXT("SteamUser"), ESteamCheckSeverity::Error, LOCTEXT("SteamUser", "Steam account"),
+				FSteamValidationCheck Check = FSteamValidationCheck::Make(TEXT("SteamUser"), ESteamCheckSeverity::Error, LOCTEXT("SteamUser", "Steam account"),
 					LOCTEXT("SteamUserMissing", "Enter your Steam account name on the SteamCMD dashboard page (letters, digits and _ . - @ only)."));
 				Check.FixLabel = LOCTEXT("OpenDashboard", "Open dashboard");
 				Check.Fix = []() { SandwichSteam::Editor::SandwichSteamDashboard(); };
@@ -169,31 +160,31 @@ TArray<FSteamValidationCheck> FSteamPublishPreflight::Run(const FSteamPublishOpt
 			// Branch
 			if (Options.Branch.IsEmpty())
 			{
-				Checks.Add(MakeCheck(TEXT("Branch"), ESteamCheckSeverity::Warning, LOCTEXT("Branch", "Branch"), LOCTEXT("NoBranch", "No branch selected. The build is uploaded but not set live.")));
+				Checks.Add(FSteamValidationCheck::Make(TEXT("Branch"), ESteamCheckSeverity::Warning, LOCTEXT("Branch", "Branch"), LOCTEXT("NoBranch", "No branch selected. The build is uploaded but not set live.")));
 			}
 			else if (!FSteamVdfWriter::CanSetLive(Options.Branch))
 			{
-				Checks.Add(MakeCheck(TEXT("Branch"), ESteamCheckSeverity::Info, LOCTEXT("Branch", "Branch"), LOCTEXT("DefaultBranch", "Steam does not allow setlive on the default branch. The build is uploaded; set it live on the partner site.")));
+				Checks.Add(FSteamValidationCheck::Make(TEXT("Branch"), ESteamCheckSeverity::Info, LOCTEXT("Branch", "Branch"), LOCTEXT("DefaultBranch", "Steam does not allow setlive on the default branch. The build is uploaded; set it live on the partner site.")));
 			}
 			else if (Options.Config != ESteamPublishConfig::Shipping && SandwichSteam::Publish::ShouldSetLive(*Settings, Options.Branch))
 			{
-				Checks.Add(MakeCheck(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
+				Checks.Add(FSteamValidationCheck::Make(TEXT("Config"), ESteamCheckSeverity::Warning, LOCTEXT("Config", "Configuration"),
 					FText::Format(LOCTEXT("NonShippingLive", "A {0} build keeps console commands, stats and profiling tools, and players on '{1}' get it as soon as the upload finishes. Use Shipping for player-facing branches."),
 						StaticEnum<ESteamPublishConfig>()->GetDisplayNameTextByValue(static_cast<int64>(Options.Config)), FText::FromString(Options.Branch))));
 			}
 
 			if (bMac)
 			{
-				Checks.Add(MakeCheck(TEXT("MacSign"), ESteamCheckSeverity::Warning, LOCTEXT("MacSign", "Mac build"), LOCTEXT("MacSignDetail", "Mac builds must be codesigned and notarized before they are uploaded.")));
+				Checks.Add(FSteamValidationCheck::Make(TEXT("MacSign"), ESteamCheckSeverity::Warning, LOCTEXT("MacSign", "Mac build"), LOCTEXT("MacSignDetail", "Mac builds must be codesigned and notarized before they are uploaded.")));
 			}
 		}
 	}
 
-	Checks.Add(MakeCheck(TEXT("AppIdFile"), ESteamCheckSeverity::Info, LOCTEXT("AppIdFile", "steam_appid.txt"), LOCTEXT("AppIdFileDetail", "Always excluded from every depot.")));
+	Checks.Add(FSteamValidationCheck::Make(TEXT("AppIdFile"), ESteamCheckSeverity::Info, LOCTEXT("AppIdFile", "steam_appid.txt"), LOCTEXT("AppIdFileDetail", "Always excluded from every depot.")));
 
 	if (Checks.ContainsByPredicate([](const FSteamValidationCheck& Check) { return Check.Severity != ESteamCheckSeverity::Info; }) == false)
 	{
-		Checks.Insert(MakeCheck(TEXT("Ready"), ESteamCheckSeverity::Ok, LOCTEXT("Ready", "Ready"), LOCTEXT("ReadyDetail", "All checks passed.")), 0);
+		Checks.Insert(FSteamValidationCheck::Make(TEXT("Ready"), ESteamCheckSeverity::Ok, LOCTEXT("Ready", "Ready"), LOCTEXT("ReadyDetail", "All checks passed.")), 0);
 	}
 	return Checks;
 }
