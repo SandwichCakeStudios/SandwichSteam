@@ -9,6 +9,7 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "Style/SteamEditorWidgets.h"
 #include "UObject/UObjectGlobals.h"
 #include "HAL/PlatformProcess.h"
 #include "IDetailsView.h"
@@ -46,6 +47,8 @@
 
 namespace
 {
+	using SandwichSteam::Editor::Notify;
+
 	const FName PublishTabName(TEXT("SandwichSteamPublishTab"));
 	constexpr int32 MaxLogLines = 3000;
 
@@ -92,17 +95,7 @@ namespace
 		}
 	}
 
-	void Notify(const FText& Text, SNotificationItem::ECompletionState State)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 8.0f;
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
-
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, TAttribute<bool> bEnabled = true, bool bPrimary = false)
+	TSharedRef<SWidget> MakePublishButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, TAttribute<bool> bEnabled = true, bool bPrimary = false)
 	{
 		return SNew(SButton)
 			.ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>(bPrimary ? "PrimaryButton" : "Button"))
@@ -439,22 +432,22 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 							SNew(SVerticalBox)
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
 							[
-								MakeButton(LOCTEXT("Publish", "Publish"), LOCTEXT("PublishTip", "Package the game, write the build scripts and upload the build with SteamCMD."),
+								MakePublishButton(LOCTEXT("Publish", "Publish"), LOCTEXT("PublishTip", "Package the game, write the build scripts and upload the build with SteamCMD."),
 									[this]() { OnPublishClicked(false); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }), /*bPrimary*/ true)
 							]
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
 							[
-								MakeButton(LOCTEXT("TestBuild", "Test build (no upload)"), LOCTEXT("TestBuildTip", "Runs pre steps, packages with UAT, writes the build scripts and runs post steps. Never calls SteamCMD - use this to verify packaging before spending an upload."),
+								MakePublishButton(LOCTEXT("TestBuild", "Test build (no upload)"), LOCTEXT("TestBuildTip", "Runs pre steps, packages with UAT, writes the build scripts and runs post steps. Never calls SteamCMD - use this to verify packaging before spending an upload."),
 									[this]() { OnPublishClicked(false, true); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
 							]
 							+ SVerticalBox::Slot().AutoHeight()
 							[
-								MakeButton(LOCTEXT("DryRun", "Dry run"), LOCTEXT("DryRunTip", "Runs the checks and writes the app and depot build scripts. Nothing is packaged or uploaded."),
+								MakePublishButton(LOCTEXT("DryRun", "Dry run"), LOCTEXT("DryRunTip", "Runs the checks and writes the app and depot build scripts. Nothing is packaged or uploaded."),
 									[this]() { OnPublishClicked(true); }, TAttribute<bool>::CreateLambda([this]() { return !IsRunning(); }))
 							]
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 0.f)
 							[
-								MakeButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelTip", "Stops the running process."),
+								MakePublishButton(LOCTEXT("Cancel", "Cancel"), LOCTEXT("CancelTip", "Stops the running process."),
 									[this]()
 									{
 										if (Job.IsValid())
@@ -551,7 +544,7 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
 			[
-				MakeButton(LOCTEXT("CopyLog", "Copy log"), LOCTEXT("CopyLogTip", "Copies the log to the clipboard."), [this]()
+				MakePublishButton(LOCTEXT("CopyLog", "Copy log"), LOCTEXT("CopyLogTip", "Copies the log to the clipboard."), [this]()
 				{
 					FString All;
 					for (const TSharedPtr<FLogLine>& Line : LogLines)
@@ -563,7 +556,7 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
 			[
-				MakeButton(LOCTEXT("ClearLog", "Clear log"), LOCTEXT("ClearLogTip", "Clears the log shown here. The log files in the publish directory are not touched."), [this]()
+				MakePublishButton(LOCTEXT("ClearLog", "Clear log"), LOCTEXT("ClearLogTip", "Clears the log shown here. The log files in the publish directory are not touched."), [this]()
 				{
 					LogLines.Reset();
 					bLogDirty = true;
@@ -575,7 +568,7 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
 			[
-				MakeButton(LOCTEXT("OpenFolder", "Open folder"), LOCTEXT("OpenFolderTip", "Opens the publish directory (scripts, logs, history)."), []()
+				MakePublishButton(LOCTEXT("OpenFolder", "Open folder"), LOCTEXT("OpenFolderTip", "Opens the publish directory (scripts, logs, history)."), []()
 				{
 					const FString Dir = SandwichSteam::Publish::GetPublishDir();
 					IFileManager::Get().MakeDirectory(*Dir, true);
@@ -584,7 +577,7 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildPublishPage()
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f)
 			[
-				MakeButton(LOCTEXT("BuildsPage", "Builds page"), LOCTEXT("BuildsPageTip", "Opens the SteamPipe builds page of this app on the partner site."), []()
+				MakePublishButton(LOCTEXT("BuildsPage", "Builds page"), LOCTEXT("BuildsPageTip", "Opens the SteamPipe builds page of this app on the partner site."), []()
 				{
 					FPlatformProcess::LaunchURL(*FString::Printf(TEXT("https://partner.steamgames.com/apps/builds/%d"), USteamPublishSettings::Get()->GetAppId()), nullptr, nullptr);
 				})
@@ -628,7 +621,7 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildSetupPage()
 			SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().AutoWidth()
 			[
-				MakeButton(LOCTEXT("SandwichSteamSettings", "Sandwich Steam settings"), LOCTEXT("SandwichSteamSettingsTip", "Opens Project Settings > Plugins > Sandwich Steam (App ID, Data Directory)."), []()
+				MakePublishButton(LOCTEXT("SandwichSteamSettings", "Sandwich Steam settings"), LOCTEXT("SandwichSteamSettingsTip", "Opens Project Settings > Plugins > Sandwich Steam (App ID, Data Directory)."), []()
 				{
 					if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
 					{
@@ -659,7 +652,7 @@ TSharedRef<SWidget> SSteamPublishPanel::BuildHistoryPage()
 			]
 			+ SHorizontalBox::Slot().AutoWidth()
 			[
-				MakeButton(LOCTEXT("RefreshHistory", "Refresh"), LOCTEXT("RefreshHistoryTip", "Reads the history file again."), [this]() { RefreshHistory(); })
+				MakePublishButton(LOCTEXT("RefreshHistory", "Refresh"), LOCTEXT("RefreshHistoryTip", "Reads the history file again."), [this]() { RefreshHistory(); })
 			]
 		]
 		+ SVerticalBox::Slot().FillHeight(1.f)

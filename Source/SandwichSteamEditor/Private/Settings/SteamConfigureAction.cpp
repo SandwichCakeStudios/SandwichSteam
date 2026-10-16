@@ -13,12 +13,15 @@
 #include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamIniWriter.h"
 #include "SourceControlHelpers.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamConfigure"
 
 namespace
 {
+	using SandwichSteam::Editor::Notify;
+
 	/** One ini file of the project and what has to change in it. */
 	struct FIniTarget
 	{
@@ -36,16 +39,6 @@ namespace
 			});
 		}
 	};
-
-	void ShowNotification(const FText& Text, SNotificationItem::ECompletionState State)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 6.0f;
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
 
 	FText DescribeChanges(const TArray<FIniTarget>& Targets)
 	{
@@ -205,7 +198,7 @@ void SandwichSteam::Editor::ConfigureSteam()
 
 	if (!Targets[0].HasChanges() && !Targets[1].HasChanges())
 	{
-		ShowNotification(LOCTEXT("AlreadyConfigured", "Steam is already configured (DefaultEngine.ini and DefaultGame.ini)."), SNotificationItem::CS_Success);
+		Notify(LOCTEXT("AlreadyConfigured", "Steam is already configured (DefaultEngine.ini and DefaultGame.ini)."), SNotificationItem::CS_Success, 6.f);
 		return;
 	}
 
@@ -222,7 +215,7 @@ void SandwichSteam::Editor::ConfigureSteam()
 		}
 	}
 
-	ShowNotification(LOCTEXT("Configured", "Config updated. Restart the editor for the Steam settings to take effect."), SNotificationItem::CS_Success);
+	Notify(LOCTEXT("Configured", "Config updated. Restart the editor for the Steam settings to take effect."), SNotificationItem::CS_Success, 6.f);
 }
 
 #undef LOCTEXT_NAMESPACE

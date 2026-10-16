@@ -5,6 +5,7 @@
 #include "ISettingsModule.h"
 #include "Modules/ModuleManager.h"
 #include "Settings/SteamConfigureAction.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -20,6 +21,8 @@
 
 namespace
 {
+	using SandwichSteam::Editor::MakeButton;
+
 	const TCHAR* GetStatusBrushName(ESteamCheckSeverity Severity)
 	{
 		switch (Severity)
@@ -35,22 +38,8 @@ namespace
 		}
 	}
 
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
-	{
-		return SNew(SButton)
-			.ToolTipText(ToolTip)
-			.OnClicked_Lambda([OnClick]()
-			{
-				OnClick();
-				return FReply::Handled();
-			})
-			[
-				SNew(STextBlock).Text(Label).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-			];
-	}
-
 	/** Same fixed size for every Setup status action button (25% larger than the default button), stacked vertically. */
-	TSharedRef<SWidget> MakeActionButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
+	TSharedRef<SWidget> MakeLargeActionButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
 	{
 		return SNew(SBox)
 			.WidthOverride(300.f)
@@ -126,18 +115,18 @@ void SSteamStatusPanel::Construct(const FArguments& /*InArgs*/)
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 0.f, 0.f, 4.f)
 				[
-					MakeActionButton(LOCTEXT("Recheck", "Re-check"), LOCTEXT("RecheckTip", "Runs the validation again."), [this]() { Refresh(); })
+					MakeLargeActionButton(LOCTEXT("Recheck", "Re-check"), LOCTEXT("RecheckTip", "Runs the validation again."), [this]() { Refresh(); })
 				]
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 0.f, 0.f, 4.f)
 				[
-					MakeActionButton(LOCTEXT("ShowLog", "Show in Message Log"), LOCTEXT("ShowLogTip", "Writes the result to the Message Log (Sandwich Steam) and opens it."), [this]()
+					MakeLargeActionButton(LOCTEXT("ShowLog", "Show in Message Log"), LOCTEXT("ShowLogTip", "Writes the result to the Message Log (Sandwich Steam) and opens it."), [this]()
 					{
 						FSteamProjectValidator::WriteToMessageLog(Checks, true);
 					})
 				]
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 0.f, 0.f, 4.f)
 				[
-					MakeActionButton(LOCTEXT("Configure", "Configure Steam..."), LOCTEXT("ConfigureTip", "Shows the changes to DefaultEngine.ini (platform service, Steam subsystem, SteamDevAppId) and applies them."), [this]()
+					MakeLargeActionButton(LOCTEXT("Configure", "Configure Steam..."), LOCTEXT("ConfigureTip", "Shows the changes to DefaultEngine.ini (platform service, Steam subsystem, SteamDevAppId) and applies them."), [this]()
 					{
 						SandwichSteam::Editor::ConfigureSteam();
 						Refresh();
@@ -145,7 +134,7 @@ void SSteamStatusPanel::Construct(const FArguments& /*InArgs*/)
 				]
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[
-					MakeActionButton(LOCTEXT("ProjectSettings", "Project Settings..."), LOCTEXT("ProjectSettingsTip", "Opens Project Settings > Plugins > Sandwich Steam (App ID, Data Directory, Features)."), []()
+					MakeLargeActionButton(LOCTEXT("ProjectSettings", "Project Settings..."), LOCTEXT("ProjectSettingsTip", "Opens Project Settings > Plugins > Sandwich Steam (App ID, Data Directory, Features)."), []()
 					{
 						SandwichSteamProjectSettings();
 					})

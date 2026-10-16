@@ -21,7 +21,7 @@ Sandwich Steam is a **source plugin**. That means Unreal has to *compile* it onc
 | **A C++ project** (has a `Source` folder and a `.sln` or Rider setup) | [Path 2](#path-2-c-project) |
 | **I want one build I can reuse in many projects** | [Path 3](#path-3-build-the-plugin-once-and-reuse-it) |
 
-You need **Unreal Engine 5.6, 5.7 or 5.8**. Each engine version ships its own Steamworks SDK; see [Supported engine versions](https://github.com/SandwichCakeStudios/SandwichSteam#supported-engine-versions).
+You need **Unreal Engine 5.4, 5.5, 5.6, 5.7 or 5.8**. Each engine version ships its own Steamworks SDK; see [Supported engine versions](https://github.com/SandwichCakeStudios/SandwichSteam#supported-engine-versions).
 
 ---
 

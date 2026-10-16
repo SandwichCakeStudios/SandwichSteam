@@ -34,6 +34,17 @@ struct FSteamValidationCheck
 	TFunction<void()> Fix;
 
 	bool IsIssue() const { return Severity == ESteamCheckSeverity::Warning || Severity == ESteamCheckSeverity::Error; }
+
+	/** A check without a fix. */
+	static FSteamValidationCheck Make(FName InId, ESteamCheckSeverity InSeverity, const FText& InLabel, const FText& InDetail)
+	{
+		FSteamValidationCheck Check;
+		Check.Id = InId;
+		Check.Severity = InSeverity;
+		Check.Label = InLabel;
+		Check.Detail = InDetail;
+		return Check;
+	}
 };
 
 /**

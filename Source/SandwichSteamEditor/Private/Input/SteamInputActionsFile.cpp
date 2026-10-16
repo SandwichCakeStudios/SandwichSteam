@@ -12,35 +12,20 @@
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
 #include "SandwichSteamEditor.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamInputActionsFile"
 
 namespace
 {
-	FText GetTitle()
+	using SandwichSteam::Editor::NotifyFileWritten;
+
+	FText GetInputActionsTitle()
 	{
 		return LOCTEXT("Title", "Generate Steam Input Actions File");
 	}
 
-	void ShowNotification(const FText& Text, const FString& FilePath, bool bSuccess)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 12.0f;
-		if (bSuccess && !FilePath.IsEmpty())
-		{
-			Info.HyperlinkText = LOCTEXT("ShowFile", "Show file");
-			Info.Hyperlink = FSimpleDelegate::CreateLambda([FilePath]()
-			{
-				FPlatformProcess::ExploreFolder(*FPaths::ConvertRelativePathToFull(FilePath));
-			});
-		}
-
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(bSuccess ? SNotificationItem::CS_Success : SNotificationItem::CS_Fail);
-		}
-	}
 }
 
 FString SandwichSteam::Editor::GetSteamInputActionsPath(int32 SteamAppId)
@@ -58,7 +43,7 @@ void SandwichSteam::Editor::GenerateSteamInputActions(USteamAppDefinition* Defin
 
 	if (!Definition)
 	{
-		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoDefinition", "No Steam App Definition is assigned. Assign one in Project Settings > Plugins > Sandwich Steam."), GetTitle());
+		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoDefinition", "No Steam App Definition is assigned. Assign one in Project Settings > Plugins > Sandwich Steam."), GetInputActionsTitle());
 		return;
 	}
 
@@ -100,7 +85,7 @@ void SandwichSteam::Editor::GenerateSteamInputActions(USteamAppDefinition* Defin
 	const FString Content = FSteamInputVdfWriter::Build(Sets);
 	if (Content.IsEmpty())
 	{
-		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoRows", "The Steam App Definition has no Input Set with a valid name. Add rows to its Input Sets array first."), GetTitle());
+		FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoRows", "The Steam App Definition has no Input Set with a valid name. Add rows to its Input Sets array first."), GetInputActionsTitle());
 		return;
 	}
 
@@ -108,7 +93,7 @@ void SandwichSteam::Editor::GenerateSteamInputActions(USteamAppDefinition* Defin
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), /*Tree*/ true);
 	if (!FFileHelper::SaveStringToFile(Content, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 	{
-		ShowNotification(FText::Format(LOCTEXT("WriteFailed", "Could not write {0}."), FText::FromString(Path)), FString(), false);
+		NotifyFileWritten(FText::Format(LOCTEXT("WriteFailed", "Could not write {0}."), FText::FromString(Path)), FString(), false);
 		return;
 	}
 
@@ -120,7 +105,7 @@ void SandwichSteam::Editor::GenerateSteamInputActions(USteamAppDefinition* Defin
 	}
 
 	UE_LOG(LogSandwichSteamEditor, Log, TEXT("Steam Input action file written to %s"), *Path);
-	ShowNotification(Summary, Path, true);
+	NotifyFileWritten(Summary, Path, true);
 }
 
 #undef LOCTEXT_NAMESPACE

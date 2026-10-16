@@ -13,6 +13,7 @@
 #include "Publish/SteamCmdDownloadJob.h"
 #include "Publish/SteamCmdSetupService.h"
 #include "Publish/SteamPublishSettings.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -31,20 +32,8 @@
 
 namespace
 {
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick, TAttribute<bool> bEnabled = true)
-	{
-		return SNew(SButton)
-			.ToolTipText(ToolTip)
-			.IsEnabled(bEnabled)
-			.OnClicked_Lambda([OnClick]()
-			{
-				OnClick();
-				return FReply::Handled();
-			})
-			[
-				SNew(STextBlock).Text(Label).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-			];
-	}
+	using SandwichSteam::Editor::MakeButton;
+	using SandwichSteam::Editor::Notify;
 
 	TSharedRef<IDetailsView> MakeUserDetailsView()
 	{
@@ -60,16 +49,6 @@ namespace
 		// Same behaviour this view had on the Publish page's Setup tab: every edit is written straight to the per user config file.
 		View->OnFinishedChangingProperties().AddLambda([Object](const FPropertyChangedEvent&) { Object->SaveConfig(); });
 		return View;
-	}
-
-	void Notify(const FText& Text, SNotificationItem::ECompletionState State)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 8.0f;
-		if (const TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
 	}
 
 	FText BuildStatusText()

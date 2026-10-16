@@ -19,7 +19,7 @@
 
 namespace
 {
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
+	TSharedRef<SWidget> MakeSettingsButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
 	{
 		return SNew(SButton)
 			.ToolTipText(ToolTip)
@@ -118,7 +118,7 @@ void FSteamPublishSettingsCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 			SNew(SWrapBox).UseAllottedSize(true)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 			[
-				MakeButton(LOCTEXT("DryRun", "Generate VDF (dry run)"),
+				MakeSettingsButton(LOCTEXT("DryRun", "Generate VDF (dry run)"),
 					FText::Format(LOCTEXT("DryRunTip", "Writes the app and depot build scripts for the first branch into {0}. Nothing is uploaded."), FText::FromString(SandwichSteam::Publish::GetPublishDir())),
 					[]() { SandwichSteam::Editor::GenerateVdfDryRun(); })
 			]
@@ -147,13 +147,13 @@ void FSteamPublishUserSettingsCustomization::CustomizeDetails(IDetailLayoutBuild
 			SNew(SWrapBox).UseAllottedSize(true)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 			[
-				MakeButton(LOCTEXT("OpenTerminal", "Open login terminal"),
+				MakeSettingsButton(LOCTEXT("OpenTerminal", "Open login terminal"),
 					LOCTEXT("OpenTerminalTip", "Opens a terminal running steamcmd +login <user>. Type your password and Steam Guard code there once; SteamCMD caches the login. The login is checked when you come back to the editor."),
 					[]() { FSteamCmdSetupService::Get().BeginTerminalLogin(); })
 			]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 			[
-				MakeButton(LOCTEXT("TestLogin", "Test login"),
+				MakeSettingsButton(LOCTEXT("TestLogin", "Test login"),
 					LOCTEXT("TestLoginTip", "Runs steamcmd +login <user> +quit with the cached login and shows the result. A Steam Guard prompt opens a dialog."),
 					[]() { SandwichSteam::Editor::TestSteamCmdLogin(); })
 			]

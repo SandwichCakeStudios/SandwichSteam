@@ -7,6 +7,7 @@
 #include "Data/SteamAppDefinition.h"
 #include "GameplayTagsManager.h"
 #include "SteamSessionRules.h"
+#include "SteamSessionsConversions.h"
 #include "SteamSessionsSubsystem.h"
 
 #if SANDWICHSTEAM_WITH_STEAMWORKS
@@ -103,17 +104,6 @@ namespace
 	FSteamId FromSteam(const CSteamID& Id)
 	{
 		return FSteamId(static_cast<int64>(Id.ConvertToUint64()));
-	}
-
-	ELobbyDistanceFilter ToSteamDistance(ESteamSessionDistance Distance)
-	{
-		switch (Distance)
-		{
-		case ESteamSessionDistance::Close: return k_ELobbyDistanceFilterClose;
-		case ESteamSessionDistance::Far: return k_ELobbyDistanceFilterFar;
-		case ESteamSessionDistance::Worldwide: return k_ELobbyDistanceFilterWorldwide;
-		default: return k_ELobbyDistanceFilterDefault;
-		}
 	}
 
 	ELobbyType ToSteamLobbyType(ESteamSessionVisibility Visibility)
@@ -263,7 +253,7 @@ bool FSteamLobbyBackend::RequestLobbyList(const FSteamSessionSearchOptions& Opti
 	}
 
 	// The filters apply to the next list request only.
-	Matchmaking->AddRequestLobbyListDistanceFilter(ToSteamDistance(Options.Distance));
+	Matchmaking->AddRequestLobbyListDistanceFilter(SandwichSteam::Sessions::ToSteamDistance(Options.Distance));
 	Matchmaking->AddRequestLobbyListResultCountFilter(FMath::Clamp(Options.MaxResults, 1, 50));
 	Matchmaking->AddRequestLobbyListFilterSlotsAvailable(1);
 

@@ -8,6 +8,7 @@
 #include "Import/SteamSchemaImporter.h"
 #include "Input/SteamInputActionsFile.h"
 #include "Presence/SteamPresenceLocalization.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -27,19 +28,7 @@
 
 namespace
 {
-	TSharedRef<SWidget> MakeActionButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
-	{
-		return SNew(SButton)
-			.ToolTipText(ToolTip)
-			.OnClicked_Lambda([OnClick]()
-			{
-				OnClick();
-				return FReply::Handled();
-			})
-			[
-				SNew(STextBlock).Text(Label).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-			];
-	}
+	using SandwichSteam::Editor::MakeButton;
 
 	FText MakeRowCountText(const TCHAR* Label, int32 Count)
 	{
@@ -112,7 +101,7 @@ namespace
 				]
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[
-					MakeActionButton(LOCTEXT("OpenAsset", "Open asset"), LOCTEXT("OpenAssetTip", "Opens the assigned Steam App Definition in its own editor."),
+					MakeButton(LOCTEXT("OpenAsset", "Open asset"), LOCTEXT("OpenAssetTip", "Opens the assigned Steam App Definition in its own editor."),
 						[WeakDefinition = TWeakObjectPtr<USteamAppDefinition>(Definition)]()
 						{
 							USteamAppDefinition* Pinned = WeakDefinition.Get();
@@ -136,7 +125,7 @@ namespace
 				]
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
 				[
-					MakeActionButton(LOCTEXT("CreateAndAssign", "Create and assign"), LOCTEXT("CreateAndAssignTip", "Creates /Game/Steam/DA_SteamAppDefinition, saves it and assigns it in the Sandwich Steam settings."),
+					MakeButton(LOCTEXT("CreateAndAssign", "Create and assign"), LOCTEXT("CreateAndAssignTip", "Creates /Game/Steam/DA_SteamAppDefinition, saves it and assigns it in the Sandwich Steam settings."),
 						[]() { FSteamProjectValidator::CreateAndAssignAppDefinition(); })
 				];
 		}
@@ -180,19 +169,19 @@ namespace
 				SNew(SWrapBox).UseAllottedSize(true)
 				+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 				[
-					MakeActionButton(LOCTEXT("ImportButton", "Import from Steam..."),
+					MakeButton(LOCTEXT("ImportButton", "Import from Steam..."),
 						LOCTEXT("ImportTip", "Reads Saved/SandwichSteam/Schema_<AppId>.json (Steam.Stats.ExportSchema in Standalone) and merges the achievements into the assigned Steam App Definition."),
 						[]() { SandwichSteam::Editor::ImportFromSteam(nullptr); })
 				]
 				+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 				[
-					MakeActionButton(LOCTEXT("InputButton", "Generate Steam Input Actions File..."),
+					MakeButton(LOCTEXT("InputButton", "Generate Steam Input Actions File..."),
 						LOCTEXT("InputTip", "Writes game_actions_<AppId>.vdf from the Input Sets of the assigned Steam App Definition."),
 						[]() { SandwichSteam::Editor::GenerateSteamInputActions(nullptr); })
 				]
 				+ SWrapBox::Slot().Padding(0.f, 0.f, 6.f, 4.f)
 				[
-					MakeActionButton(LOCTEXT("PresenceButton", "Generate Rich Presence Localization..."),
+					MakeButton(LOCTEXT("PresenceButton", "Generate Rich Presence Localization..."),
 						LOCTEXT("PresenceTip", "Writes richpresence_<AppId>.vdf from the Presence rows of the assigned Steam App Definition."),
 						[]() { SandwichSteam::Editor::GeneratePresenceLocalization(nullptr); })
 				]

@@ -10,7 +10,7 @@ Achievements, stats, leaderboards, lobbies, voice chat, Steam Input, cloud saves
 Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instead of hand-editing config files.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Unreal Engine 5.6 - 5.8](https://img.shields.io/badge/Unreal%20Engine-5.6%20--%205.8-black)
+![Unreal Engine 5.4 - 5.8](https://img.shields.io/badge/Unreal%20Engine-5.4%20--%205.8-black)
 ![Platform: Windows tested](https://img.shields.io/badge/Windows-tested-brightgreen)
 ![Mac / Linux: experimental](https://img.shields.io/badge/Mac%20%2F%20Linux-experimental-orange)
 
@@ -75,7 +75,7 @@ Full walkthrough: **[Quick Start: your first achievement in 10 minutes](https://
 
 ## Requirements
 
-- Unreal Engine **5.6, 5.7 or 5.8** (see [Supported engine versions](#supported-engine-versions))
+- Unreal Engine **5.4, 5.5, 5.6, 5.7 or 5.8** (see [Supported engine versions](#supported-engine-versions))
 - A C++ compiler for the one-time plugin build (Visual Studio with the *Game development with C++* workload on Windows)
 - The **Steam client**, running and logged in, when you test
 - Nothing to buy: you can develop against Valve's public test app **Spacewar (App ID 480)**
@@ -102,6 +102,7 @@ Sandwich Steam is young. This table is honest about what has been tested.
 |---|---|
 | Windows (Win64) | Tested |
 | Unreal Engine 5.6, 5.7 | Compiles, Steam Dashboard checked. Full feature testing is done on 5.8 |
+| Unreal Engine 5.4, 5.5 | Compiles. Full feature testing is done on 5.8 |
 | macOS, Linux | **Experimental**: written for them, never run |
 | User, Utility, Overlay, Stats, Achievements, Leaderboards | Tested in a Standalone game |
 | Friends, Rich Presence, Cloud, Screenshots | Tested with one account (presence data checked on a second one) |

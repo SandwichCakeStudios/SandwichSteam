@@ -13,25 +13,18 @@
 #include "Misc/Paths.h"
 #include "SandwichSteamEditor.h"
 #include "ScopedTransaction.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamSchemaImporter"
 
 namespace
 {
+	using SandwichSteam::Editor::Notify;
+
 	FText GetImportTitle()
 	{
 		return LOCTEXT("ImportTitle", "Import from Steam");
-	}
-
-	void ShowNotification(const FText& Text)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 8.0f;
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(SNotificationItem::CS_Success);
-		}
 	}
 
 	/** Finds or creates Steam.Achievement.<ApiName> in the project's gameplay tag ini. */
@@ -144,10 +137,10 @@ void SandwichSteam::Editor::ImportFromSteam(USteamAppDefinition* Definition)
 		UE_LOG(LogSandwichSteamEditor, Warning, TEXT("Import from Steam: achievement row '%s' is not reported by Steam (kept). Delete it by hand if it was removed in Steamworks."), *Missing.ToString());
 	}
 
-	ShowNotification(FText::Format(
+	Notify(FText::Format(
 		LOCTEXT("ImportDone", "Import from Steam: {0} added, {1} updated, {2} unchanged, {3} tags assigned, {4} not reported by Steam (kept). Save {5} to keep the changes."),
 		FText::AsNumber(Result.Added.Num()), FText::AsNumber(Result.Updated), FText::AsNumber(Result.Unchanged),
-		FText::AsNumber(Result.TagsAssigned), FText::AsNumber(Result.MissingInSteam.Num()), FText::FromString(Definition->GetName())));
+		FText::AsNumber(Result.TagsAssigned), FText::AsNumber(Result.MissingInSteam.Num()), FText::FromString(Definition->GetName())), SNotificationItem::CS_Success);
 }
 
 #undef LOCTEXT_NAMESPACE
