@@ -12,6 +12,7 @@
 #include "OnlineSubsystem.h"
 #include "Online/OnlineSessionNames.h"
 #include "SteamSessionRules.h"
+#include "SteamSessionsConversions.h"
 #include "SteamSessionsSubsystem.h"
 
 // Raw Steam callbacks of the Sessions feature. Steam calls them on its callback thread: copy the payload, dispatch, return.
@@ -81,19 +82,6 @@ namespace
 			return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "JoinUnknown", "Steam could not join the session."), Native);
 		}
 	}
-
-#if SANDWICHSTEAM_WITH_STEAMWORKS
-	ELobbyDistanceFilter ToSteamDistance(ESteamSessionDistance Distance)
-	{
-		switch (Distance)
-		{
-		case ESteamSessionDistance::Close: return k_ELobbyDistanceFilterClose;
-		case ESteamSessionDistance::Far: return k_ELobbyDistanceFilterFar;
-		case ESteamSessionDistance::Worldwide: return k_ELobbyDistanceFilterWorldwide;
-		default: return k_ELobbyDistanceFilterDefault;
-		}
-	}
-#endif
 }
 
 FSteamSessionsBackend::FSteamSessionsBackend(USteamSessionsSubsystem* InOwner, UGameInstance* InGameInstance, const TSharedRef<FSteamCallbackDispatcher, ESPMode::ThreadSafe>& InDispatcher)
@@ -385,7 +373,7 @@ bool FSteamSessionsBackend::FindSessions(const FSteamSessionSearchOptions& Optio
 	// [verify] Steam keeps this filter until the next lobby list request, which the Online Subsystem makes right after this call.
 	if (ISteamMatchmaking* Matchmaking = SteamMatchmaking())
 	{
-		Matchmaking->AddRequestLobbyListDistanceFilter(ToSteamDistance(Options.Distance));
+		Matchmaking->AddRequestLobbyListDistanceFilter(SandwichSteam::Sessions::ToSteamDistance(Options.Distance));
 	}
 #endif
 
