@@ -11,6 +11,7 @@
 #include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Settings/SteamIniWriter.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -29,6 +30,10 @@
 
 namespace
 {
+	using SandwichSteam::Editor::BodyFont;
+	using SandwichSteam::Editor::MakeButton;
+	using SandwichSteam::Editor::Notify;
+
 	const FName AdvancedPageId(TEXT("Advanced"));
 
 	/** One heading + card on the Advanced page. Adding a category is one more entry in GetCategories(). */
@@ -38,38 +43,9 @@ namespace
 		TFunction<TSharedRef<SWidget>()> BuildContent;
 	};
 
-	FSlateFontInfo BodyFont()
-	{
-		return FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f);
-	}
-
 	FSlateFontInfo HeadingFont()
 	{
 		return FSteamToolStyle::ScaleFont(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"), 1.5f);
-	}
-
-	void ShowNotification(const FText& Text, SNotificationItem::ECompletionState State)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = 6.0f;
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
-
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
-	{
-		return SNew(SButton)
-			.ToolTipText(ToolTip)
-			.OnClicked_Lambda([OnClick]()
-			{
-				OnClick();
-				return FReply::Handled();
-			})
-			[
-				SNew(STextBlock).Text(Label).Font(BodyFont())
-			];
 	}
 
 	/** Folder of the running editor executable (Engine/Binaries/<Platform> of the engine version in use). */
@@ -90,7 +66,7 @@ namespace
 		const USteamToolSettings* Settings = USteamToolSettings::Get();
 		if (!Settings || Settings->SteamAppId <= 0)
 		{
-			ShowNotification(LOCTEXT("AppIdFileNoId", "Set a Steam App ID first."), SNotificationItem::CS_Fail);
+			Notify(LOCTEXT("AppIdFileNoId", "Set a Steam App ID first."), SNotificationItem::CS_Fail, 6.f);
 			return;
 		}
 
@@ -98,11 +74,11 @@ namespace
 		const FString FilePath = Directory / TEXT("steam_appid.txt");
 		if (FFileHelper::SaveStringToFile(FString::FromInt(Settings->SteamAppId), *FilePath, FFileHelper::EEncodingOptions::ForceAnsi))
 		{
-			ShowNotification(FText::Format(LOCTEXT("AppIdFileDone", "Wrote {0}. For development only; never ship it."), FText::FromString(FilePath)), SNotificationItem::CS_Success);
+			Notify(FText::Format(LOCTEXT("AppIdFileDone", "Wrote {0}. For development only; never ship it."), FText::FromString(FilePath)), SNotificationItem::CS_Success, 6.f);
 		}
 		else
 		{
-			ShowNotification(FText::Format(LOCTEXT("AppIdFileFailed", "Could not write {0}. Check that the folder is writable."), FText::FromString(FilePath)), SNotificationItem::CS_Fail);
+			Notify(FText::Format(LOCTEXT("AppIdFileFailed", "Could not write {0}. Check that the folder is writable."), FText::FromString(FilePath)), SNotificationItem::CS_Fail, 6.f);
 		}
 	}
 

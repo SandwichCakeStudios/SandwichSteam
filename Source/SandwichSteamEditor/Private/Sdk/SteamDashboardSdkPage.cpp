@@ -5,6 +5,7 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Style/SteamToolStyle.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"
@@ -20,6 +21,8 @@
 
 namespace
 {
+	using SandwichSteam::Editor::MakeButton;
+
 	struct FSteamworksSdkEntry
 	{
 		FString FolderName;
@@ -66,20 +69,6 @@ namespace
 		});
 
 		return Entries;
-	}
-
-	TSharedRef<SWidget> MakeButton(const FText& Label, const FText& ToolTip, TFunction<void()> OnClick)
-	{
-		return SNew(SButton)
-			.ToolTipText(ToolTip)
-			.OnClicked_Lambda([OnClick]()
-			{
-				OnClick();
-				return FReply::Handled();
-			})
-			[
-				SNew(STextBlock).Text(Label).Font(FSteamToolStyle::ScaleFont(FCoreStyle::GetDefaultFontStyle("Regular", 9), 1.25f))
-			];
 	}
 
 	/**

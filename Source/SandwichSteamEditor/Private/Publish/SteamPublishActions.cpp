@@ -11,6 +11,7 @@
 #include "Publish/SteamCmdSetupService.h"
 #include "Publish/SteamPublishSettings.h"
 #include "Publish/SteamPublishVdf.h"
+#include "Style/SteamEditorWidgets.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -23,15 +24,7 @@
 
 namespace
 {
-	void Notify(const FText& Text, SNotificationItem::ECompletionState State, float Duration = 6.f)
-	{
-		FNotificationInfo Info(Text);
-		Info.ExpireDuration = Duration;
-		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
-		{
-			Item->SetCompletionState(State);
-		}
-	}
+	using SandwichSteam::Editor::Notify;
 
 	/** Absolute steamcmd path and username, or false with a notification. */
 	bool GetSteamCmdSetup(FString& OutExe, FString& OutUser)
@@ -42,12 +35,12 @@ namespace
 
 		if (OutExe.IsEmpty() || !IFileManager::Get().FileExists(*OutExe))
 		{
-			Notify(LOCTEXT("NoSteamCmd", "SteamCMD was not found. Set its path in Project Settings > Sandwich Steam - Publish (User)."), SNotificationItem::CS_Fail);
+			Notify(LOCTEXT("NoSteamCmd", "SteamCMD was not found. Set its path in Project Settings > Sandwich Steam - Publish (User)."), SNotificationItem::CS_Fail, 6.f);
 			return false;
 		}
 		if (!FSteamCmdCommandLine::IsValidUsername(OutUser))
 		{
-			Notify(LOCTEXT("BadUser", "Enter your Steam account name in Project Settings > Sandwich Steam - Publish (User). Only letters, digits and _ . - @ are allowed."), SNotificationItem::CS_Fail);
+			Notify(LOCTEXT("BadUser", "Enter your Steam account name in Project Settings > Sandwich Steam - Publish (User). Only letters, digits and _ . - @ are allowed."), SNotificationItem::CS_Fail, 6.f);
 			return false;
 		}
 		return true;
@@ -182,7 +175,7 @@ namespace SandwichSteam::Editor
 		FString Error;
 		if (!FSteamCmdSetupService::Get().StartLoginCheck(/*bInteractive*/ true, Error))
 		{
-			Notify(FText::FromString(Error), SNotificationItem::CS_Fail);
+			Notify(FText::FromString(Error), SNotificationItem::CS_Fail, 6.f);
 		}
 	}
 }

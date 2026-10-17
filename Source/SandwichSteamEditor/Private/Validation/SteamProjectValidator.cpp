@@ -26,16 +26,6 @@
 
 namespace
 {
-	FSteamValidationCheck MakeCheck(FName Id, ESteamCheckSeverity Severity, const FText& Label, const FText& Detail)
-	{
-		FSteamValidationCheck Check;
-		Check.Id = Id;
-		Check.Severity = Severity;
-		Check.Label = Label;
-		Check.Detail = Detail;
-		return Check;
-	}
-
 	void CheckSteamPlugin(TArray<FSteamValidationCheck>& Out)
 	{
 		const FName Id(TEXT("SteamPlugin"));
@@ -44,15 +34,15 @@ namespace
 		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("OnlineSubsystemSteam"));
 		if (!Plugin.IsValid())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamPluginMissing", "The OnlineSubsystemSteam plugin was not found in this engine. Sandwich Steam needs it as the Steam host.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamPluginMissing", "The OnlineSubsystemSteam plugin was not found in this engine. Sandwich Steam needs it as the Steam host.")));
 		}
 		else if (!Plugin->IsEnabled())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamPluginDisabled", "The OnlineSubsystemSteam plugin is disabled. Enable it in Edit > Plugins and restart the editor.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamPluginDisabled", "The OnlineSubsystemSteam plugin is disabled. Enable it in Edit > Plugins and restart the editor.")));
 		}
 		else
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamPluginOk", "Enabled.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamPluginOk", "Enabled.")));
 		}
 	}
 
@@ -61,9 +51,9 @@ namespace
 		const FName Id(TEXT("Sdk"));
 		const FText Label = LOCTEXT("SdkLabel", "Steamworks SDK");
 #if SANDWICHSTEAM_WITH_STEAMWORKS
-		Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SdkOk", "Compiled in (engine Steamworks module).")));
+		Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SdkOk", "Compiled in (engine Steamworks module).")));
 #else
-		Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SdkMissing", "SANDWICHSTEAM_WITH_STEAMWORKS is 0 for this platform. Steam features stay inactive.")));
+		Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SdkMissing", "SANDWICHSTEAM_WITH_STEAMWORKS is 0 for this platform. Steam features stay inactive.")));
 #endif
 	}
 
@@ -75,15 +65,15 @@ namespace
 
 		if (AppId <= 0)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("AppIdMissing", "Not set. Enter your App ID below (480 is Valve's Spacewar test app).")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("AppIdMissing", "Not set. Enter your App ID below (480 is Valve's Spacewar test app).")));
 		}
 		else if (AppId == 480)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("AppIdSpacewar", "480 is Valve's Spacewar test app. Fine for testing. Replace it with your own App ID before you ship.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("AppIdSpacewar", "480 is Valve's Spacewar test app. Fine for testing. Replace it with your own App ID before you ship.")));
 		}
 		else
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, FText::Format(LOCTEXT("AppIdOk", "{0}."), FText::AsNumber(AppId, &FNumberFormattingOptions::DefaultNoGrouping()))));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, FText::Format(LOCTEXT("AppIdOk", "{0}."), FText::AsNumber(AppId, &FNumberFormattingOptions::DefaultNoGrouping()))));
 		}
 	}
 
@@ -94,7 +84,7 @@ namespace
 		const int32 AppId = Settings ? Settings->SteamAppId : 0;
 		if (AppId <= 0)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Warning, Label, LOCTEXT("IniNoAppId", "Cannot be checked until the Steam App ID is set.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, LOCTEXT("IniNoAppId", "Cannot be checked until the Steam App ID is set.")));
 			return;
 		}
 
@@ -125,16 +115,16 @@ namespace
 		FString TuningProblem;
 		if (Settings->bWriteNetworkTuning && !FSteamIniWriter::IsNetworkTuningConsistent(SandwichSteam::Editor::MakeNetworkTuning(*Settings), TuningProblem))
 		{
-			Out.Add(MakeCheck(FName(TEXT("IniTuning")), ESteamCheckSeverity::Warning, LOCTEXT("IniTuningLabel", "Network tuning"), FText::Format(LOCTEXT("IniTuningInconsistent", "Network tuning: {0}"), FText::FromString(TuningProblem))));
+			Out.Add(FSteamValidationCheck::Make(FName(TEXT("IniTuning")), ESteamCheckSeverity::Warning, LOCTEXT("IniTuningLabel", "Network tuning"), FText::Format(LOCTEXT("IniTuningInconsistent", "Network tuning: {0}"), FText::FromString(TuningProblem))));
 		}
 
 		if (Pending == 0)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("IniOk", "Platform service, Steam subsystem, SteamDevAppId (and the SteamSockets net driver when Sessions is installed, the voice entries matching Use Steam Voice Pipeline when Voice is installed) are set.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("IniOk", "Platform service, Steam subsystem, SteamDevAppId (and the SteamSockets net driver when Sessions is installed, the voice entries matching Use Steam Voice Pipeline when Voice is installed) are set.")));
 			return;
 		}
 
-		FSteamValidationCheck Check = MakeCheck(Id, ESteamCheckSeverity::Error, Label,
+		FSteamValidationCheck Check = FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label,
 			FText::Format(LOCTEXT("IniPending", "{0} setting(s) missing or different (DefaultPlatformService=Steam, bEnabled, SteamDevAppId, the SteamSockets net driver when Sessions is installed, and when Voice is installed bHasVoiceEnabled and [Voice] bEnabled: present for the Online Subsystem voice, absent for the Steam voice pipeline; bRequiresPushToTalk for the Online Subsystem voice). Steam will not start (or voice uses the other path) until they are set."), FText::AsNumber(Pending)));
 		Check.FixLabel = LOCTEXT("IniFix", "Configure Steam...");
 		Check.Fix = []() { SandwichSteam::Editor::ConfigureSteam(); };
@@ -159,11 +149,11 @@ namespace
 		{
 			if (!bNeeded)
 			{
-				Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("DefinitionNotNeeded", "Not needed: the Stats, Achievements, Leaderboards, Presence, DLC, Sessions and Input modules are not installed.")));
+				Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("DefinitionNotNeeded", "Not needed: the Stats, Achievements, Leaderboards, Presence, DLC, Sessions and Input modules are not installed.")));
 				return;
 			}
 
-			FSteamValidationCheck Check = MakeCheck(Id, ESteamCheckSeverity::Warning, Label,
+			FSteamValidationCheck Check = FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label,
 				LOCTEXT("DefinitionMissing", "None assigned. Stats, achievements, leaderboards, rich presence statuses, DLC, session profiles and Steam Input action sets cannot be used by gameplay tag without one."));
 			Check.FixLabel = LOCTEXT("DefinitionCreate", "Create and assign");
 			Check.Fix = []() { FSteamProjectValidator::CreateAndAssignAppDefinition(); };
@@ -174,7 +164,7 @@ namespace
 		USteamAppDefinition* Definition = Settings->LoadAppDefinition();
 		if (!Definition)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label,
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label,
 				FText::Format(LOCTEXT("DefinitionBroken", "{0} could not be loaded. Assign an existing asset."), FText::FromString(Settings->AppDefinition.ToSoftObjectPath().ToString()))));
 			return;
 		}
@@ -182,14 +172,14 @@ namespace
 		FDataValidationContext Context;
 		if (Definition->IsDataValid(Context) == EDataValidationResult::Invalid)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label,
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label,
 				FText::Format(LOCTEXT("DefinitionInvalid", "{0} has errors (duplicate or empty names, progress stats that do not exist, rich presence limits). Open it and run Data Validation for the list."), FText::FromString(Definition->GetName()))));
 			return;
 		}
 
 		if (!FSteamCookHelper::IsAppDefinitionCooked())
 		{
-			FSteamValidationCheck Check = MakeCheck(Id, ESteamCheckSeverity::Warning, Label,
+			FSteamValidationCheck Check = FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label,
 				FText::Format(LOCTEXT("DefinitionNotCooked", "{0} is valid but not part of the cook: packaged builds would not find it."), FText::FromString(Definition->GetName())));
 			Check.FixLabel = LOCTEXT("DefinitionCookFix", "Add to cook");
 			Check.Fix = []() { FSteamCookHelper::EnsureAppDefinitionCooked(); };
@@ -197,7 +187,7 @@ namespace
 			return;
 		}
 
-		Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label,
+		Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label,
 			FText::Format(LOCTEXT("DefinitionOk", "{0}: {1} stats, {2} achievements, {3} leaderboards, {4} presence statuses, {5} DLC, {6} session profiles, {7} input sets. Valid and cooked."),
 				FText::FromString(Definition->GetName()), FText::AsNumber(Definition->Stats.Num()), FText::AsNumber(Definition->Achievements.Num()), FText::AsNumber(Definition->Leaderboards.Num()), FText::AsNumber(Definition->Presence.Num()), FText::AsNumber(Definition->DLC.Num()), FText::AsNumber(Definition->Sessions.Num()), FText::AsNumber(Definition->InputSets.Num()))));
 	}
@@ -215,15 +205,15 @@ namespace
 		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("SteamSockets"));
 		if (!Plugin.IsValid())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamSocketsMissing", "The SteamSockets plugin was not found in this engine. Sessions carry game traffic over it.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamSocketsMissing", "The SteamSockets plugin was not found in this engine. Sessions carry game traffic over it.")));
 		}
 		else if (!Plugin->IsEnabled())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamSocketsDisabled", "The SteamSockets plugin is disabled. Sessions need it: enable it in Edit > Plugins and restart the editor.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamSocketsDisabled", "The SteamSockets plugin is disabled. Sessions need it: enable it in Edit > Plugins and restart the editor.")));
 		}
 		else
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamSocketsOk", "Enabled. Its net driver entries are checked with DefaultEngine.ini above.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamSocketsOk", "Enabled. Its net driver entries are checked with DefaultEngine.ini above.")));
 		}
 	}
 
@@ -240,7 +230,7 @@ namespace
 		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("EnhancedInput"));
 		if (!Plugin.IsValid() || !Plugin->IsEnabled())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("VoiceInputDisabled", "The EnhancedInput plugin is not enabled. Voice binds its push to talk action through it: enable it in Edit > Plugins and restart the editor.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("VoiceInputDisabled", "The EnhancedInput plugin is not enabled. Voice binds its push to talk action through it: enable it in Edit > Plugins and restart the editor.")));
 			return;
 		}
 
@@ -250,11 +240,11 @@ namespace
 			&& !ActionPath.IsEmpty() && ActionPath != TEXT("None");
 		if (bHasAction)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoiceInputOk", "Enabled, and a Push To Talk Action is set in the Voice settings.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoiceInputOk", "Enabled, and a Push To Talk Action is set in the Voice settings.")));
 		}
 		else
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("VoiceInputNoAction", "Enabled. No Push To Talk Action is set in Project Settings > Plugins > Sandwich Steam - Voice: push to talk then works only through Start Talking / Stop Talking calls (open mic needs nothing).")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("VoiceInputNoAction", "Enabled. No Push To Talk Action is set in Project Settings > Plugins > Sandwich Steam - Voice: push to talk then works only through Start Talking / Stop Talking calls (open mic needs nothing).")));
 		}
 	}
 
@@ -270,7 +260,7 @@ namespace
 		{
 			if (bLine)
 			{
-				Out.Add(MakeCheck(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("SteamAuthNoModule", "DefaultEngine.ini has the SteamAuth packet handler line but the Auth module is not installed. The engine still checks and kicks joining players; the game gets no auth events.")));
+				Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("SteamAuthNoModule", "DefaultEngine.ini has the SteamAuth packet handler line but the Auth module is not installed. The engine still checks and kicks joining players; the game gets no auth events.")));
 			}
 			return; // No module and no line: nothing to check.
 		}
@@ -278,7 +268,7 @@ namespace
 		const bool bEnabled = Auth::IsEnabled();
 		if (bEnabled && bLine)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, Auth::IsCustomPolicy()
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, Auth::IsCustomPolicy()
 				? LOCTEXT("SteamAuthOkCustom", "On: Steam checks every joining player. Custom policy: nobody is kicked automatically, On Steam Auth Failed decides.")
 				: LOCTEXT("SteamAuthOkKick", "On: Steam checks every joining player. Kick policy: the engine kicks players who fail.")));
 			return;
@@ -286,11 +276,11 @@ namespace
 
 		if (!bEnabled && !bLine)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamAuthOff", "Off (default): joining players are not checked by Steam.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamAuthOff", "Off (default): joining players are not checked by Steam.")));
 			return;
 		}
 
-		FSteamValidationCheck Check = MakeCheck(Id, ESteamCheckSeverity::Warning, Label, bEnabled
+		FSteamValidationCheck Check = FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, bEnabled
 			? LOCTEXT("SteamAuthLineMissing", "Enable Steam Authentication is on but DefaultEngine.ini has no SteamAuth packet handler line, so nobody is checked. Run Configure Steam and restart the editor.")
 			: LOCTEXT("SteamAuthLineExtra", "Enable Steam Authentication is off but DefaultEngine.ini still has the SteamAuth packet handler line, so players are still checked. Run Configure Steam to remove it, or turn the setting on."));
 		Check.FixLabel = LOCTEXT("SteamAuthFix", "Configure Steam...");
@@ -312,14 +302,14 @@ namespace
 		const TSharedPtr<IPlugin> EnginePlugin = IPluginManager::Get().FindPlugin(TEXT("SteamController"));
 		if (EnginePlugin.IsValid() && EnginePlugin->IsEnabled())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamInputEnginePlugin", "The engine's SteamController plugin is enabled. It initializes Steam Input too, so only one of them can work and controllers would deliver input twice. Disable the SteamController plugin in Edit > Plugins and restart the editor.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label, LOCTEXT("SteamInputEnginePlugin", "The engine's SteamController plugin is enabled. It initializes Steam Input too, so only one of them can work and controllers would deliver input twice. Disable the SteamController plugin in Edit > Plugins and restart the editor.")));
 			return;
 		}
 
 		const USteamAppDefinition* Definition = Settings ? Settings->LoadAppDefinition() : nullptr;
 		if (!Definition || Definition->InputSets.IsEmpty())
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("SteamInputNoSets", "No Input Sets in the Steam App Definition. Add action sets and actions to get SteamInput_ keys for Enhanced Input; controller, glyph and rumble calls work without them.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("SteamInputNoSets", "No Input Sets in the Steam App Definition. Add action sets and actions to get SteamInput_ keys for Enhanced Input; controller, glyph and rumble calls work without them.")));
 			return;
 		}
 
@@ -331,11 +321,11 @@ namespace
 
 		if (WithoutContext > 0)
 		{
-			Out.Add(MakeCheck(Id, ESteamCheckSeverity::Warning, Label, FText::Format(LOCTEXT("SteamInputNoContext", "{0} action set(s) have no Enhanced Input mapping context. Their SteamInput_ keys only do something when one of your own contexts maps them."), FText::AsNumber(WithoutContext))));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, FText::Format(LOCTEXT("SteamInputNoContext", "{0} action set(s) have no Enhanced Input mapping context. Their SteamInput_ keys only do something when one of your own contexts maps them."), FText::AsNumber(WithoutContext))));
 			return;
 		}
 
-		Out.Add(MakeCheck(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamInputOk", "The SteamController plugin is not enabled and every action set has a mapping context. The action file is generated from the App Definition (Generate Steam Input Actions File).")));
+		Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("SteamInputOk", "The SteamController plugin is not enabled and every action set has a mapping context. The action file is generated from the App Definition (Generate Steam Input Actions File).")));
 	}
 
 	EMessageSeverity::Type ToMessageSeverity(ESteamCheckSeverity Severity)
