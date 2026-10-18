@@ -29,7 +29,8 @@ class APawn;
  *
  * The voice worker decodes each talker (and mixes each channel) and pushes the audio into a patch; this component reads it on the audio
  * render thread and keeps it buffered: Playout Delay for an Owner speaker, a short buffer for a Channel speaker, whose mix already absorbs
- * the network jitter (fades in after a gap, fades out on an underrun).
+ * the network jitter (fades in after a gap, fades out on an underrun). After a gap it starts on the first audio with lead silence, so
+ * that audio plays exactly the buffer time after it arrived.
  */
 UCLASS(ClassGroup = Audio, meta = (BlueprintSpawnableComponent, DisplayName = "Steam Voice"))
 class SANDWICHSTEAMVOICE_API USteamVoiceComponent : public USynthComponent
@@ -86,11 +87,12 @@ public:
 	/** The talker this component plays. Invalid while it plays nobody. */
 	FSteamId GetTalker() const { return Talker; }
 
-	/** Buffered audio in milliseconds at the last audio render (any thread). */
+	/** Buffered audio in milliseconds (any thread): the playout delay heard (largest fill of the last half second), 0 while not playing. */
 	float GetBufferedMs() const;
 
 	/** Times the buffer ran dry while playing (any thread). */
 	uint32 GetUnderruns() const { return Underruns.load(std::memory_order_relaxed); }
+
 
 	//~ Begin UActorComponent
 	virtual void BeginPlay() override;
@@ -121,12 +123,24 @@ private:
 	/** A Channel speaker's channel or owner rule changed: silences it and lets the routing connect it again on the next update. */
 	void RerouteChannelSpeaker();
 
+	/** Records the buffered samples (audio plus lead silence) at the start of a render block (render thread). */
+	void UpdateFill(int32 Buffered, int32 NumSamples);
+
 	/** Audio render thread state. Only touched there (set through SynthCommand). */
 	struct FRenderState
 	{
 		Audio::FPatchOutputStrongPtr Output;
+		int32 SampleRate = 48000;
 		int32 TargetSamples = 0;
 		int32 FadeSamples = 0;
+		/** Silence still to play before the first audio, so it plays one playout delay after it arrived. */
+		int32 LeadSilence = 0;
+		/** Largest buffered samples in the current and the previous measuring window (the delay heard). */
+		int32 FillMax = 0;
+		int32 FillMaxPrevious = 0;
+		int32 FillWindowSamples = 0;
+		/** The next audio fades in (start after a gap). */
+		bool bFadeIn = false;
 		bool bPlaying = false;
 	};
 
