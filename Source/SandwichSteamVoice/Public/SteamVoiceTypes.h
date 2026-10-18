@@ -45,6 +45,17 @@ struct SANDWICHSTEAMVOICE_API FSteamVoiceChannel
 	/** True when a tag or a valid id is set (an unmapped tag still counts as set). */
 	bool IsSet() const { return Tag.IsValid() || Id >= 0; }
 
+	/** The id this channel plays on: the id TagMap gives Tag when Tag is set, else Id. INDEX_NONE when unset, unmapped or negative. */
+	int32 Resolve(const TMap<FGameplayTag, int32>& TagMap) const
+	{
+		if (Tag.IsValid())
+		{
+			const int32* Mapped = TagMap.Find(Tag);
+			return Mapped && *Mapped >= 0 ? *Mapped : INDEX_NONE;
+		}
+		return Id >= 0 ? Id : INDEX_NONE;
+	}
+
 	bool operator==(const FSteamVoiceChannel& Other) const { return Tag == Other.Tag && Id == Other.Id; }
 };
 

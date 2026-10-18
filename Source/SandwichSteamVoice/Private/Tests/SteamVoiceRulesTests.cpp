@@ -6,6 +6,7 @@
 
 #include "Core/SteamEngineCompat.h"
 #include "SteamVoiceRules.h"
+#include "SteamVoiceTypes.h"
 
 using namespace SandwichSteam::Voice;
 
@@ -107,6 +108,39 @@ bool FSteamVoiceMuteBookTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Muted list"), Book.GetMutedPlayers().Num(), 1);
 	Book.Reset();
 	TestEqual(TEXT("Reset clears everything"), Book.GetMutedPlayers().Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceChannelResolveTest, "SandwichSteam.Voice.Rules.ChannelResolve",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamVoiceChannelResolveTest::RunTest(const FString& Parameters)
+{
+	TMap<FGameplayTag, int32> TagMap;
+
+	// Id channels need no map.
+	FSteamVoiceChannel Channel;
+	TestEqual(TEXT("Unset channel"), Channel.Resolve(TagMap), static_cast<int32>(INDEX_NONE));
+	Channel.Id = 3;
+	TestEqual(TEXT("Id channel"), Channel.Resolve(TagMap), 3);
+	Channel.Id = -5;
+	TestEqual(TEXT("Negative id"), Channel.Resolve(TagMap), static_cast<int32>(INDEX_NONE));
+
+	// The root tag is registered by the plugin's tag ini; any valid tag shows the rules.
+	const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Steam.Voice.Channel"), false);
+	if (!Tag.IsValid())
+	{
+		AddWarning(TEXT("Steam.Voice.Channel is not registered; tag cases skipped."));
+		return true;
+	}
+
+	Channel.Tag = Tag;
+	Channel.Id = 3;
+	TestEqual(TEXT("Unmapped tag does not fall back to the id"), Channel.Resolve(TagMap), static_cast<int32>(INDEX_NONE));
+	TagMap.Add(Tag, 12);
+	TestEqual(TEXT("Mapped tag wins over the id"), Channel.Resolve(TagMap), 12);
+	TagMap.Add(Tag, -1);
+	TestEqual(TEXT("Negative mapped id"), Channel.Resolve(TagMap), static_cast<int32>(INDEX_NONE));
 	return true;
 }
 

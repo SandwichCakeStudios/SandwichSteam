@@ -67,6 +67,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", AdvancedDisplay, meta = (ClampMin = "1024", ClampMax = "65536", ToolTip = "Most voice bytes per second accepted from one player (Steam voice is about 3 KB/s)."))
 	int32 MaxBytesPerSecond = 8192;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Channels", meta = (Categories = "Steam.Voice.Channel", ClampMin = "0", ForceInlineRow, ToolTip = "Gives each voice channel tag (Steam.Voice.Channel.*) the id it travels as. Players talk and listen on the id, so every build that plays together needs the same map. A tag that is not in this map is refused (transmit) or stays silent (speakers). Two tags with one id are the same channel. Id channels (no tag) need no entry. Validate Project lists unmapped tags and shared ids."))
+	TMap<FGameplayTag, int32> ChannelTagMap;
+
+	/** The id Channel plays on (Channel Tag Map for tags). INDEX_NONE when unset, unmapped or negative. */
+	int32 ResolveChannelId(const FSteamVoiceChannel& Channel) const { return Channel.Resolve(ChannelTagMap); }
+
 	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "A talker's pawn without an Owner Steam Voice component gets one, attached to the pawn's root with absolute rotation, so voice comes from the player without any setup. Turn off to place your own speakers; talkers without one are then not heard while they have a pawn. Channel speakers are never added. Steam voice pipeline only."))
 	bool bAutoAddVoiceComponent = true;
 
