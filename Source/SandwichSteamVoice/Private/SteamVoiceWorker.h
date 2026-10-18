@@ -27,7 +27,7 @@ class FSteamVoiceTransport;
  * Each loop: routing snapshot -> session requests -> hello -> capture (GetVoice), level, voice activation and send -> receive -> validate, rate limit,
  * mute -> jitter (reorder) -> DecompressVoice -> player volume -> talker patch splitter (mouth) and channel mixes -> channel output splitters -> talking / activity events.
  *
- * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats, SetActivationThreshold, GetLocalLevel.
+ * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats, SetActivationThreshold, GetLocalLevel, GetTalkerLevel.
  */
 class FSteamVoiceWorker : public FRunnable
 {
@@ -58,6 +58,9 @@ public:
 
 	/** Level (RMS, 0 to 1) of the last captured packet, 0 while nothing is captured. Any thread. */
 	float GetLocalLevel() const { return LocalLevel.load(std::memory_order_relaxed); }
+
+	/** Level (RMS, 0 to 1) of a talker's last played packet, before the player volume; 0 while they do not talk or are unknown. Any thread. */
+	float GetTalkerLevel(uint64 Talker) const;
 
 	/** The rate the worker decodes at; fixed for its life. */
 	int32 GetDecodeSampleRate() const { return DecodeSampleRate; }
@@ -131,6 +134,8 @@ private:
 	void CheckDecode(double Stamp, const int16* Samples, int32 NumSamples, double Now);
 	void UpdateActivity(double Now);
 	void PublishStats(double Now);
+	/** Copies the talker levels for GetTalkerLevel when one changed. */
+	void PublishLevels();
 	void CloseAll();
 
 	FTalker& FindOrAddTalker(uint64 Id, bool bFake);
@@ -157,6 +162,8 @@ private:
 
 	// Worker -> any thread.
 	std::atomic<float> LocalLevel{0.0f};
+	mutable FCriticalSection LevelsLock;
+	TMap<uint64, float> PublishedLevels;
 
 	// Worker -> game thread.
 	TQueue<SandwichSteam::Voice::FWorkerEvent, EQueueMode::Spsc> Events;
@@ -196,6 +203,8 @@ private:
 	bool bDrainingTail = false;
 	bool bSpeakingFlagSet = false;
 	bool bLocalTalking = false;
+	/** A talker level changed since the last PublishLevels. */
+	bool bLevelsDirty = false;
 	double LastLocalAudio = -1.0;
 	double LastCapture = -1.0;
 	double NextHello = 0.0;

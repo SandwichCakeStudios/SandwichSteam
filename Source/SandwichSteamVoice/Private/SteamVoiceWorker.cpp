@@ -145,6 +145,13 @@ FWorkerStats FSteamVoiceWorker::GetStats() const
 	return PublishedStats;
 }
 
+float FSteamVoiceWorker::GetTalkerLevel(uint64 Talker) const
+{
+	FScopeLock Lock(&LevelsLock);
+	const float* Level = PublishedLevels.Find(Talker);
+	return Level ? *Level : 0.0f;
+}
+
 uint32 FSteamVoiceWorker::Run()
 {
 	Stats.bRunning = true;
@@ -163,6 +170,7 @@ uint32 FSteamVoiceWorker::Run()
 	}
 
 	CloseAll();
+	PublishLevels();
 	Stats.bRunning = false;
 	PublishStats(FPlatformTime::Seconds());
 	return 0;
@@ -187,6 +195,7 @@ void FSteamVoiceWorker::Step(double Now)
 	Playout(Now);
 	MixChannels(Now);
 	UpdateActivity(Now);
+	PublishLevels();
 
 	if (Now >= NextStats)
 	{
@@ -780,6 +789,7 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, doubl
 		SumSquares += Sample * Sample;
 	}
 	Talker.Level = FMath::Sqrt(SumSquares / static_cast<float>(NumSamples));
+	bLevelsDirty = true;
 	Talker.LastAudio = Now;
 
 	if (Stamp > 0.0)
@@ -894,6 +904,7 @@ void FSteamVoiceWorker::UpdateActivity(double Now)
 			if (!bTalking)
 			{
 				Talker.Level = 0.0f;
+				bLevelsDirty = true;
 			}
 			PostEvent(bTalking ? EWorkerEvent::TalkingStarted : EWorkerEvent::TalkingStopped, &Talker, Talker.Id);
 		}
@@ -964,6 +975,7 @@ void FSteamVoiceWorker::RemoveTalker(uint64 Id)
 	{
 		return;
 	}
+	bLevelsDirty = true;
 
 	for (TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)
 	{
@@ -1040,9 +1052,33 @@ void FSteamVoiceWorker::CloseAll()
 	Channels.Reset();
 	DecodeReferences.Reset();
 	LocalLevel.store(0.0f, std::memory_order_relaxed);
+	for (TPair<uint64, TUniquePtr<FTalker>>& Pair : Talkers)
+	{
+		Pair.Value->Level = 0.0f;
+	}
+	bLevelsDirty = true;
 }
 
 // ---- Stats ----
+
+void FSteamVoiceWorker::PublishLevels()
+{
+	if (!bLevelsDirty)
+	{
+		return;
+	}
+	bLevelsDirty = false;
+
+	FScopeLock Lock(&LevelsLock);
+	PublishedLevels.Reset();
+	for (const TPair<uint64, TUniquePtr<FTalker>>& Pair : Talkers)
+	{
+		if (Pair.Value->Level > 0.0f)
+		{
+			PublishedLevels.Add(Pair.Key, Pair.Value->Level);
+		}
+	}
+}
 
 void FSteamVoiceWorker::PublishStats(double Now)
 {
