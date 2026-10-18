@@ -7,6 +7,7 @@
 #include "Core/SteamToolSettings.h"
 #include "Data/SteamAppDefinition.h"
 #include "FileHelpers.h"
+#include "GameplayTagsManager.h"
 #include "IAssetTools.h"
 #include "Interfaces/IPluginManager.h"
 #include "Logging/MessageLog.h"
@@ -21,6 +22,7 @@
 #include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Settings/SteamIniWriter.h"
+#include "Settings/SteamVoiceEditorAccess.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamValidator"
 
@@ -248,6 +250,93 @@ namespace
 		}
 	}
 
+	void CheckVoiceChannels(TArray<FSteamValidationCheck>& Out)
+	{
+		namespace Voice = SandwichSteam::Editor::Voice;
+		if (!Voice::IsModuleInstalled())
+		{
+			return;
+		}
+
+		const FName Id(TEXT("VoiceChannels"));
+		const FText Label = LOCTEXT("VoiceChannelsLabel", "Voice channel tags (Voice)");
+		const TMap<FGameplayTag, int32> TagMap = Voice::GetChannelTagMap();
+		const UGameplayTagsManager& Tags = UGameplayTagsManager::Get();
+		const FGameplayTag Root = Tags.RequestGameplayTag(TEXT("Steam.Voice.Channel"), false);
+
+		// Leaf tags under the root are channels; their parents only group them (Steam.Voice.Channel.Team for .Team.Blue).
+		TArray<FString> Unmapped;
+		if (Root.IsValid())
+		{
+			for (const FGameplayTag& Tag : Tags.RequestGameplayTagChildren(Root))
+			{
+				const TSharedPtr<FGameplayTagNode> Node = Tags.FindTagNode(Tag);
+				if (!TagMap.Contains(Tag) && Node.IsValid() && Node->GetChildTagNodes().IsEmpty())
+				{
+					Unmapped.Add(Tag.ToString());
+				}
+			}
+		}
+
+		TArray<FString> Foreign;
+		TArray<FString> Negative;
+		TMap<int32, TArray<FString>> TagsById;
+		for (const TPair<FGameplayTag, int32>& Entry : TagMap)
+		{
+			const FString Name = Entry.Key.IsValid() ? Entry.Key.ToString() : TEXT("None");
+			if (!Root.IsValid() || !Entry.Key.MatchesTag(Root) || Entry.Key == Root)
+			{
+				Foreign.Add(Name);
+			}
+			if (Entry.Value < 0)
+			{
+				Negative.Add(Name);
+				continue;
+			}
+			TagsById.FindOrAdd(Entry.Value).Add(Name);
+		}
+
+		TArray<FString> Shared;
+		for (const TPair<int32, TArray<FString>>& Entry : TagsById)
+		{
+			if (Entry.Value.Num() > 1)
+			{
+				Shared.Add(FString::Printf(TEXT("%d (%s)"), Entry.Key, *FString::Join(Entry.Value, TEXT(", "))));
+			}
+		}
+
+		TArray<FString> Problems;
+		if (!Unmapped.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("not in Channel Tag Map, so refused for transmit and silent on speakers: %s"), *FString::Join(Unmapped, TEXT(", "))));
+		}
+		if (!Foreign.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("map entries that are not Steam.Voice.Channel.* tags: %s"), *FString::Join(Foreign, TEXT(", "))));
+		}
+		if (!Negative.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("negative ids, treated as unmapped: %s"), *FString::Join(Negative, TEXT(", "))));
+		}
+		if (!Shared.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("ids shared by several tags, which then are one channel: %s"), *FString::Join(Shared, TEXT("; "))));
+		}
+
+		if (!Problems.IsEmpty())
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, FText::Format(LOCTEXT("VoiceChannelsProblems", "Project Settings > Plugins > Sandwich Steam - Voice > Channel Tag Map: {0}."), FText::FromString(FString::Join(Problems, TEXT("; "))))));
+		}
+		else if (TagMap.IsEmpty())
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoiceChannelsNone", "No channel tags. Id channels need no setup.")));
+		}
+		else
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, FText::Format(LOCTEXT("VoiceChannelsOk", "{0} channel tag(s), each with its own id."), FText::AsNumber(TagMap.Num()))));
+		}
+	}
+
 	void CheckSteamAuth(TArray<FSteamValidationCheck>& Out)
 	{
 		namespace Auth = SandwichSteam::Editor::Auth;
@@ -359,6 +448,7 @@ TArray<FSteamValidationCheck> FSteamProjectValidator::Run()
 	CheckDefinition(Checks, Settings);
 	CheckSessions(Checks);
 	CheckVoice(Checks);
+	CheckVoiceChannels(Checks);
 	CheckSteamAuth(Checks);
 	CheckInput(Checks, Settings);
 	return Checks;

@@ -10,6 +10,7 @@ namespace
 {
 	const TCHAR* VoiceModuleName = TEXT("SandwichSteamVoice");
 	const TCHAR* SettingsClassPath = TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings");
+	const FName ChannelTagMapPropertyName(TEXT("ChannelTagMap"));
 
 	const UObject* FindSettings()
 	{
@@ -37,4 +38,16 @@ bool SandwichSteam::Editor::Voice::UsesSteamPipeline()
 	const UObject* Settings = FindSettings();
 	const FBoolProperty* Property = Settings ? FindFProperty<FBoolProperty>(Settings->GetClass(), UseSteamPipelinePropertyName) : nullptr;
 	return !Property || Property->GetPropertyValue_InContainer(Settings);
+}
+
+TMap<FGameplayTag, int32> SandwichSteam::Editor::Voice::GetChannelTagMap()
+{
+	const UObject* Settings = FindSettings();
+	const FMapProperty* Property = Settings ? FindFProperty<FMapProperty>(Settings->GetClass(), ChannelTagMapPropertyName) : nullptr;
+	const FStructProperty* KeyProperty = Property ? CastField<FStructProperty>(Property->KeyProp) : nullptr;
+	if (!KeyProperty || KeyProperty->Struct != FGameplayTag::StaticStruct() || !Property->ValueProp->IsA<FIntProperty>())
+	{
+		return TMap<FGameplayTag, int32>();
+	}
+	return *Property->ContainerPtrToValuePtr<TMap<FGameplayTag, int32>>(Settings);
 }

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 
 /**
  * Editor access to the optional Voice module's settings (Project Settings > Plugins > Sandwich Steam - Voice).
@@ -21,4 +22,7 @@ namespace SandwichSteam::Editor::Voice
 
 	/** Use Steam Voice Pipeline, as Project Settings shows it right now. True when the module or the property is missing (the default). */
 	bool UsesSteamPipeline();
+
+	/** Channel Tag Map, as Project Settings shows it right now. Empty when the module or the property is missing. */
+	TMap<FGameplayTag, int32> GetChannelTagMap();
 }
