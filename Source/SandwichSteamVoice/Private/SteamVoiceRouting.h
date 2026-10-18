@@ -153,6 +153,9 @@ namespace SandwichSteam::Voice
 		/** Last DecompressVoice result (EVoiceResult, 0 = OK) and decoded samples of the last packet. */
 		int32 LastDecodeResult = 0;
 		int32 LastDecodedSamples = 0;
+		/** Longest decoded packet (ms) and the pause silence dropped because the speaker already waited through it (ms). */
+		float MaxPacketMs = 0.0f;
+		float SilenceTrimmedMs = 0.0f;
 		bool bFlooded = false;
 		int32 Queued = 0;
 		/** Level of the decoded voice, before the player volume. */

@@ -83,6 +83,10 @@ private:
 		/** Player volume applied to the last packet; a change ramps from it over the next packet. -1 = no packet yet (start at the target). */
 		float Gain = -1.0f;
 		float LatencyMs = -1.0f;
+		/** When the audio decoded so far ends if played without a gap; a packet decoded later found a pause the speaker already waited through. */
+		double AudioEnd = -1.0;
+		uint64 SilenceTrimmed = 0;
+		int32 MaxDecodedSamples = 0;
 		uint64 FloodDrops = 0;
 		uint64 DecodeErrors = 0;
 		int32 LastDecodeResult = 0;

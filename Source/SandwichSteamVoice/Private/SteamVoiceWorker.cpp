@@ -29,6 +29,9 @@ namespace
 	constexpr double DecodeReferenceSeconds = 2.0;
 	/** Steam's compressed voice for one loop is a few hundred bytes; 8 KB covers a long stall. */
 	constexpr int32 CaptureBufferBytes = 8 * 1024;
+	/** DecompressVoice supports 11025 to 48000 Hz. */
+	constexpr int32 MinDecodeSampleRate = 11025;
+	constexpr int32 MaxDecodeSampleRate = 48000;
 	/** Decoded samples for one packet (one second at 48 kHz). */
 	constexpr int32 MaxDecodedSamples = 48000;
 	constexpr int32 MaxCaptureReadsPerLoop = 8;
@@ -63,7 +66,7 @@ FSteamVoiceWorker::FSteamVoiceWorker(const FWorkerConfig& InConfig, TSharedRef<F
 #endif
 
 	const int32 Wanted = Config.RequestedSampleRate > 0 ? Config.RequestedSampleRate : OptimalSampleRate;
-	DecodeSampleRate = Wanted > 0 ? FMath::Clamp(Wanted, 8000, 48000) : 48000;
+	DecodeSampleRate = Wanted > 0 ? FMath::Clamp(Wanted, MinDecodeSampleRate, MaxDecodeSampleRate) : MaxDecodeSampleRate;
 
 	CaptureBuffer.SetNumUninitialized(CaptureBufferBytes);
 	PacketBuffer.Reserve(MaxPacketBytes);
@@ -733,7 +736,7 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, doubl
 		return;
 	}
 
-	const int32 NumSamples = FMath::Min(static_cast<int32>(BytesWritten / sizeof(int16)), MaxDecodedSamples);
+	int32 NumSamples = FMath::Min(static_cast<int32>(BytesWritten / sizeof(int16)), MaxDecodedSamples);
 	Talker.LastDecodedSamples = NumSamples;
 	if (NumSamples <= 0)
 	{
@@ -744,11 +747,35 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, doubl
 	{
 		CheckDecode(Stamp, PcmBuffer.GetData(), NumSamples, Now);
 	}
+	Talker.MaxDecodedSamples = FMath::Max(Talker.MaxDecodedSamples, NumSamples);
+
+	// Steam sends nothing during a pause and decodes its length as zeros at the start of the next packet. The speaker already waited
+	// through that time (no audio arrived), so the part of the zeros it covers is dropped; otherwise every pause adds its length to the delay.
+	int32 First = 0;
+	const double Uncovered = Talker.AudioEnd < 0.0 ? TNumericLimits<double>::Max() : Now - Talker.AudioEnd;
+	if (Uncovered > 0.0)
+	{
+		int32 LeadingZeros = 0;
+		while (LeadingZeros < NumSamples && PcmBuffer[LeadingZeros] == 0)
+		{
+			++LeadingZeros;
+		}
+		First = static_cast<int32>(FMath::Min(Uncovered * static_cast<double>(DecodeSampleRate), static_cast<double>(LeadingZeros)));
+		Talker.SilenceTrimmed += static_cast<uint64>(First);
+	}
+	Talker.AudioEnd = FMath::Max(Talker.AudioEnd, Now) + static_cast<double>(NumSamples - First) / static_cast<double>(DecodeSampleRate);
+
+	const int16* Pcm = PcmBuffer.GetData() + First;
+	NumSamples -= First;
+	if (NumSamples <= 0)
+	{
+		return;
+	}
 
 	float SumSquares = 0.0f;
 	for (int32 Index = 0; Index < NumSamples; ++Index)
 	{
-		const float Sample = static_cast<float>(PcmBuffer[Index]) / 32768.0f;
+		const float Sample = static_cast<float>(Pcm[Index]) / 32768.0f;
 		FloatBuffer[Index] = Sample;
 		SumSquares += Sample * Sample;
 	}
@@ -1042,6 +1069,8 @@ void FSteamVoiceWorker::PublishStats(double Now)
 		Out.DecodeErrors = Talker.DecodeErrors;
 		Out.LastDecodeResult = Talker.LastDecodeResult;
 		Out.LastDecodedSamples = Talker.LastDecodedSamples;
+		Out.MaxPacketMs = 1000.0f * static_cast<float>(Talker.MaxDecodedSamples) / static_cast<float>(DecodeSampleRate);
+		Out.SilenceTrimmedMs = static_cast<float>(1000.0 * static_cast<double>(Talker.SilenceTrimmed) / static_cast<double>(DecodeSampleRate));
 		Out.bFlooded = Talker.bFlooded;
 		Out.Queued = Talker.Jitter.GetQueued();
 		Out.Level = Talker.Level;
