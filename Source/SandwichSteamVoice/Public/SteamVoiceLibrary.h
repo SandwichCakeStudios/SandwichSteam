@@ -81,6 +81,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "True when you talk on the channel."))
 	static bool IsSteamVoiceTransmittingOn(const UObject* WorldContextObject, FSteamVoiceChannel Channel);
 
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Channels", meta = (GameplayTagFilter = "Steam.Voice.Channel", ToolTip = "A voice channel from a Steam.Voice.Channel tag. The tag needs an id in Channel Tag Map (Project Settings > Plugins > Sandwich Steam - Voice)."))
+	static FSteamVoiceChannel MakeSteamVoiceChannelFromTag(FGameplayTag Tag);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Channels", meta = (ToolTip = "A voice channel from a number (0 or more), for channels you pick at runtime (a walkie dial, a team index)."))
+	static FSteamVoiceChannel MakeSteamVoiceChannelFromId(int32 Id);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Channels", meta = (ToolTip = "The id the channel travels as: the tag's id from Channel Tag Map, or the channel's own id. -1 when the channel is not set or its tag is not mapped."))
+	static int32 ResolveSteamVoiceChannelId(FSteamVoiceChannel Channel);
+
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "Whether your voice plays on your own pawn (its Owner speakers, proximity). On by default; off with a channel = radio only. Steam voice pipeline only."))
 	static FSteamResult SetSteamVoiceTransmitToOwner(const UObject* WorldContextObject, bool bTransmit);
 
@@ -119,4 +128,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The volume you set for the player's voice, 1 when none was set."))
 	static float GetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Loudness of the player's voice as it plays (0 to 1, same scale as Get Steam Local Mic Level), before the volume you set for them; 0 while they do not talk or are muted. Your own Steam ID gives your microphone level. Drive a per player meter with it. Steam voice pipeline only."))
+	static float GetSteamPlayerVoiceLevel(const UObject* WorldContextObject, FSteamId Player);
 };

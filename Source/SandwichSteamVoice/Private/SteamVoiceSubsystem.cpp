@@ -43,10 +43,23 @@ namespace
 	 */
 	constexpr int32 ChannelSpeakerBufferMs = 40;
 
-	/** The id a speaker's channel plays. Tag channels are not mapped to ids yet: only Id channels play. */
+	/** Tags already reported as missing from the Channel Tag Map. Game thread only. */
+	TSet<FGameplayTag> GWarnedUnmappedTags;
+
+	/** The id a channel plays on (Channel Tag Map for tags); INDEX_NONE when unset or unmapped. Warns once per unmapped tag. */
 	int32 ResolveChannelId(const FSteamVoiceChannel& Channel)
 	{
-		return Channel.Tag.IsValid() ? INDEX_NONE : Channel.Id;
+		const int32 Id = USteamVoiceSettings::Get()->ResolveChannelId(Channel);
+		if (Id < 0 && Channel.Tag.IsValid())
+		{
+			bool bAlreadyWarned = false;
+			GWarnedUnmappedTags.Add(Channel.Tag, &bAlreadyWarned);
+			if (!bAlreadyWarned)
+			{
+				UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: channel tag %s has no id in Channel Tag Map (Project Settings > Plugins > Sandwich Steam - Voice); it is not sent or played."), *Channel.Tag.ToString());
+			}
+		}
+		return Id;
 	}
 
 	/** The signed in Steam user (raw). Invalid when Steam is not ready. */
@@ -334,6 +347,10 @@ FSteamResult USteamVoiceSubsystem::SetTransmitChannels(const TArray<FSteamVoiceC
 		{
 			return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoiceTransmitChannelNotSet", "A transmit channel has neither a tag nor an id."));
 		}
+		if (ResolveChannelId(Channel) < 0)
+		{
+			return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, FText::Format(NSLOCTEXT("SandwichSteam", "VoiceTransmitChannelUnmapped", "The channel tag {0} has no id in Channel Tag Map (Project Settings > Plugins > Sandwich Steam - Voice)."), FText::FromString(Channel.Tag.ToString())));
+		}
 		Unique.AddUnique(Channel);
 	}
 	if (Unique.Num() > SandwichSteam::Voice::MaxPacketChannels)
@@ -561,6 +578,15 @@ float USteamVoiceSubsystem::GetPlayerVolume(FSteamId Player) const
 {
 	const float* Volume = PlayerVolumes.Find(Player.Value);
 	return Volume ? *Volume : 1.0f;
+}
+
+float USteamVoiceSubsystem::GetPlayerVoiceLevel(FSteamId Player) const
+{
+	if (!Worker.IsValid() || !Player.IsValid())
+	{
+		return 0.0f;
+	}
+	return Player == LocalId ? Worker->GetLocalLevel() : Worker->GetTalkerLevel(static_cast<uint64>(Player.Value));
 }
 
 FSteamResult USteamVoiceSubsystem::BindPushToTalk(APlayerController* Controller)

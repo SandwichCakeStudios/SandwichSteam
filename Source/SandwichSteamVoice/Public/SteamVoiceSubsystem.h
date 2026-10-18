@@ -102,7 +102,7 @@ public:
 	/**
 	 * The channels the local player talks on (walkie, radio, PA), at most 8. Everyone's Channel speakers on these channels play the local voice.
 	 * Applies to the next captured packet, so the radio starts and stops on the right syllable. Kept for the life of the game instance.
-	 * Invalid channels (neither a tag nor an id) are refused. Steam voice pipeline only.
+	 * Invalid channels (neither a tag nor an id, or a tag missing from Channel Tag Map) are refused. Steam voice pipeline only.
 	 */
 	FSteamResult SetTransmitChannels(const TArray<FSteamVoiceChannel>& Channels);
 	FSteamResult AddTransmitChannel(const FSteamVoiceChannel& Channel);
@@ -151,6 +151,12 @@ public:
 
 	/** The volume set for the player, 1 when none was set. */
 	float GetPlayerVolume(FSteamId Player) const;
+
+	/**
+	 * Level (RMS, 0 to 1, same scale as the local mic level) of the player's voice as it plays, before their player volume; 0 while they
+	 * do not talk or are muted. The local player gets the local mic level. Drive a per player meter with it. Steam voice pipeline only.
+	 */
+	float GetPlayerVoiceLevel(FSteamId Player) const;
 
 	/**
 	 * Binds the push to talk action of the settings on the controller's Enhanced Input component (and adds the mapping context of the settings).

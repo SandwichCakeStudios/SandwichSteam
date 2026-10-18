@@ -2,6 +2,7 @@
 
 #include "SteamVoiceLibrary.h"
 #include "Core/SteamGameplayTags.h"
+#include "SteamVoiceSettings.h"
 #include "SteamVoiceSubsystem.h"
 
 namespace
@@ -202,4 +203,29 @@ float USteamVoiceLibrary::GetSteamPlayerVoiceVolume(const UObject* WorldContextO
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetPlayerVolume(Player) : 1.0f;
+}
+
+FSteamVoiceChannel USteamVoiceLibrary::MakeSteamVoiceChannelFromTag(FGameplayTag Tag)
+{
+	FSteamVoiceChannel Channel;
+	Channel.Tag = Tag;
+	return Channel;
+}
+
+FSteamVoiceChannel USteamVoiceLibrary::MakeSteamVoiceChannelFromId(int32 Id)
+{
+	FSteamVoiceChannel Channel;
+	Channel.Id = FMath::Max(Id, static_cast<int32>(INDEX_NONE));
+	return Channel;
+}
+
+int32 USteamVoiceLibrary::ResolveSteamVoiceChannelId(FSteamVoiceChannel Channel)
+{
+	return USteamVoiceSettings::Get()->ResolveChannelId(Channel);
+}
+
+float USteamVoiceLibrary::GetSteamPlayerVoiceLevel(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceLevel(Player) : 0.0f;
 }
