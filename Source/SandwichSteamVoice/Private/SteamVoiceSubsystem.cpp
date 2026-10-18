@@ -1496,7 +1496,7 @@ void USteamVoiceSubsystem::ConnectSpeakers(int64 Talker, FSpeakerSource& Source,
 
 	// The patch holds up to one second; the speaker keeps it near the playout delay.
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
-	const int32 PlayoutDelayMs = Settings ? Settings->PlayoutDelayMs : 80;
+	const int32 PlayoutDelayMs = Settings ? Settings->PlayoutDelayMs : 200;
 	for (USteamVoiceComponent* Speaker : Wanted)
 	{
 		if (!IsValid(Speaker) || Source.Connected.Contains(Speaker))
@@ -2028,13 +2028,14 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 				Latency = FString::Printf(TEXT("%.0f ms (capture to speaker %.0f + buffer %.0f)"), Talker.PipelineLatencyMs + BufferedMs, Talker.PipelineLatencyMs, BufferedMs);
 			}
 
-			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, volume %.2f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples), queued %d\n"),
+			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, volume %.2f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples, longest %.0f ms), pause silence dropped %.0f ms, queued %d\n"),
 				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.bFake ? TEXT(" (fake)") : TEXT(""),
 				Talker.bTalking ? TEXT("TALKING") : TEXT("silent"), Talker.bActive ? TEXT(", speaker on") : TEXT(""),
 				Talker.Level, Talker.Gain, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
-				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.Queued);
+				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.MaxPacketMs, Talker.SilenceTrimmedMs, Talker.Queued);
 			Report += FString::Printf(TEXT("      speakers: %d (%s), first %s, buffered %.0f ms, underruns %u (incl. ends of speech), latency %s\n"),
-				NumSpeakers, *Placement, Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs, Component ? Component->GetUnderruns() : 0u, *Latency);
+				NumSpeakers, *Placement, Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs,
+				Component ? Component->GetUnderruns() : 0u, *Latency);
 		}
 	}
 	return Report;
