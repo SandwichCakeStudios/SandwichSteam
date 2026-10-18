@@ -55,10 +55,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "255", ToolTip = "Steam networking messages channel used for voice. Change it only when your game uses SteamNetworkingMessages on channel 7 itself."))
 	int32 SteamMessageChannel = 7;
 
-	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "20", ClampMax = "500", ForceUnits = "ms", ToolTip = "Audio each speaker keeps buffered before it plays. Higher survives worse networks, lower is more direct. 80 ms suits most connections."))
-	int32 PlayoutDelayMs = 80;
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "20", ClampMax = "500", ForceUnits = "ms", ToolTip = "Audio each speaker keeps buffered before it plays. Steam hands out captured voice unevenly (up to about 160 ms at once), so below about 200 ms voice can stutter; network jitter comes on top. Lower is more direct."))
+	int32 PlayoutDelayMs = 200;
 
-	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "48000", ToolTip = "Sample rate voice is decoded at. 0 uses Steam's optimal rate for the codec (recommended); 48000 is the fallback if voice sounds wrong."))
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "48000", ToolTip = "Sample rate voice is decoded at. 0 uses Steam's optimal rate for the codec (recommended); 48000 is the fallback if voice sounds wrong. Steam decodes 11025 to 48000 Hz; values below 11025 use 11025."))
 	int32 DecodeSampleRate = 0;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", AdvancedDisplay, meta = (ClampMin = "10", ClampMax = "500", ToolTip = "Most voice packets per second accepted from one player. More are dropped; a player over the limit for 5 seconds in a row is muted for the session."))
