@@ -524,6 +524,10 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 	const uint8 Flags = Snapshot->bTransmitMouth ? PacketFlags::Mouth : 0;
 	const TConstArrayView<int32> TransmitChannels = Snapshot->TransmitChannels;
 	const bool bTransmits = Flags != 0 || !TransmitChannels.IsEmpty();
+	if (Snapshot->LocalId != 0)
+	{
+		UpdateTransmit(LocalTransmit, Snapshot->LocalId, Flags != 0, TransmitChannels);
+	}
 
 	const FFakeTalkerConfig& Fake = Snapshot->Fake;
 	const int32 FakeChannel = Fake.Channel;
@@ -649,7 +653,8 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		return;
 	}
 
-	if (Snapshot->Muted.Contains(Sender) || Snapshot->Blocked.Contains(Sender))
+	// A muted talker whose talking is still reported is queued like anybody else and skipped at playout (never decoded).
+	if (Snapshot->Blocked.Contains(Sender) || (Snapshot->Muted.Contains(Sender) && !Snapshot->bReportMutedTalking))
 	{
 		++Stats.MutedDrops;
 		return;
@@ -701,10 +706,28 @@ void FSteamVoiceWorker::Playout(double Now)
 			}
 
 			FPacketView Packet;
-			if (Result == FJitterBuffer::EPopResult::Packet && ReadPacket(Queued.GetData(), Queued.Num(), Packet) == EPacketReadResult::Voice)
+			if (Result != FJitterBuffer::EPopResult::Packet || ReadPacket(Queued.GetData(), Queued.Num(), Packet) != EPacketReadResult::Voice)
 			{
-				Decode(Talker, Packet, Now, Stamp);
+				continue;
 			}
+
+			// A mute set while packets were queued applies to them too.
+			const bool bMuted = Snapshot->Muted.Contains(Talker.Id);
+			if (Snapshot->Blocked.Contains(Talker.Id) || (bMuted && !Snapshot->bReportMutedTalking))
+			{
+				++Stats.MutedDrops;
+				continue;
+			}
+
+			// Talking and where the voice goes follow the played packets, whether or not a speaker here plays them.
+			Talker.LastAudio = Now;
+			UpdateTransmit(Talker.Transmit, Talker.Id, Packet.HasMouth(), Packet.GetChannels());
+			if (bMuted)
+			{
+				++Stats.MutedDrops;
+				continue;
+			}
+			Decode(Talker, Packet, Now, Stamp);
 		}
 	}
 }
@@ -790,7 +813,6 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, doubl
 	}
 	Talker.Level = FMath::Sqrt(SumSquares / static_cast<float>(NumSamples));
 	bLevelsDirty = true;
-	Talker.LastAudio = Now;
 
 	if (Stamp > 0.0)
 	{
@@ -905,6 +927,7 @@ void FSteamVoiceWorker::UpdateActivity(double Now)
 			{
 				Talker.Level = 0.0f;
 				bLevelsDirty = true;
+				UpdateTransmit(Talker.Transmit, Talker.Id, false, TConstArrayView<int32>());
 			}
 			PostEvent(bTalking ? EWorkerEvent::TalkingStarted : EWorkerEvent::TalkingStopped, &Talker, Talker.Id);
 		}
@@ -941,6 +964,10 @@ void FSteamVoiceWorker::UpdateActivity(double Now)
 	if (bLocal != bLocalTalking && Snapshot->LocalId != 0)
 	{
 		bLocalTalking = bLocal;
+		if (!bLocal)
+		{
+			UpdateTransmit(LocalTransmit, Snapshot->LocalId, false, TConstArrayView<int32>());
+		}
 		PostEvent(bLocal ? EWorkerEvent::TalkingStarted : EWorkerEvent::TalkingStopped, nullptr, Snapshot->LocalId);
 	}
 }
@@ -982,6 +1009,7 @@ void FSteamVoiceWorker::RemoveTalker(uint64 Id)
 		Pair.Value->Mixer.RemoveTalker(Id);
 	}
 
+	UpdateTransmit(Removed->Transmit, Id, false, TConstArrayView<int32>());
 	if (Removed->bTalking)
 	{
 		PostEvent(EWorkerEvent::TalkingStopped, Removed.Get(), Id);
@@ -1011,6 +1039,21 @@ void FSteamVoiceWorker::PostChannelEvent(EWorkerEvent Type, int32 Channel, uint6
 	Event.Channel = Channel;
 	Event.SampleRate = DecodeSampleRate;
 	Event.Splitter = Splitter;
+	Events.Enqueue(MoveTemp(Event));
+}
+
+void FSteamVoiceWorker::UpdateTransmit(FTransmitState& State, uint64 Id, bool bMouth, TConstArrayView<int32> INChannels)
+{
+	if (!State.Set(bMouth, INChannels))
+	{
+		return;
+	}
+
+	FWorkerEvent Event;
+	Event.Type = EWorkerEvent::TransmitChanged;
+	Event.Talker = Id;
+	Event.bMouth = State.bMouth;
+	Event.Channels.Append(State.Channels.GetData(), State.Channels.Num());
 	Events.Enqueue(MoveTemp(Event));
 }
 

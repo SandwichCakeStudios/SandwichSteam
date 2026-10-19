@@ -71,6 +71,29 @@ public:
 	//~ End FRunnable
 
 private:
+	/** Where a voice goes: what its packets carry while the talker talks, empty while they do not. */
+	struct FTransmitState
+	{
+		bool bMouth = false;
+		TArray<int32, TInlineAllocator<SandwichSteam::Voice::MaxPacketChannels>> Channels;
+
+		bool IsEmpty() const { return !bMouth && Channels.IsEmpty(); }
+
+		/** Returns true when that changed the state. */
+		bool Set(bool bInMouth, TConstArrayView<int32> InChannels)
+		{
+			if (bMouth == bInMouth && Channels.Num() == InChannels.Num()
+				&& (InChannels.IsEmpty() || FMemory::Memcmp(Channels.GetData(), InChannels.GetData(), InChannels.Num() * sizeof(int32)) == 0))
+			{
+				return false;
+			}
+			bMouth = bInMouth;
+			Channels.Reset();
+			Channels.Append(InChannels.GetData(), InChannels.Num());
+			return true;
+		}
+	};
+
 	struct FTalker
 	{
 		uint64 Id = 0;
@@ -78,7 +101,7 @@ private:
 		bool bActive = false;
 		bool bTalking = false;
 		bool bFlooded = false;
-		/** Any decoded audio (talking indicator). */
+		/** Any played packet, decoded or not (talking indicator). */
 		double LastAudio = -1.0;
 		/** Decoded audio for the mouth (the talker's speakers start and stop on it). */
 		double LastMouthAudio = -1.0;
@@ -97,6 +120,7 @@ private:
 		SandwichSteam::Voice::FRateLimiter Limiter;
 		SandwichSteam::Voice::FJitterBuffer Jitter;
 		SandwichSteam::Voice::FPatchSplitterPtr Splitter;
+		FTransmitState Transmit;
 	};
 
 	/** One channel the game thread wants mixed, with its outputs (full mix, mixes minus a player) in the mixer's output order. */
@@ -142,6 +166,8 @@ private:
 	void RemoveTalker(uint64 Id);
 	void PostEvent(SandwichSteam::Voice::EWorkerEvent Type, const FTalker* Talker, uint64 Id);
 	void PostChannelEvent(SandwichSteam::Voice::EWorkerEvent Type, int32 Channel, uint64 Excluded, const SandwichSteam::Voice::FPatchSplitterPtr& Splitter);
+	/** Sets where Id's voice goes and posts TransmitChanged when that changed. */
+	void UpdateTransmit(FTransmitState& State, uint64 Id, bool bMouth, TConstArrayView<int32> INChannels);
 
 	bool IsPeer(uint64 Id) const { return PeerSet.Contains(Id); }
 
@@ -203,6 +229,8 @@ private:
 	bool bDrainingTail = false;
 	bool bSpeakingFlagSet = false;
 	bool bLocalTalking = false;
+	/** What our sent packets carry while we talk. */
+	FTransmitState LocalTransmit;
 	/** A talker level changed since the last PublishLevels. */
 	bool bLevelsDirty = false;
 	double LastLocalAudio = -1.0;

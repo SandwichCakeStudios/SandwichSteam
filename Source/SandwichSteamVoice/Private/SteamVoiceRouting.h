@@ -7,7 +7,7 @@
 
 /**
  * What the game thread and the voice worker exchange. The game thread publishes immutable routing snapshots (who is in the game,
- * who is muted, whether to record); the worker posts events back (talker audio started / idle, talking, flood).
+ * who is muted, whether to record); the worker posts events back (talker audio started / idle, talking, transmit channels, flood).
  * Neither side ever touches the other's state directly.
  */
 namespace SandwichSteam::Voice
@@ -74,6 +74,8 @@ namespace SandwichSteam::Voice
 		TArray<uint64> Peers;
 		/** Mute: their audio is dropped here, we still send to them. */
 		TSet<uint64> Muted;
+		/** Muted talkers still report talking and transmit channels (never audio or a level). */
+		bool bReportMutedTalking = false;
 		/** Blocked on Steam: dropped both ways. */
 		TSet<uint64> Blocked;
 		/** Per player volume (0 to 2), applied before the mouth and the channel mixes. Only players not at 1. */
@@ -121,7 +123,12 @@ namespace SandwichSteam::Voice
 		/** A channel output (Channel, Talker = excluded player, Splitter = the output's) got audio: start its speakers. */
 		ChannelActive,
 		/** A channel output had no audio for a second: stop its speakers. */
-		ChannelIdle
+		ChannelIdle,
+		/**
+		 * Where a talker's voice goes changed (bMouth, Channels): what their played packets carry while they talk, nothing once they stopped
+		 * or left. Also for the local player (what we send).
+		 */
+		TransmitChanged
 	};
 
 	struct FWorkerEvent
@@ -131,6 +138,9 @@ namespace SandwichSteam::Voice
 		uint64 Talker = 0;
 		/** Channel events only. */
 		int32 Channel = INDEX_NONE;
+		/** TransmitChanged only: the voice plays on the talker's pawn, and the channel ids it carries. */
+		bool bMouth = false;
+		TArray<int32> Channels;
 		bool bFake = false;
 		int32 SampleRate = 0;
 		FPatchSplitterPtr Splitter;
