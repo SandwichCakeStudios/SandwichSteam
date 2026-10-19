@@ -65,6 +65,24 @@ void SSandwichSteamVoiceTestPage::Construct(const FArguments& InArgs)
 			const USteamVoiceSubsystem* Voice = GetVoice();
 			return Voice ? SandwichSteamTest::BoolText(Voice->IsLocalTalking()) : FText::GetEmpty();
 		})) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 2.f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 10.f, 0.f)
+			[
+				SNew(SBox).WidthOverride(330.f)
+				[
+					SNew(STextBlock).Text_Lambda([this] { return BuildMicText(); })
+				]
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+			[
+				SNew(SBox).HeightOverride(14.f)
+				[
+					SNew(SProgressBar).Percent_Lambda([this] { return MicMeterLevel; })
+				]
+			]
+		]
 		+ SVerticalBox::Slot().AutoHeight()[ SandwichSteamTest::MakeRow(LOCTEXT("PttBound", "Push to talk bound"), TAttribute<FText>::CreateLambda([this]
 		{
 			const USteamVoiceSubsystem* Voice = GetVoice();
@@ -85,6 +103,14 @@ void SSandwichSteamVoiceTestPage::Construct(const FArguments& InArgs)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleEnabled", "Enable / disable voice"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleEnabled)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleMode", "Switch mode"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleMode)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleMic", "Microphone on / off (like the PTT key)"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleMicrophone)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleMicTest", "Mic test on / off (hear yourself, sends nothing)"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleMicTest)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleRadio", "Talk on channel 1 on / off"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleRadio)) ]
+#if SANDWICHSTEAM_WITH_DEBUG
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Fake1", "1 fake talker"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnFakeTalkers, 1, int32(INDEX_NONE))) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Fake2", "2 fake talkers"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnFakeTalkers, 2, int32(INDEX_NONE))) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("FakeRadio", "1 fake on channel 1 (radio only)"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnFakeTalkers, 1, 1)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("FakeOff", "Fake talkers off"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnFakeTalkers, 0, int32(INDEX_NONE))) ]
+#endif
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("MuteFirst", "Mute first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnMuteFirst)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("UnmuteAll", "Unmute all"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnUnmuteAll)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeDown", "Volume -0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeDown)) ]
@@ -149,12 +175,31 @@ void SSandwichSteamVoiceTestPage::Tick(const FGeometry& AllottedGeometry, const 
 		}
 	}
 
+	// The pipeline has levels; the Online Subsystem voice only talking / not talking (full bar).
+	const bool bLevels = Voice && Voice->IsUsingSteamPipeline();
 	for (int32 Index = 0; Index < MaxMeters; ++Index)
 	{
 		const bool bTalking = Voice && MeterPlayer[Index].IsValid() && Voice->IsPlayerTalking(MeterPlayer[Index]);
-		MeterLevel[Index] = FMath::FInterpTo(MeterLevel[Index], bTalking ? 1.f : 0.f, InDeltaTime, bTalking ? 30.f : 3.f);
+		const float Target = !bTalking ? 0.f : bLevels ? FMath::Clamp(Voice->GetPlayerVoiceLevel(MeterPlayer[Index]) / FullScaleLevel, 0.f, 1.f) : 1.f;
+		MeterLevel[Index] = FMath::FInterpTo(MeterLevel[Index], Target, InDeltaTime, Target > MeterLevel[Index] ? 30.f : 3.f);
 		MeterHeardSeconds[Index] += bTalking ? InDeltaTime : 0.f;
 	}
+
+	const float MicTarget = Voice ? FMath::Clamp(Voice->GetLocalMicLevel() / FullScaleLevel, 0.f, 1.f) : 0.f;
+	MicMeterLevel = FMath::FInterpTo(MicMeterLevel, MicTarget, InDeltaTime, MicTarget > MicMeterLevel ? 30.f : 3.f);
+}
+
+FText SSandwichSteamVoiceTestPage::BuildMicText() const
+{
+	const USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		return FText::GetEmpty();
+	}
+
+	const float Threshold = Voice->GetVoiceActivationThreshold();
+	return FText::FromString(FString::Printf(TEXT("Microphone level %.3f, threshold %s (bar full = %.1f)%s"), Voice->GetLocalMicLevel(),
+		Threshold > 0.f ? *FString::Printf(TEXT("%.3f"), Threshold) : TEXT("off"), FullScaleLevel, Voice->IsMicTesting() ? TEXT("  MIC TEST") : TEXT("")));
 }
 
 FText SSandwichSteamVoiceTestPage::BuildMeterLabel(int32 Index) const
@@ -166,8 +211,16 @@ FText SSandwichSteamVoiceTestPage::BuildMeterLabel(int32 Index) const
 		return FText::GetEmpty();
 	}
 
-	return FText::FromString(FString::Printf(TEXT("%s%s  %s  (%.1f s of voice)%s"), *Player.ToString(), Player == Voice->GetLocalPlayerId() ? TEXT(" (you)") : TEXT(""),
-		Voice->IsPlayerTalking(Player) ? TEXT("TALKING") : TEXT("quiet"), MeterHeardSeconds[Index], Voice->IsPlayerMuted(Player) ? TEXT("  muted") : TEXT("")));
+	FString Channels;
+	for (const FSteamVoiceChannel& Channel : Voice->GetPlayerTransmitChannels(Player))
+	{
+		Channels += Channels.IsEmpty() ? TEXT("  on ") : TEXT(", ");
+		Channels += Channel.Tag.IsValid() ? Channel.Tag.ToString() : FString::FromInt(Channel.Id);
+	}
+
+	return FText::FromString(FString::Printf(TEXT("%s%s  %s %.3f  (%.1f s)%s%s"), *Player.ToString(), Player == Voice->GetLocalPlayerId() ? TEXT(" (you)") : TEXT(""),
+		Voice->IsPlayerTalking(Player) ? TEXT("TALKING") : TEXT("quiet"), Voice->GetPlayerVoiceLevel(Player), MeterHeardSeconds[Index], *Channels,
+		Voice->IsPlayerMuted(Player) ? TEXT("  muted") : TEXT("")));
 }
 
 FText SSandwichSteamVoiceTestPage::BuildTalkingText() const
@@ -231,6 +284,54 @@ FReply SSandwichSteamVoiceTestPage::OnToggleMicrophone()
 
 	bMicrophoneToggled = !bMicrophoneToggled;
 	ReportResult(bMicrophoneToggled ? Voice->StartTalking() : Voice->StopTalking(), bMicrophoneToggled ? LOCTEXT("MicOn", "Microphone requested (push to talk held).") : LOCTEXT("MicOff", "Microphone released."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnToggleMicTest()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureMicTest", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const bool bStart = !Voice->IsMicTesting();
+	ReportResult(bStart ? Voice->StartMicTest() : Voice->StopMicTest(), bStart ? LOCTEXT("MicTestOn", "Mic test on: you hear yourself one playout delay late. Nothing is sent unless the microphone is also on.") : LOCTEXT("MicTestOff", "Mic test off."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnToggleRadio()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureRadio", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	FSteamVoiceChannel Radio;
+	Radio.Id = 1;
+	const bool bAdd = !Voice->IsTransmittingOn(Radio);
+	ReportResult(bAdd ? Voice->AddTransmitChannel(Radio) : Voice->RemoveTransmitChannel(Radio),
+		bAdd ? LOCTEXT("RadioOn", "You talk on channel 1 (Channel speakers on id 1 play you).") : LOCTEXT("RadioOff", "You stopped talking on channel 1."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnFakeTalkers(int32 Count, int32 Channel)
+{
+#if SANDWICHSTEAM_WITH_DEBUG
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureFake", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	ReportResult(Voice->SetFakeTalkers(Count, 150, 0.f, 250, Channel), Count == 0 ? LOCTEXT("FakeOffDone", "Fake talkers off.")
+		: FText::Format(LOCTEXT("FakeOnDone", "{0} fake talker(s){1}, 150 ms late (+250 ms per fake). Turn the microphone on to hear them."), FText::AsNumber(Count),
+			Channel >= 0 ? FText::Format(LOCTEXT("FakeChannel", " on channel {0} only"), FText::AsNumber(Channel)) : FText::GetEmpty()));
+#endif
 	return FReply::Handled();
 }
 
