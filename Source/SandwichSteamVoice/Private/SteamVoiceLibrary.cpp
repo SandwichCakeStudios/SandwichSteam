@@ -91,6 +91,24 @@ float USteamVoiceLibrary::GetSteamLocalMicLevel(const UObject* WorldContextObjec
 	return Voice ? Voice->GetLocalMicLevel() : 0.0f;
 }
 
+FSteamResult USteamVoiceLibrary::StartSteamVoiceMicTest(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->StartMicTest() : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::StopSteamVoiceMicTest(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->StopMicTest() : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceMicTesting(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsMicTesting();
+}
+
 FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitChannels(const UObject* WorldContextObject, const TArray<FSteamVoiceChannel>& Channels)
 {
 	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);

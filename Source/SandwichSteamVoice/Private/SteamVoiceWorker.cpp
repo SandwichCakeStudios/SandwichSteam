@@ -256,8 +256,8 @@ void FSteamVoiceWorker::ApplySnapshot(double Now)
 	for (const TPair<uint64, TUniquePtr<FTalker>>& Pair : Talkers)
 	{
 		const FTalker& Talker = *Pair.Value;
-		const bool bKeep = Talker.bFake
-			? (Talker.Id - FakeTalkerIdBase) < static_cast<uint64>(Snapshot->Fake.Count)
+		const bool bKeep = Talker.Id == MicTestTalkerId ? Snapshot->bMicTest
+			: Talker.bFake ? (Talker.Id - FakeTalkerIdBase) < static_cast<uint64>(Snapshot->Fake.Count)
 			: PeerSet.Contains(Talker.Id);
 		if (!bKeep)
 		{
@@ -520,6 +520,15 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 {
 	LastLocalAudio = Now;
 
+	if (Snapshot->bMicTest)
+	{
+		QueueMicTest(Data, Size, Now, bIdMatches, bCrcMatches);
+	}
+	if (!Snapshot->bSend)
+	{
+		return; // Only the mic test records.
+	}
+
 	// Where our voice goes travels in every packet, so a speaker starts and stops on the right syllable.
 	const uint8 Flags = Snapshot->bTransmitMouth ? PacketFlags::Mouth : 0;
 	const TConstArrayView<int32> TransmitChannels = Snapshot->TransmitChannels;
@@ -602,6 +611,24 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 		{
 			++Stats.FakeRewriteFailed;
 		}
+	}
+}
+
+void FSteamVoiceWorker::QueueMicTest(const uint8* Data, int32 Size, double Now, bool bIdMatches, bool bCrcMatches)
+{
+	// Through the full receive path like a fake talker, with no extra delay: the speaker's playout delay is the delay a listener hears.
+	FDelayedPacket& Delayed = DelayedPackets.AddDefaulted_GetRef();
+	Delayed.Due = Now;
+	Delayed.Stamp = Now;
+	Delayed.Talker = MicTestTalkerId;
+
+	// It needs its own speaker id: decoding with ours would disturb the decoder state the level measurement uses (and is refused on receive).
+	const bool bWritten = bIdMatches && bCrcMatches
+		&& WriteVoicePacket(MicTestSequence++, PacketFlags::Mouth, TConstArrayView<int32>(), TConstArrayView<uint8>(Data, Size), Delayed.Data);
+	if (!bWritten || !RewritePayloadSpeaker(TArrayView<uint8>(Delayed.Data.GetData() + Delayed.Data.Num() - Size, Size), MicTestTalkerId))
+	{
+		++Stats.FakeRewriteFailed;
+		DelayedPackets.Pop(EAllowShrinking::No);
 	}
 }
 

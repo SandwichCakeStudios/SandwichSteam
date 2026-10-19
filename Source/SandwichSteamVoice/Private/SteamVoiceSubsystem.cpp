@@ -320,6 +320,44 @@ float USteamVoiceSubsystem::GetLocalMicLevel() const
 	return Worker.IsValid() ? Worker->GetLocalLevel() : 0.0f;
 }
 
+FSteamResult USteamVoiceSubsystem::StartMicTest()
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+	if (!bUseSteamPipeline)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceMicTestNeedsPipeline", "The mic test needs the Steam voice pipeline (Use Steam Voice Pipeline in the Voice settings)."));
+	}
+	if (!bEnabled)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_FeatureDisabled, NSLOCTEXT("SandwichSteam", "VoiceMicTestDisabled", "Voice is disabled. Call Set Voice Enabled first."));
+	}
+	if (!Worker.IsValid())
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "VoiceMicTestNoPipeline", "The Steam voice pipeline is not running (another game instance in this process owns the microphone)."));
+	}
+
+	bMicTest = true;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::StopMicTest()
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+
+	bMicTest = false;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
 bool USteamVoiceSubsystem::CanSetTransmit(FSteamResult& OutResult) const
 {
 	if (!RequireActive(OutResult))
@@ -658,6 +696,7 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 	}
 
 	bTalkRequested = false;
+	bMicTest = false;
 	UnbindPushToTalk();
 	RefreshTalking(true);
 	RemoveVolumeMix();
@@ -843,10 +882,10 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		}
 	}
 
-	// Fake talkers (Steam.Voice.FakeTalker) count as present, so the test panel lists them.
+	// Fake talkers (Steam.Voice.FakeTalker) count as present, so the test panel lists them. The mic test talker is no player.
 	for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
 	{
-		if (Source.Value.bFake)
+		if (Source.Value.bFake && Source.Key != static_cast<int64>(SandwichSteam::Voice::MicTestTalkerId))
 		{
 			NowPresent.Add(Source.Key);
 		}
@@ -1054,7 +1093,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	Blocked.Sort();
 	TArray<int32> Transmit = ResolveTransmitChannels();
 
-	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
+	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && bPublishedMicTest == bMicTest && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
 		&& bPublishedTransmitMouth == bTransmitToOwner && PublishedTransmitChannels == Transmit)
 	{
 		return;
@@ -1063,7 +1102,9 @@ void USteamVoiceSubsystem::PublishRouting()
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
 	TSharedRef<SandwichSteam::Voice::FRoutingSnapshot, ESPMode::ThreadSafe> Snapshot = MakeShared<SandwichSteam::Voice::FRoutingSnapshot, ESPMode::ThreadSafe>();
 	Snapshot->LocalId = static_cast<uint64>(LocalId.Value);
-	Snapshot->bRecord = bMicOpen;
+	Snapshot->bRecord = bMicOpen || bMicTest;
+	Snapshot->bSend = bMicOpen;
+	Snapshot->bMicTest = bMicTest;
 	Snapshot->bMuteSteamFriendsWhileTalking = Settings && Settings->bMuteSteamFriendsVoiceWhileTalking;
 	Snapshot->bTransmitMouth = bTransmitToOwner;
 	Snapshot->TransmitChannels = Transmit;
@@ -1105,6 +1146,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	bPublishedTransmitMouth = bTransmitToOwner;
 	PublishedLocalId = LocalId.Value;
 	bPublishedRecord = bMicOpen;
+	bPublishedMicTest = bMicTest;
 	bRoutingPublished = true;
 }
 
@@ -1120,6 +1162,14 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 	while (Worker->PopEvent(Event))
 	{
 		const int64 Talker = static_cast<int64>(Event.Talker);
+
+		// The mic test talker only needs its speaker: it is the local voice (which has its own talking events), not a player.
+		if (Event.Talker == SandwichSteam::Voice::MicTestTalkerId
+			&& (Event.Type == EWorkerEvent::TalkingStarted || Event.Type == EWorkerEvent::TalkingStopped || Event.Type == EWorkerEvent::TransmitChanged))
+		{
+			continue;
+		}
+
 		switch (Event.Type)
 		{
 		case EWorkerEvent::TalkerAdded:
@@ -2026,9 +2076,9 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		return Report;
 	}
 
-	Report += FString::Printf(TEXT("  Voice: %s, mode %s, microphone %s (requested %s), headset %s\n"),
+	Report += FString::Printf(TEXT("  Voice: %s, mode %s, microphone %s (requested %s), mic test %s, headset %s\n"),
 		bEnabled ? TEXT("enabled") : TEXT("disabled"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"),
-		bMicOpen ? TEXT("open") : TEXT("closed"), bTalkRequested ? TEXT("yes") : TEXT("no"), IsHeadsetPresent() ? TEXT("present") : TEXT("not found"));
+		bMicOpen ? TEXT("open") : TEXT("closed"), bTalkRequested ? TEXT("yes") : TEXT("no"), bMicTest ? TEXT("on (plays back, sends nothing by itself)") : TEXT("off"), IsHeadsetPresent() ? TEXT("present") : TEXT("not found"));
 	Report += FString::Printf(TEXT("  Local user: %s, local talking: %s\n"), *LocalId.ToString(), IsLocalTalking() ? TEXT("yes") : TEXT("no"));
 	{
 		FString Channels;
@@ -2188,7 +2238,7 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			}
 
 			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, volume %.2f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples, longest %.0f ms), pause silence dropped %.0f ms, queued %d\n"),
-				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.bFake ? TEXT(" (fake)") : TEXT(""),
+				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.Talker == SandwichSteam::Voice::MicTestTalkerId ? TEXT(" (mic test)") : Talker.bFake ? TEXT(" (fake)") : TEXT(""),
 				Talker.bTalking ? TEXT("TALKING") : TEXT("silent"), Talker.bActive ? TEXT(", speaker on") : TEXT(""),
 				Talker.Level, Talker.Gain, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
 				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.MaxPacketMs, Talker.SilenceTrimmedMs, Talker.Queued);

@@ -100,6 +100,15 @@ public:
 	float GetLocalMicLevel() const;
 
 	/**
+	 * Mic test for an options menu: opens the microphone and plays the local voice back on its own 2D speaker, one playout delay late and after
+	 * voice activation, so the player hears what others would hear. Nothing is sent to other players unless they also talk (push to talk held,
+	 * open mic). Needs voice enabled; ends when voice is disabled. Steam voice pipeline only.
+	 */
+	FSteamResult StartMicTest();
+	FSteamResult StopMicTest();
+	bool IsMicTesting() const { return bMicTest; }
+
+	/**
 	 * The channels the local player talks on (walkie, radio, PA), at most 8. Everyone's Channel speakers on these channels play the local voice.
 	 * Applies to the next captured packet, so the radio starts and stops on the right syllable. Kept for the life of the game instance.
 	 * Invalid channels (neither a tag nor an id, or a tag missing from Channel Tag Map) are refused. Steam voice pipeline only.
@@ -381,6 +390,7 @@ private:
 	TArray<int32> PublishedTransmitChannels;
 	int64 PublishedLocalId = 0;
 	bool bPublishedRecord = false;
+	bool bPublishedMicTest = false;
 	bool bPublishedTransmitMouth = true;
 	/** PlayerVolumes changed since the last routing publish. */
 	bool bPlayerVolumesChanged = false;
@@ -404,6 +414,8 @@ private:
 	bool bTalkRequested = false;
 	/** The microphone state last given to the Steam pipeline or the Online Subsystem fallback. */
 	bool bMicOpen = false;
+	/** Start Mic Test was called (records even while bMicOpen is false, plays back, sends nothing by itself). */
+	bool bMicTest = false;
 	float MasterVolume = 1.0f;
 	float ActivationThreshold = 0.0f;
 	/** What the local player transmits on (talker side). */

@@ -63,6 +63,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Level of the local microphone (0 to 1, same scale as the activation threshold) while it is open and picks up sound, else 0. Drive a mic meter with it. Steam voice pipeline only."))
 	static float GetSteamLocalMicLevel(const UObject* WorldContextObject);
 
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Mic test for an options menu: opens the microphone and plays your voice back to you (2D, one playout delay late, after the activation threshold), so you hear what others would hear. Sends nothing to other players by itself. Needs voice enabled. Steam voice pipeline only."))
+	static FSteamResult StartSteamVoiceMicTest(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Ends the mic test (closing your options menu)."))
+	static FSteamResult StopSteamVoiceMicTest(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the mic test runs."))
+	static bool IsSteamVoiceMicTesting(const UObject* WorldContextObject);
+
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "The channels you talk on (walkie, radio, PA), at most 8. Everyone's Channel speakers on these channels play your voice. Empty = no channel. Steam voice pipeline only."))
 	static FSteamResult SetSteamVoiceTransmitChannels(const UObject* WorldContextObject, const TArray<FSteamVoiceChannel>& Channels);
 

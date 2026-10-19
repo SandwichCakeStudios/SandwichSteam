@@ -24,6 +24,9 @@ namespace SandwichSteam::Voice
 		return Id >= FakeTalkerIdBase && Id < FakeTalkerIdBase + MaxFakeTalkers;
 	}
 
+	/** Mic test: the local voice comes back as this talker (right after the fake talker range) and plays on its own 2D speaker. */
+	constexpr uint64 MicTestTalkerId = FakeTalkerIdBase + MaxFakeTalkers;
+
 	/** Steam.Voice.FakeTalker: the local capture re-injected as fake talkers at the receive step (non-Shipping). */
 	struct FFakeTalkerConfig
 	{
@@ -63,8 +66,12 @@ namespace SandwichSteam::Voice
 	struct FRoutingSnapshot
 	{
 		uint64 LocalId = 0;
-		/** Microphone open (push to talk held or open mic). */
+		/** Microphone open (push to talk held, open mic or mic test). */
 		bool bRecord = false;
+		/** Captured voice goes to the other players (push to talk held or open mic). False while only the mic test records. */
+		bool bSend = false;
+		/** Captured voice also plays back here as MicTestTalkerId (after voice activation, so it sounds like what others hear). */
+		bool bMicTest = false;
 		bool bMuteSteamFriendsWhileTalking = false;
 		/** Our voice plays on our own pawn (packet Mouth flag). */
 		bool bTransmitMouth = true;

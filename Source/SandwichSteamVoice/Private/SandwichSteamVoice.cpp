@@ -80,6 +80,25 @@ namespace
 		LogResult(Output, TEXT("Steam.Voice.Talk"), bTalk ? Voice->StartTalking() : Voice->StopTalking(), bTalk ? TEXT("microphone requested") : TEXT("microphone released"));
 	}
 
+	/** Steam.Voice.MicTest <0|1> */
+	void MicTest(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			Output.Logf(TEXT("Steam.Voice.MicTest: %s. Usage: Steam.Voice.MicTest <0|1>"), Voice->IsMicTesting() ? TEXT("on") : TEXT("off"));
+			return;
+		}
+
+		const bool bTest = FCString::Atoi(*Args[0]) != 0;
+		LogResult(Output, TEXT("Steam.Voice.MicTest"), bTest ? Voice->StartMicTest() : Voice->StopMicTest(), bTest ? TEXT("mic test on, you hear yourself") : TEXT("mic test off"));
+	}
+
 	/** Steam.Voice.Mute <SteamID64> and Steam.Voice.Unmute <SteamID64> */
 	void MuteOrUnmute(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output, bool bMute)
 	{
@@ -286,6 +305,10 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.Talk"),
 		TEXT("Opens or closes the microphone like the push to talk key: Steam.Voice.Talk <0|1>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&Talk));
+
+	Commands.Add(TEXT("Steam.Voice.MicTest"),
+		TEXT("Plays your microphone back to you (after voice activation) without sending it: Steam.Voice.MicTest <0|1>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&MicTest));
 
 	Commands.Add(TEXT("Steam.Voice.Mute"),
 		TEXT("Mutes a player: Steam.Voice.Mute <SteamID64>."),

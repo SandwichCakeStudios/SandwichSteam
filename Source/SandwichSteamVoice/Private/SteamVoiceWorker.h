@@ -146,6 +146,8 @@ private:
 	void Capture(double Now);
 	void HandleCaptured(const uint8* Data, int32 Size, double Now);
 	void SendCaptured(const uint8* Data, int32 Size, double Now, bool bIdMatches, bool bCrcMatches);
+	/** Mic test: queues a captured packet of ours to come back as MicTestTalkerId. */
+	void QueueMicTest(const uint8* Data, int32 Size, double Now, bool bIdMatches, bool bCrcMatches);
 	/** Decodes a captured packet of ours and returns its level (RMS), or -1 when it could not be decoded. */
 	float MeasureCaptured(const uint8* Data, int32 Size);
 	void HandleIncoming(uint64 Sender, const uint8* Data, int32 Size, double Now, bool bFake, double Stamp);
@@ -225,6 +227,7 @@ private:
 	TArray<int16> PcmBuffer;
 	TArray<float> FloatBuffer;
 	uint16 Sequence = 0;
+	uint16 MicTestSequence = 0;
 	bool bRecording = false;
 	bool bDrainingTail = false;
 	bool bSpeakingFlagSet = false;
