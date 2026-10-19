@@ -26,6 +26,17 @@ namespace SandwichSteam::Voice
 		}
 	}
 
+	bool FTalkingTracker::Set(int64 Player, bool bTalking)
+	{
+		if (bTalking)
+		{
+			bool bAlreadyTalking = false;
+			Talking.Add(Player, &bAlreadyTalking);
+			return !bAlreadyTalking;
+		}
+		return Talking.Remove(Player) > 0;
+	}
+
 	void FTalkingTracker::Clear(TArray<FTalkingChange>& OutChanges)
 	{
 		for (const int64 Player : Talking)

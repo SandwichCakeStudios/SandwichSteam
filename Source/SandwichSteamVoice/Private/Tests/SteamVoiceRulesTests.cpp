@@ -61,6 +61,13 @@ bool FSteamVoiceTalkingTrackerTest::RunTest(const FString& Parameters)
 	Tracker.Clear(Changes);
 	TestTrue(TEXT("Clear stops talkers"), Changes.Num() == 1 && Changes[0].Player == 1 && !Changes[0].bTalking);
 	TestEqual(TEXT("Nobody talks after Clear"), Tracker.GetTalking().Num(), 0);
+
+	// Event-driven: Set reports only real changes.
+	TestTrue(TEXT("Set start changes"), Tracker.Set(4, true));
+	TestFalse(TEXT("Set start twice changes nothing"), Tracker.Set(4, true));
+	TestTrue(TEXT("Set start is talking"), Tracker.IsTalking(4));
+	TestTrue(TEXT("Set stop changes"), Tracker.Set(4, false));
+	TestFalse(TEXT("Set stop of a silent player changes nothing"), Tracker.Set(4, false));
 	return true;
 }
 

@@ -27,6 +27,9 @@ namespace SandwichSteam::Voice
 		 */
 		void Update(const TSet<int64>& NowTalking, const TSet<int64>& Present, TArray<FTalkingChange>& OutChanges);
 
+		/** One player started or stopped talking (event-driven source). Returns true when that changed the state. */
+		bool Set(int64 Player, bool bTalking);
+
 		bool IsTalking(int64 Player) const { return Talking.Contains(Player); }
 		const TSet<int64>& GetTalking() const { return Talking; }
 
