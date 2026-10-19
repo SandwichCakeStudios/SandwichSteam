@@ -56,13 +56,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (ToolTip = "Switches this Channel speaker to another channel (walkie dial)."))
 	void SetChannel(FSteamVoiceChannel NewChannel);
 
-	/** The player an Owner speaker plays right now (its owner once their voice is connected). Empty for a Channel speaker. */
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "The player an Owner speaker plays right now. Empty for a Channel speaker."))
+	/**
+	 * The players this speaker plays right now. Owner: its player while they talk on their pawn (not radio only). Channel: everyone talking
+	 * on the channel, minus this pawn's player unless Include Owner. Muted players are never listed. Steam voice pipeline only.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "The players this speaker plays right now. Owner speaker: its player while they talk on their pawn. Channel speaker: everyone talking on the channel (minus this pawn's player unless Include Owner). Muted players are never listed."))
 	TArray<FSteamId> GetTalkers() const;
 
-	/** Owner: true while its player talks. Channel: true while the channel has voice (until a second after the last word). */
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "Owner speaker: true while its player talks. Channel speaker: true while the channel has voice (until a second after the last word)."))
+	/** True while Get Talkers is not empty. */
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "True while somebody talks through this speaker (Get Talkers is not empty)."))
 	bool IsAnyoneTalking() const;
+
+	/** Loudest level (RMS, 0 to 1) of the players this speaker plays right now, before their player volume; 0 while nobody talks. */
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "Loudest voice level (0 to 1) of the players this speaker plays right now, before their player volume. 0 while nobody talks. Drive a speaker light or a radio meter with it."))
+	float GetVoiceLevel() const;
 
 	/** True while the speaker is switched on (Activate / Deactivate). Is Playing tells whether it makes sound right now. */
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (ToolTip = "True while the speaker is switched on (Activate / Deactivate). Is Playing tells whether it makes sound right now."))

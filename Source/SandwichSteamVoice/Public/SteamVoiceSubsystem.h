@@ -111,6 +111,16 @@ public:
 	const TArray<FSteamVoiceChannel>& GetTransmitChannels() const { return TransmitChannels; }
 	bool IsTransmittingOn(const FSteamVoiceChannel& Channel) const { return TransmitChannels.Contains(Channel); }
 
+	/**
+	 * The channels a player talks on right now (receiver side): what their voice carries while they talk, empty while they do not, or are
+	 * muted (unless Report Muted Talking). The local player gets what the local voice is sent on. An id with tags in Channel Tag Map comes
+	 * back as those tags (one entry per tag), else as the id. Steam voice pipeline only.
+	 */
+	TArray<FSteamVoiceChannel> GetPlayerTransmitChannels(FSteamId Player) const;
+
+	/** True while the player talks on the channel (tags compare by their id, so two tags sharing an id are the same channel). */
+	bool IsPlayerTransmittingOn(FSteamId Player, const FSteamVoiceChannel& Channel) const;
+
 	/** Whether the local voice plays on the local player's own pawn (Owner speakers, proximity). Default true; false = radio only. Steam voice pipeline only. */
 	FSteamResult SetTransmitToOwner(bool bTransmit);
 	bool IsTransmittingToOwner() const { return bTransmitToOwner; }
@@ -121,7 +131,10 @@ public:
 	/** The players of the current game as of the last poll (the local player included). Empty while voice is disabled. */
 	TArray<FSteamId> GetPlayersInGame() const;
 
-	/** True while the player talks (the local player too). Read at the poll rate of the settings. */
+	/**
+	 * True while the player talks (the local player too). Steam voice pipeline: from the voice itself, at once (a muted player only with
+	 * Report Muted Talking). Online Subsystem voice: read at Talking Poll Seconds.
+	 */
 	bool IsPlayerTalking(FSteamId Player) const;
 	TArray<FSteamId> GetTalkingPlayers() const;
 
@@ -177,6 +190,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when a player was muted or unmuted, also when a blocked Steam player was muted automatically."))
 	FSteamVoiceMuteChanged OnPlayerMuteChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when the channels a player talks on changed: they started or stopped talking on a radio, or switched channels. Empty once they stopped. Also for the local player. Drive a 'Blue is on the radio' indicator with it. Steam voice pipeline only."))
+	FSteamVoiceTransmitChannelsChanged OnPlayerTransmitChannelsChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when a player sent too much voice data for 5 seconds in a row; they are muted for this session. Kick or report them if your game wants to. Steam voice pipeline only."))
+	FSteamVoicePlayerFlood OnPlayerVoiceFlood;
+
 	/** The speakers that play the player right now (their pawn's Owner speakers, or the 2D speaker while they have no pawn). Steam voice pipeline only. */
 	TArray<USteamVoiceComponent*> GetPlayerVoiceComponents(FSteamId Player) const;
 
@@ -189,8 +208,11 @@ public:
 	/** A speaker was switched on or off, or changed channel: route again on the next tick (called by the component). */
 	void MarkSpeakersDirty() { bSpeakersDirty = true; }
 
-	/** True while the channel mix a Channel speaker plays has audio (it stays true for a second after the last word). */
-	bool IsChannelSpeakerActive(const USteamVoiceComponent* Speaker) const;
+	/**
+	 * The players a speaker plays right now (called by the component): an Owner speaker its talker while they talk on their pawn, a Channel
+	 * speaker everyone talking on its channel (minus its owner unless Include Owner). Muted players never.
+	 */
+	TArray<FSteamId> GetSpeakerTalkers(const USteamVoiceComponent* Speaker) const;
 
 	/** True when the Steam voice pipeline runs (false: Online Subsystem voice, or voice disabled). */
 	bool IsUsingSteamPipeline() const { return bUseSteamPipeline; }
@@ -316,9 +338,22 @@ private:
 	/** Seconds since the last player poll (the ticker runs every frame while the pipeline is up). */
 	float PollAccumulator = 0.0f;
 
-	/** Talkers the worker knows (connected patch splitter), whether their speaker plays, who talks (worker events). */
+	/** Talkers the worker knows (connected patch splitter), whether their speaker plays. */
 	TMap<int64, FSpeakerSource> SpeakerSources;
-	TSet<int64> PipelineTalking;
+
+	/** Where a player's voice goes while they talk (worker events). Only players who talk on their pawn or a channel. */
+	struct FPlayerTransmit
+	{
+		bool bMouth = false;
+		TArray<int32> Channels;
+	};
+	TMap<int64, FPlayerTransmit> PlayerTransmits;
+
+	/** Channel ids as channels for Blueprint: the tags Channel Tag Map gives each id, else the id. */
+	static TArray<FSteamVoiceChannel> MakeChannels(TConstArrayView<int32> Ids);
+
+	/** Forgets every player's transmit channels, telling listeners (pipeline stop). */
+	void ClearPlayerTransmits();
 
 	/** Speakers that play in a world, switched on or off (developer-placed and auto-added). */
 	TSet<TWeakObjectPtr<USteamVoiceComponent>> RegisteredSpeakers;

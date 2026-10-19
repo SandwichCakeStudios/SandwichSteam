@@ -43,6 +43,9 @@ namespace
 	 */
 	constexpr int32 ChannelSpeakerBufferMs = 40;
 
+	/** Steam voice pipeline: how often the players of the game, their pawns and the push to talk binding are checked (talking is event-driven). */
+	constexpr float PipelinePlayerPollSeconds = 0.25f;
+
 	/** Tags already reported as missing from the Channel Tag Map. Game thread only. */
 	TSet<FGameplayTag> GWarnedUnmappedTags;
 
@@ -634,7 +637,7 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 
 		if (!TickHandle.IsValid())
 		{
-			// The pipeline ticks every frame to start speakers on time; the player poll itself still runs at the poll rate.
+			// The pipeline ticks every frame to handle the worker's events on time; its player poll runs every PipelinePlayerPollSeconds.
 			const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
 			const float Interval = bUseSteamPipeline ? 0.0f : (Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f);
 			PollAccumulator = TNumericLimits<float>::Max(); // Poll on the first tick.
@@ -743,9 +746,9 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 			UpdateSpeakers();
 		}
 
+		// Talking comes from the worker's events; the poll only follows the players, their pawns and the push to talk binding.
 		PollAccumulator += DeltaTime;
-		const float Interval = Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f;
-		if (PollAccumulator < Interval)
+		if (PollAccumulator < PipelinePlayerPollSeconds)
 		{
 			return true;
 		}
@@ -790,7 +793,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	if (LocalId.IsValid())
 	{
 		NowPresent.Add(LocalId.Value);
-		if (bUseSteamPipeline ? PipelineTalking.Contains(LocalId.Value) : OssFallback->IsLocalTalking())
+		if (!bUseSteamPipeline && OssFallback->IsLocalTalking())
 		{
 			NowTalking.Add(LocalId.Value);
 		}
@@ -833,23 +836,19 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 			{
 				TrackPlayerState(Id.Value, PlayerState);
 			}
-			if (bUseSteamPipeline ? PipelineTalking.Contains(Id.Value) : OssFallback->IsRemoteTalking(*NetId))
+			if (!bUseSteamPipeline && OssFallback->IsRemoteTalking(*NetId))
 			{
 				NowTalking.Add(Id.Value);
 			}
 		}
 	}
 
-	// Fake talkers (Steam.Voice.FakeTalker) count as present, so talking events and the test panel show them.
+	// Fake talkers (Steam.Voice.FakeTalker) count as present, so the test panel lists them.
 	for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
 	{
 		if (Source.Value.bFake)
 		{
 			NowPresent.Add(Source.Key);
-			if (PipelineTalking.Contains(Source.Key))
-			{
-				NowTalking.Add(Source.Key);
-			}
 		}
 	}
 	Present = MoveTemp(NowPresent);
@@ -897,11 +896,15 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		ApplyMute(Other.Key, Other.Value);
 	}
 
-	TArray<FTalkingChange> Changes;
-	Tracker->Update(NowTalking, Present, Changes);
-	for (const FTalkingChange& Change : Changes)
+	// The pipeline's talking is event-driven (DrainWorkerEvents); a talker who leaves gets a stop from the worker.
+	if (!bUseSteamPipeline)
 	{
-		BroadcastTalking(Change.Player, Change.bTalking);
+		TArray<FTalkingChange> Changes;
+		Tracker->Update(NowTalking, Present, Changes);
+		for (const FTalkingChange& Change : Changes)
+		{
+			BroadcastTalking(Change.Player, Change.bTalking);
+		}
 	}
 
 	PublishRouting();
@@ -1009,7 +1012,7 @@ void USteamVoiceSubsystem::StopPipeline()
 	SpeakerSources.Reset();
 	ChannelOutputs.Reset();
 	ForgetPlayerStates();
-	PipelineTalking.Reset();
+	ClearPlayerTransmits();
 	bRoutingPublished = false;
 }
 
@@ -1066,6 +1069,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->TransmitChannels = Transmit;
 	Snapshot->Peers = Peers;
 	Snapshot->Muted.Append(Muted);
+	Snapshot->bReportMutedTalking = Settings && Settings->bReportMutedTalking;
 	Snapshot->Blocked.Append(Blocked);
 	Snapshot->PlayerVolumes.Reserve(PlayerVolumes.Num());
 	for (const TPair<int64, float>& Pair : PlayerVolumes)
@@ -1188,15 +1192,42 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 		}
 
 		case EWorkerEvent::TalkingStarted:
-			PipelineTalking.Add(Talker);
-			break;
-
 		case EWorkerEvent::TalkingStopped:
-			PipelineTalking.Remove(Talker);
+		{
+			const bool bTalking = Event.Type == EWorkerEvent::TalkingStarted;
+			if (Tracker.IsValid() && Tracker->Set(Talker, bTalking))
+			{
+				BroadcastTalking(Talker, bTalking);
+			}
 			break;
+		}
+
+		case EWorkerEvent::TransmitChanged:
+		{
+			FPlayerTransmit* Previous = PlayerTransmits.Find(Talker);
+			const bool bChannelsChanged = Previous ? Previous->Channels != Event.Channels : !Event.Channels.IsEmpty();
+			if (!Event.bMouth && Event.Channels.IsEmpty())
+			{
+				PlayerTransmits.Remove(Talker);
+			}
+			else
+			{
+				FPlayerTransmit& Transmit = PlayerTransmits.FindOrAdd(Talker);
+				Transmit.bMouth = Event.bMouth;
+				Transmit.Channels = MoveTemp(Event.Channels);
+			}
+
+			if (bChannelsChanged)
+			{
+				const FPlayerTransmit* Current = PlayerTransmits.Find(Talker);
+				OnPlayerTransmitChannelsChanged.Broadcast(FSteamId(Talker), Current ? MakeChannels(Current->Channels) : TArray<FSteamVoiceChannel>());
+			}
+			break;
+		}
 
 		case EWorkerEvent::Flood:
 			UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: %s sent too much voice data for 5 seconds and is muted for this session."), *FSteamId(Talker).ToString());
+			OnPlayerVoiceFlood.Broadcast(FSteamId(Talker));
 			break;
 
 		case EWorkerEvent::TalkerRemoved:
@@ -1205,7 +1236,6 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 				DisconnectSpeakers(Talker, *Source);
 			}
 			SpeakerSources.Remove(Talker);
-			PipelineTalking.Remove(Talker);
 			DestroyPluginSpeaker(AutoSpeakers, Talker);
 			DestroyPluginSpeaker(FallbackSpeakers, Talker);
 			break;
@@ -1222,16 +1252,106 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 	}
 }
 
-bool USteamVoiceSubsystem::IsChannelSpeakerActive(const USteamVoiceComponent* Speaker) const
+TArray<FSteamId> USteamVoiceSubsystem::GetSpeakerTalkers(const USteamVoiceComponent* Speaker) const
 {
-	for (const TPair<FChannelOutputKey, FChannelOutputState>& Pair : ChannelOutputs)
+	TArray<FSteamId> Talkers;
+	if (!Speaker || !Speaker->HasVoiceSource())
 	{
-		if (Pair.Value.Connected.Contains(Speaker))
+		return Talkers;
+	}
+
+	// The local voice never reaches a speaker; a muted player is only listed with Report Muted Talking, and never heard.
+	const auto IsHeard = [this](int64 Player)
+	{
+		return Player != LocalId.Value && !(Book.IsValid() && Book->IsMuted(Player));
+	};
+
+	if (Speaker->Source == ESteamVoiceSpeakerSource::Owner)
+	{
+		const int64 Player = Speaker->GetTalker().Value;
+		const FPlayerTransmit* Transmit = PlayerTransmits.Find(Player);
+		if (Transmit && Transmit->bMouth && IsHeard(Player))
 		{
-			return Pair.Value.bActive;
+			Talkers.Add(FSteamId(Player));
+		}
+		return Talkers;
+	}
+
+	for (const TPair<FChannelOutputKey, FChannelOutputState>& Output : ChannelOutputs)
+	{
+		if (!Output.Value.Connected.Contains(Speaker))
+		{
+			continue;
+		}
+		for (const TPair<int64, FPlayerTransmit>& Pair : PlayerTransmits)
+		{
+			if (Pair.Key != Output.Key.Excluded && Pair.Value.Channels.Contains(Output.Key.Channel) && IsHeard(Pair.Key))
+			{
+				Talkers.Add(FSteamId(Pair.Key));
+			}
+		}
+		break;
+	}
+	return Talkers;
+}
+
+TArray<FSteamVoiceChannel> USteamVoiceSubsystem::GetPlayerTransmitChannels(FSteamId Player) const
+{
+	const FPlayerTransmit* Transmit = PlayerTransmits.Find(Player.Value);
+	return Transmit ? MakeChannels(Transmit->Channels) : TArray<FSteamVoiceChannel>();
+}
+
+bool USteamVoiceSubsystem::IsPlayerTransmittingOn(FSteamId Player, const FSteamVoiceChannel& Channel) const
+{
+	const FPlayerTransmit* Transmit = PlayerTransmits.Find(Player.Value);
+	const int32 Id = Transmit ? USteamVoiceSettings::Get()->ResolveChannelId(Channel) : INDEX_NONE;
+	return Id >= 0 && Transmit->Channels.Contains(Id);
+}
+
+TArray<FSteamVoiceChannel> USteamVoiceSubsystem::MakeChannels(TConstArrayView<int32> Ids)
+{
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	TArray<FSteamVoiceChannel> Channels;
+	Channels.Reserve(Ids.Num());
+	for (const int32 Id : Ids)
+	{
+		bool bTagged = false;
+		if (Settings)
+		{
+			for (const TPair<FGameplayTag, int32>& Pair : Settings->ChannelTagMap)
+			{
+				if (Pair.Value == Id && Pair.Key.IsValid())
+				{
+					FSteamVoiceChannel& Channel = Channels.AddDefaulted_GetRef();
+					Channel.Tag = Pair.Key;
+					bTagged = true;
+				}
+			}
+		}
+		if (!bTagged)
+		{
+			FSteamVoiceChannel& Channel = Channels.AddDefaulted_GetRef();
+			Channel.Id = Id;
 		}
 	}
-	return false;
+	return Channels;
+}
+
+void USteamVoiceSubsystem::ClearPlayerTransmits()
+{
+	TArray<int64> WithChannels;
+	for (const TPair<int64, FPlayerTransmit>& Pair : PlayerTransmits)
+	{
+		if (!Pair.Value.Channels.IsEmpty())
+		{
+			WithChannels.Add(Pair.Key);
+		}
+	}
+	PlayerTransmits.Reset();
+	for (const int64 Player : WithChannels)
+	{
+		OnPlayerTransmitChannelsChanged.Broadcast(FSteamId(Player), TArray<FSteamVoiceChannel>());
+	}
 }
 
 TArray<USteamVoiceComponent*> USteamVoiceSubsystem::GetPlayerVoiceComponents(FSteamId Player) const
@@ -1939,7 +2059,20 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 	{
 		for (const int64 Player : Tracker->GetTalking())
 		{
-			Report += FString::Printf(TEXT("    talking: %s%s\n"), *FSteamId(Player).ToString(), Player == LocalId.Value ? TEXT(" (you)") : TEXT(""));
+			FString Where;
+			if (bUseSteamPipeline)
+			{
+				const FPlayerTransmit* Transmit = PlayerTransmits.Find(Player);
+				FString Channels;
+				for (const FSteamVoiceChannel& Channel : Transmit ? MakeChannels(Transmit->Channels) : TArray<FSteamVoiceChannel>())
+				{
+					Channels += Channels.IsEmpty() ? TEXT("") : TEXT(", ");
+					Channels += Channel.Tag.IsValid() ? Channel.Tag.ToString() : FString::FromInt(Channel.Id);
+				}
+				Where = FString::Printf(TEXT(", mouth %s, channels %s%s"), Transmit && Transmit->bMouth ? TEXT("on") : TEXT("off"), Channels.IsEmpty() ? TEXT("none") : *Channels,
+					Book.IsValid() && Book->IsMuted(Player) ? TEXT(" (muted, reported)") : TEXT(""));
+			}
+			Report += FString::Printf(TEXT("    talking: %s%s%s\n"), *FSteamId(Player).ToString(), Player == LocalId.Value ? TEXT(" (you)") : TEXT(""), *Where);
 		}
 	}
 

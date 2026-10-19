@@ -144,22 +144,29 @@ void USteamVoiceComponent::PostEditChangeProperty(FPropertyChangedEvent& Propert
 
 TArray<FSteamId> USteamVoiceComponent::GetTalkers() const
 {
-	TArray<FSteamId> Talkers;
-	if (Talker.IsValid())
-	{
-		Talkers.Add(Talker);
-	}
-	return Talkers;
+	const USteamVoiceSubsystem* Voice = bHasVoiceSource ? USteamVoiceSubsystem::Get(this) : nullptr;
+	return Voice ? Voice->GetSpeakerTalkers(this) : TArray<FSteamId>();
 }
 
 bool USteamVoiceComponent::IsAnyoneTalking() const
 {
+	return !GetTalkers().IsEmpty();
+}
+
+float USteamVoiceComponent::GetVoiceLevel() const
+{
 	const USteamVoiceSubsystem* Voice = bHasVoiceSource ? USteamVoiceSubsystem::Get(this) : nullptr;
 	if (!Voice)
 	{
-		return false;
+		return 0.0f;
 	}
-	return Source == ESteamVoiceSpeakerSource::Channel ? Voice->IsChannelSpeakerActive(this) : Voice->IsPlayerTalking(Talker);
+
+	float Level = 0.0f;
+	for (const FSteamId& Player : Voice->GetSpeakerTalkers(this))
+	{
+		Level = FMath::Max(Level, Voice->GetPlayerVoiceLevel(Player));
+	}
+	return Level;
 }
 
 APawn* USteamVoiceComponent::GetOwningPawn() const

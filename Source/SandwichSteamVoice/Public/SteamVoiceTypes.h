@@ -67,3 +67,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoiceModeChanged, ESteamVoiceM
 
 /** A player was muted or unmuted, by the game or automatically because the player is blocked on Steam. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FSteamVoiceMuteChanged, FSteamId, Player, bool, bMuted, bool, bBecauseBlocked);
+
+/** The channels a player's voice carries changed (they started or stopped talking on a radio, or switched channels). Empty once they stopped talking. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSteamVoiceTransmitChannelsChanged, FSteamId, Player, const TArray<FSteamVoiceChannel>&, Channels);
+
+/** A player sent too much voice data for 5 seconds in a row and is muted for the session. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoicePlayerFlood, FSteamId, Player);

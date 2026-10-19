@@ -96,8 +96,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "True while your voice plays on your own pawn."))
 	static bool IsSteamVoiceTransmittingToOwner(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the player talks. Updated at the poll rate of the Voice settings."))
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the player talks (your own Steam ID too). Muted players only with Report Muted Talking in the Voice settings."))
 	static bool IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "The channels the player talks on right now; empty while they do not talk. A channel id with tags in Channel Tag Map comes back as those tags. Your own Steam ID gives what you are sent on. Steam voice pipeline only."))
+	static TArray<FSteamVoiceChannel> GetSteamPlayerTransmitChannels(const UObject* WorldContextObject, FSteamId Player);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Transmit", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the player talks on the channel (show 'Blue is on the radio'). Tags compare by their id. Steam voice pipeline only."))
+	static bool IsSteamPlayerTransmittingOn(const UObject* WorldContextObject, FSteamId Player, FSteamVoiceChannel Channel);
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Everybody who talks right now, the local player included."))
 	static TArray<FSteamId> GetSteamTalkingPlayers(const UObject* WorldContextObject);

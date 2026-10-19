@@ -40,8 +40,11 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Mute players you have blocked on Steam as soon as they join the game."))
 	bool bAutoMuteBlockedPlayers = true;
 
-	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ClampMin = "0.02", ClampMax = "1.0", ToolTip = "Seconds between checks of who is talking. Only runs while voice is enabled. 0.1 is smooth enough for a talking indicator."))
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ClampMin = "0.02", ClampMax = "1.0", ToolTip = "Online Subsystem voice only (Use Steam Voice Pipeline off): seconds between checks of who is talking. 0.1 is smooth enough for a talking indicator. The Steam voice pipeline reports talking at once and ignores this."))
 	float TalkingPollSeconds = 0.1f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Muted players still show as talking (talking events, Is Player Talking, their transmit channels) so a UI can show a muted speaker icon. Their audio is never played and their level stays 0. Players blocked on Steam are never reported. Steam voice pipeline only."))
+	bool bReportMutedTalking = false;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Steam mutes the player's Steam friends voice chat while they talk in game (SetInGameVoiceSpeaking). Off by default because it changes the player's Steam chat; offer it in your options menu. Steam voice pipeline only."))
 	bool bMuteSteamFriendsVoiceWhileTalking = false;

@@ -145,6 +145,18 @@ bool USteamVoiceLibrary::IsSteamPlayerTalking(const UObject* WorldContextObject,
 	return Voice && Voice->IsPlayerTalking(Player);
 }
 
+TArray<FSteamVoiceChannel> USteamVoiceLibrary::GetSteamPlayerTransmitChannels(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerTransmitChannels(Player) : TArray<FSteamVoiceChannel>();
+}
+
+bool USteamVoiceLibrary::IsSteamPlayerTransmittingOn(const UObject* WorldContextObject, FSteamId Player, FSteamVoiceChannel Channel)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsPlayerTransmittingOn(Player, Channel);
+}
+
 TArray<FSteamId> USteamVoiceLibrary::GetSteamTalkingPlayers(const UObject* WorldContextObject)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
