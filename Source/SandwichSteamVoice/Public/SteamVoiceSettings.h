@@ -31,6 +31,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Voice is on when the game starts. Turn off to enable it from your options menu (Set Voice Enabled). While voice is off nothing runs: no microphone, no polling, no input binding."))
 	bool bEnabledByDefault = true;
 
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "The game allows voice when it starts. Turn off for a game that starts in a lobby without voice, then call Set Voice Allowed when voice should start (the match). This is the game's rule, separate from the player's Enabled option: voice runs only while both are on. Not allowed: nothing is sent or played, the player's own setting is kept and the mic test still works. Online Subsystem voice: only the microphone closes."))
+	bool bVoiceAllowedByDefault = true;
+
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "On: the Steam voice pipeline (Steam capture and codec over Steam networking messages; clearer and louder). Off: the Online Subsystem voice (IOnlineVoice over the game connection) as a fallback. Changing it offers Configure Steam, which removes (on) or adds (off) [OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled in DefaultEngine.ini. Restart the editor afterwards."))
 	bool bUseSteamVoicePipeline = true;
 
@@ -79,8 +82,11 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "A talker's pawn without an Owner Steam Voice component gets one, attached to the pawn's root with absolute rotation, so voice comes from the player without any setup. Turn off to place your own speakers; talkers without one are then not heard while they have a pawn. Channel speakers are never added. Steam voice pipeline only."))
 	bool bAutoAddVoiceComponent = true;
 
-	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "The component class the plugin adds to pawns (Auto Add Voice Component) and uses for players without a pawn (menus, lobby, spectators; unattached and always 2D). Make a Blueprint child of Steam Voice to give it an attenuation, concurrency and effects. Empty = Steam Voice (2D, no attenuation)."))
+	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "The component class the plugin adds to pawns (Auto Add Voice Component) and uses for players without a pawn (Pawnless Voice 2D; unattached and always 2D). Make a Blueprint child of Steam Voice to give it an attenuation, concurrency and effects. Empty = Steam Voice (2D, no attenuation)."))
 	TSoftClassPtr<USteamVoiceComponent> VoiceComponentClass;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn) when the game starts. 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). Change it at runtime with Set Pawnless Voice, for example 2D in the lobby and Silent in the match. Steam voice pipeline only."))
+	ESteamVoicePawnlessMode DefaultPawnlessVoice = ESteamVoicePawnlessMode::Play2D;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Push To Talk", meta = (ToolTip = "The Enhanced Input action that is held to talk (a digital action). The plugin binds it on the local player controller's Enhanced Input component: pressed = start talking, released = stop. Leave empty to drive Start Talking / Stop Talking yourself."))
 	TSoftObjectPtr<UInputAction> PushToTalkAction;

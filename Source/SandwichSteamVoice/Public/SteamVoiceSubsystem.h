@@ -37,7 +37,7 @@ namespace Audio
  * Two pipelines, picked once when the feature starts by Use Steam Voice Pipeline (Configure Steam writes the matching ini):
  * - Steam voice pipeline (default; the Online Subsystem has no voice interface): Steam capture and codec, SteamNetworkingMessages between the
  *   players of the game, a voice worker thread (jitter, decode), and USteamVoiceComponent speakers: the talker's pawn speakers
- *   (added when the pawn has none), or one unattached 2D speaker while the talker has no pawn.
+ *   (added when the pawn has none), or while the talker has no pawn one unattached 2D speaker or silence (Set Pawnless Voice).
  * - Online Subsystem voice, the fallback ([OnlineSubsystem] bHasVoiceEnabled=true and [Voice] bEnabled=true): the engine carries voice
  *   over the game connection (IOnlineVoice). [/Script/Engine.GameSession] bRequiresPushToTalk=true keeps the engine from opening the microphone.
  * When the ini does not match the setting, the path the ini allows runs and an error is logged.
@@ -68,6 +68,22 @@ public:
 	/** Turns voice on or off. Off closes the microphone, stops the talking checks and removes the push to talk binding. */
 	FSteamResult SetVoiceEnabled(bool bEnabled);
 	bool IsVoiceEnabled() const { return bEnabled; }
+
+	/**
+	 * The game's voice rule, separate from the player's Set Voice Enabled option (voice runs while both are on): forbid voice in a lobby, allow
+	 * it in the match. Not allowed: the microphone closes, nothing is sent and other players are not played or reported talking; the mic test
+	 * and push to talk binding stay, and a held push to talk opens the microphone once allowed. Local to this client: call it on every client
+	 * (from replicated game state). Online Subsystem voice: only closes the microphone.
+	 */
+	FSteamResult SetVoiceAllowed(bool bAllowed);
+	bool IsVoiceAllowed() const { return bVoiceAllowed; }
+
+	/**
+	 * How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn): one 2D speaker, or silent until they
+	 * have a pawn again. Applies on the next speaker update. Fake talkers and the mic test always play 2D. Steam voice pipeline only.
+	 */
+	FSteamResult SetPawnlessVoice(ESteamVoicePawnlessMode NewMode);
+	ESteamVoicePawnlessMode GetPawnlessVoice() const { return PawnlessVoice; }
 
 	/** Switches between push to talk and open mic. Works while voice is disabled too (the mode is used when it is enabled). */
 	FSteamResult SetVoiceMode(ESteamVoiceMode NewMode);
@@ -196,6 +212,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when the voice mode changed."))
 	FSteamVoiceModeChanged OnVoiceModeChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when the game allowed or forbade voice (Set Voice Allowed). Show 'voice chat starts with the match' with it."))
+	FSteamVoiceAllowedChanged OnVoiceAllowedChanged;
+
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when a player was muted or unmuted, also when a blocked Steam player was muted automatically."))
 	FSteamVoiceMuteChanged OnPlayerMuteChanged;
 
@@ -205,7 +224,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when a player sent too much voice data for 5 seconds in a row; they are muted for this session. Kick or report them if your game wants to. Steam voice pipeline only."))
 	FSteamVoicePlayerFlood OnPlayerVoiceFlood;
 
-	/** The speakers that play the player right now (their pawn's Owner speakers, or the 2D speaker while they have no pawn). Steam voice pipeline only. */
+	/** The speakers that play the player right now (their pawn's Owner speakers, or the 2D speaker while they have no pawn and Pawnless Voice is 2D). Steam voice pipeline only. */
 	TArray<USteamVoiceComponent*> GetPlayerVoiceComponents(FSteamId Player) const;
 
 	/** A Steam Voice speaker began play, switched on or off (called by the component). */
@@ -291,7 +310,7 @@ private:
 		int32 SampleRate = 0;
 		bool bFake = false;
 		bool bActive = false;
-		/** The talker's pawn at the last speaker update (nullptr: no pawn, the 2D speaker plays). */
+		/** The talker's pawn at the last speaker update (nullptr: no pawn, the 2D speaker plays or the talker is silent). */
 		TWeakObjectPtr<APawn> Pawn;
 		/** Speakers that read a patch of Splitter. */
 		TArray<TWeakObjectPtr<USteamVoiceComponent>> Connected;
@@ -317,7 +336,7 @@ private:
 	};
 
 	/**
-	 * Connects every talker to its pawn's Owner speakers (auto-adding one), or to a 2D speaker without a pawn, and every switched on
+	 * Connects every talker to its pawn's Owner speakers (auto-adding one), or without a pawn to a 2D speaker or nothing (PawnlessVoice), and every switched on
 	 * Channel speaker to its channel mix. Runs when bSpeakersDirty.
 	 */
 	void UpdateSpeakers();
@@ -409,6 +428,9 @@ private:
 	FTSTicker::FDelegateHandle TickHandle;
 
 	bool bEnabled = false;
+	/** The game's rule (Set Voice Allowed); voice runs while bEnabled and this. */
+	bool bVoiceAllowed = true;
+	ESteamVoicePawnlessMode PawnlessVoice = ESteamVoicePawnlessMode::Play2D;
 	ESteamVoiceMode Mode = ESteamVoiceMode::PushToTalk;
 	/** Push to talk held, or Start Talking called. */
 	bool bTalkRequested = false;

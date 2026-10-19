@@ -27,6 +27,16 @@ enum class ESteamVoiceSpeakerSource : uint8
 	Channel UMETA(DisplayName = "Channel")
 };
 
+/** How a player is heard while they have no pawn (menus, lobby, spectating, between death and respawn). */
+UENUM(BlueprintType)
+enum class ESteamVoicePawnlessMode : uint8
+{
+	/** One unattached 2D speaker plays them: heard everywhere at full volume. */
+	Play2D UMETA(DisplayName = "2D"),
+	/** Not heard until they have a pawn again. Their talking events still fire. */
+	Silent UMETA(DisplayName = "Silent")
+};
+
 /**
  * A voice channel: a Gameplay Tag (mapped to an id in the Voice settings) or an id. The tag wins when it is set.
  * One struct everywhere, so one Blueprint pin takes either.
@@ -64,6 +74,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FSteamVoiceTalkingChanged, FSteam
 
 /** The voice mode changed (Set Voice Mode). */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoiceModeChanged, ESteamVoiceMode, NewMode);
+
+/** The game allowed or forbade voice (Set Voice Allowed). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoiceAllowedChanged, bool, bAllowed);
 
 /** A player was muted or unmuted, by the game or automatically because the player is blocked on Steam. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FSteamVoiceMuteChanged, FSteamId, Player, bool, bMuted, bool, bBecauseBlocked);

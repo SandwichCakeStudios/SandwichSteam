@@ -30,6 +30,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while voice chat is on."))
 	static bool IsSteamVoiceEnabled(const UObject* WorldContextObject);
 
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The game's voice rule, separate from the player's Set Steam Voice Enabled option: forbid voice in a lobby, allow it in the match. Not allowed: nothing is sent or played; the player's setting and the mic test stay. Local to this client: call it on every client (for example from replicated game state). Online Subsystem voice: only closes the microphone."))
+	static FSteamResult SetSteamVoiceAllowed(const UObject* WorldContextObject, bool bAllowed);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the game allows voice."))
+	static bool IsSteamVoiceAllowed(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn). 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). For example 2D in the lobby, Silent in the match. Local to this client. Steam voice pipeline only."))
+	static FSteamResult SetSteamPawnlessVoice(const UObject* WorldContextObject, ESteamVoicePawnlessMode Mode);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How players without a pawn are heard right now."))
+	static ESteamVoicePawnlessMode GetSteamPawnlessVoice(const UObject* WorldContextObject);
+
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Switches between push to talk and open mic. Takes effect at once."))
 	static FSteamResult SetSteamVoiceMode(const UObject* WorldContextObject, ESteamVoiceMode Mode);
 
@@ -117,7 +129,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Everybody who talks right now, the local player included."))
 	static TArray<FSteamId> GetSteamTalkingPlayers(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The Steam Voice speakers that play the player right now: their pawn's Owner speakers, or the 2D speaker while they have no pawn. Empty until their voice arrived. Steam voice pipeline only."))
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "The Steam Voice speakers that play the player right now: their pawn's Owner speakers, or the 2D speaker while they have no pawn (Pawnless Voice 2D). Empty until their voice arrived. Steam voice pipeline only."))
 	static TArray<USteamVoiceComponent*> GetSteamPlayerVoiceComponents(const UObject* WorldContextObject, FSteamId Player);
 
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Mutes a player's voice for this game. The mute is kept until the game closes and applies as soon as the player is in the game. System Wide asks for a mute that also affects other games (Steam treats it like a game mute)."))

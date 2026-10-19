@@ -99,6 +99,45 @@ namespace
 		LogResult(Output, TEXT("Steam.Voice.MicTest"), bTest ? Voice->StartMicTest() : Voice->StopMicTest(), bTest ? TEXT("mic test on, you hear yourself") : TEXT("mic test off"));
 	}
 
+	/** Steam.Voice.Allowed <0|1> */
+	void Allowed(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			Output.Logf(TEXT("Steam.Voice.Allowed: %s. Usage: Steam.Voice.Allowed <0|1>"), Voice->IsVoiceAllowed() ? TEXT("allowed") : TEXT("not allowed"));
+			return;
+		}
+
+		const bool bAllowed = FCString::Atoi(*Args[0]) != 0;
+		LogResult(Output, TEXT("Steam.Voice.Allowed"), Voice->SetVoiceAllowed(bAllowed), bAllowed ? TEXT("voice allowed") : TEXT("voice not allowed, nothing sent or played"));
+	}
+
+	/** Steam.Voice.Pawnless <2d|silent> */
+	void Pawnless(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		const bool bSilent = !Args.IsEmpty() && Args[0].Equals(TEXT("silent"), ESearchCase::IgnoreCase);
+		if (Args.IsEmpty() || (!bSilent && !Args[0].Equals(TEXT("2d"), ESearchCase::IgnoreCase)))
+		{
+			Output.Logf(TEXT("Steam.Voice.Pawnless: %s. Usage: Steam.Voice.Pawnless <2d|silent>"), Voice->GetPawnlessVoice() == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("2d"));
+			return;
+		}
+
+		LogResult(Output, TEXT("Steam.Voice.Pawnless"), Voice->SetPawnlessVoice(bSilent ? ESteamVoicePawnlessMode::Silent : ESteamVoicePawnlessMode::Play2D),
+			bSilent ? TEXT("players without a pawn are silent") : TEXT("players without a pawn play in 2D"));
+	}
+
 	/** Steam.Voice.Mute <SteamID64> and Steam.Voice.Unmute <SteamID64> */
 	void MuteOrUnmute(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output, bool bMute)
 	{
@@ -309,6 +348,14 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.MicTest"),
 		TEXT("Plays your microphone back to you (after voice activation) without sending it: Steam.Voice.MicTest <0|1>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&MicTest));
+
+	Commands.Add(TEXT("Steam.Voice.Allowed"),
+		TEXT("The game's voice rule (lobby without voice): Steam.Voice.Allowed <0|1>. Not allowed sends and plays nothing."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&Allowed));
+
+	Commands.Add(TEXT("Steam.Voice.Pawnless"),
+		TEXT("How players without a pawn (dead, lobby) are heard: Steam.Voice.Pawnless <2d|silent>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&Pawnless));
 
 	Commands.Add(TEXT("Steam.Voice.Mute"),
 		TEXT("Mutes a player: Steam.Voice.Mute <SteamID64>."),

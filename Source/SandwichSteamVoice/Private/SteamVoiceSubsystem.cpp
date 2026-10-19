@@ -137,7 +137,9 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	Book = MakeUnique<FMuteBook>();
 
 	bEnabled = Settings ? Settings->bEnabledByDefault : true;
-	Mode = Settings ? Settings->DefaultMode : ESteamVoiceMode::PushToTalk;
+	bVoiceAllowed = Settings ? Settings->bVoiceAllowedByDefault : true;
+	PawnlessVoice = Settings ? Settings->DefaultPawnlessVoice : ESteamVoicePawnlessMode::Play2D;
+	Mode =Settings ? Settings->DefaultMode : ESteamVoiceMode::PushToTalk;
 	MasterVolume = Settings ? Settings->DefaultMasterVolume : 1.0f;
 	ActivationThreshold = Settings ? FMath::Clamp(Settings->VoiceActivationThreshold, 0.0f, 1.0f) : 0.0f;
 
@@ -156,7 +158,8 @@ bool USteamVoiceSubsystem::InitializeFeature()
 		ApplyEnabledState();
 	}
 
-	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: %s, %s."), bEnabled ? TEXT("enabled") : TEXT("disabled (Enabled By Default is off)"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"));
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: %s%s, %s."), bEnabled ? TEXT("enabled") : TEXT("disabled (Enabled By Default is off)"),
+		bVoiceAllowed ? TEXT("") : TEXT(", not allowed by the game (Voice Allowed By Default is off)"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"));
 	return true;
 #else
 	return false;
@@ -222,6 +225,46 @@ FSteamResult USteamVoiceSubsystem::SetVoiceEnabled(bool bNewEnabled)
 		bEnabled = bNewEnabled;
 		ApplyEnabledState();
 		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: %s."), bEnabled ? TEXT("enabled") : TEXT("disabled"));
+	}
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::SetVoiceAllowed(bool bAllowed)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+
+	if (bAllowed != bVoiceAllowed)
+	{
+		bVoiceAllowed = bAllowed;
+		RefreshTalking(false);
+		PublishRouting(); // No peers while not allowed: nothing is sent, voice from others is dropped and their talkers go away.
+		OnVoiceAllowedChanged.Broadcast(bVoiceAllowed);
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: %s by the game."), bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed"));
+	}
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::SetPawnlessVoice(ESteamVoicePawnlessMode NewMode)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+
+	if (NewMode != PawnlessVoice)
+	{
+		PawnlessVoice = NewMode;
+		bSpeakersDirty = true;
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: players without a pawn are now %s."), PawnlessVoice == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("heard in 2D"));
+	}
+	if (!bUseSteamPipeline)
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoicePawnlessNeedsPipeline", "Pawnless voice needs the Steam voice pipeline (Use Steam Voice Pipeline in the Voice settings)."));
 	}
 	return FSteamResult::Success();
 }
@@ -717,7 +760,7 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 
 bool USteamVoiceSubsystem::ShouldTalk() const
 {
-	return bEnabled && (Mode == ESteamVoiceMode::OpenMic || bTalkRequested);
+	return bEnabled && bVoiceAllowed && (Mode == ESteamVoiceMode::OpenMic || bTalkRequested);
 }
 
 void USteamVoiceSubsystem::RefreshTalking(bool bForce)
@@ -1062,13 +1105,17 @@ void USteamVoiceSubsystem::PublishRouting()
 		return;
 	}
 
+	// Not allowed by the game: no peers, so the worker sends nothing and drops voice from everyone (the mic test still plays back).
 	TArray<uint64> Peers;
-	Peers.Reserve(Present.Num());
-	for (const int64 Player : Present)
+	if (bVoiceAllowed)
 	{
-		if (Player != LocalId.Value && !SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player)))
+		Peers.Reserve(Present.Num());
+		for (const int64 Player : Present)
 		{
-			Peers.Add(static_cast<uint64>(Player));
+			if (Player != LocalId.Value && !SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player)))
+			{
+				Peers.Add(static_cast<uint64>(Player));
+			}
 		}
 	}
 	Peers.Sort();
@@ -1552,9 +1599,13 @@ void USteamVoiceSubsystem::UpdateSpeakers()
 		}
 		else
 		{
-			// No pawn (menus, lobby, spectators): one unattached 2D speaker.
+			// No pawn (menus, lobby, spectators, dead): one unattached 2D speaker, or silent until a pawn comes back. Fake talkers and the mic test always play.
 			DestroyPluginSpeaker(AutoSpeakers, Talker);
-			if (USteamVoiceComponent* Fallback = EnsureFallbackSpeaker(Talker))
+			if (PawnlessVoice == ESteamVoicePawnlessMode::Silent && !Source.bFake)
+			{
+				DestroyPluginSpeaker(FallbackSpeakers, Talker);
+			}
+			else if (USteamVoiceComponent* Fallback = EnsureFallbackSpeaker(Talker))
 			{
 				Wanted.Add(Fallback);
 			}
@@ -2076,8 +2127,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		return Report;
 	}
 
-	Report += FString::Printf(TEXT("  Voice: %s, mode %s, microphone %s (requested %s), mic test %s, headset %s\n"),
-		bEnabled ? TEXT("enabled") : TEXT("disabled"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"),
+	Report += FString::Printf(TEXT("  Voice: %s, %s, mode %s, microphone %s (requested %s), mic test %s, headset %s\n"),
+		bEnabled ? TEXT("enabled") : TEXT("disabled"), bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed by the game (nothing sent or played)"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"),
 		bMicOpen ? TEXT("open") : TEXT("closed"), bTalkRequested ? TEXT("yes") : TEXT("no"), bMicTest ? TEXT("on (plays back, sends nothing by itself)") : TEXT("off"), IsHeadsetPresent() ? TEXT("present") : TEXT("not found"));
 	Report += FString::Printf(TEXT("  Local user: %s, local talking: %s\n"), *LocalId.ToString(), IsLocalTalking() ? TEXT("yes") : TEXT("no"));
 	{
@@ -2183,7 +2234,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 				Stats.DecodeCompared, Stats.DecodeIdentical, Stats.DecodeLengthMismatch, Stats.DecodeMaxDifference, Verdict);
 		}
 
-		Report += FString::Printf(TEXT("    Speakers: %d registered, %d added to pawns, %d without a pawn (2D)\n"), RegisteredSpeakers.Num(), AutoSpeakers.Num(), FallbackSpeakers.Num());
+		Report += FString::Printf(TEXT("    Speakers: %d registered, %d added to pawns, %d without a pawn (2D); pawnless voice %s\n"), RegisteredSpeakers.Num(), AutoSpeakers.Num(), FallbackSpeakers.Num(),
+			PawnlessVoice == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("2D"));
 		Report += FString::Printf(TEXT("    Channels: %d mix(es), %llu voice packet(s) not decoded (no mouth and no channel played here)\n"), Stats.Channels.Num(), Stats.NotPlayed);
 		for (const SandwichSteam::Voice::FChannelOutputStats& Channel : Stats.Channels)
 		{
@@ -2228,6 +2280,7 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			const TObjectPtr<USteamVoiceComponent>* Auto = AutoSpeakers.Find(static_cast<int64>(Talker.Talker));
 			const FString Placement = Fallback && IsValid(*Fallback) ? FString(TEXT("no pawn, 2D"))
 				: Source && Source->Pawn.IsValid() ? FString::Printf(TEXT("pawn %s%s"), *Source->Pawn->GetName(), Auto && IsValid(*Auto) ? TEXT(", added") : TEXT(""))
+				: Source && !Source->bFake && PawnlessVoice == ESteamVoicePawnlessMode::Silent ? FString(TEXT("no pawn, silent"))
 				: FString(TEXT("not placed"));
 			const float BufferedMs = Component ? Component->GetBufferedMs() : 0.0f;
 

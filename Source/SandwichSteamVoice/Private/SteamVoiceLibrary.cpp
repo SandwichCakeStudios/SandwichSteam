@@ -25,6 +25,30 @@ bool USteamVoiceLibrary::IsSteamVoiceEnabled(const UObject* WorldContextObject)
 	return Voice && Voice->IsVoiceEnabled();
 }
 
+FSteamResult USteamVoiceLibrary::SetSteamVoiceAllowed(const UObject* WorldContextObject, bool bAllowed)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetVoiceAllowed(bAllowed) : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceAllowed(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsVoiceAllowed();
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamPawnlessVoice(const UObject* WorldContextObject, ESteamVoicePawnlessMode Mode)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetPawnlessVoice(Mode) : NotAvailable();
+}
+
+ESteamVoicePawnlessMode USteamVoiceLibrary::GetSteamPawnlessVoice(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPawnlessVoice() : ESteamVoicePawnlessMode::Play2D;
+}
+
 FSteamResult USteamVoiceLibrary::SetSteamVoiceMode(const UObject* WorldContextObject, ESteamVoiceMode Mode)
 {
 	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
