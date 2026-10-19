@@ -101,6 +101,8 @@ void SSandwichSteamVoiceTestPage::Construct(const FArguments& InArgs)
 		[
 			SNew(SWrapBox).UseAllottedSize(true)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleEnabled", "Enable / disable voice"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleEnabled)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleAllowed", "Game allows voice on / off"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleAllowed)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("TogglePawnless", "Pawnless voice 2D / silent"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnTogglePawnless)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleMode", "Switch mode"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleMode)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleMic", "Microphone on / off (like the PTT key)"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleMicrophone)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ToggleMicTest", "Mic test on / off (hear yourself, sends nothing)"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleMicTest)) ]
@@ -256,6 +258,35 @@ FReply SSandwichSteamVoiceTestPage::OnToggleEnabled()
 
 	const bool bNew = !Voice->IsVoiceEnabled();
 	ReportResult(Voice->SetVoiceEnabled(bNew), bNew ? LOCTEXT("Enabled", "Voice enabled.") : LOCTEXT("Disabled", "Voice disabled."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnToggleAllowed()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureAllowed", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const bool bNew = !Voice->IsVoiceAllowed();
+	ReportResult(Voice->SetVoiceAllowed(bNew), bNew ? LOCTEXT("Allowed", "The game allows voice.") : LOCTEXT("NotAllowed", "The game does not allow voice: nothing is sent or played (the mic test still works)."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnTogglePawnless()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeaturePawnless", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const bool bToSilent = Voice->GetPawnlessVoice() == ESteamVoicePawnlessMode::Play2D;
+	ReportResult(Voice->SetPawnlessVoice(bToSilent ? ESteamVoicePawnlessMode::Silent : ESteamVoicePawnlessMode::Play2D),
+		bToSilent ? LOCTEXT("PawnlessSilent", "Players without a pawn are silent (fake talkers and the mic test still play).") : LOCTEXT("Pawnless2D", "Players without a pawn play in 2D."));
 	return FReply::Handled();
 }
 

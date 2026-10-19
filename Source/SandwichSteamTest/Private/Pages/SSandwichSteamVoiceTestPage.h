@@ -46,6 +46,8 @@ private:
 	FText BuildMicText() const;
 
 	FReply OnToggleEnabled();
+	FReply OnToggleAllowed();
+	FReply OnTogglePawnless();
 	FReply OnToggleMode();
 	FReply OnToggleMicrophone();
 	FReply OnToggleMicTest();
