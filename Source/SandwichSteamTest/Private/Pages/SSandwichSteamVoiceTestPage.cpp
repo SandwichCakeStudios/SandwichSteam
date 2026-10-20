@@ -115,6 +115,8 @@ void SSandwichSteamVoiceTestPage::Construct(const FArguments& InArgs)
 #endif
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("MuteFirst", "Mute first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnMuteFirst)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("UnmuteAll", "Unmute all"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnUnmuteAll)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerMute", "Server: mute / unmute first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerToggleFirst, false)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerMouth", "Server: owner voice on / off first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerToggleFirst, true)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeDown", "Volume -0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeDown)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeUp", "Volume +0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeUp)) ]
 		]
@@ -233,11 +235,13 @@ FText SSandwichSteamVoiceTestPage::BuildTalkingText() const
 		return FText::GetEmpty();
 	}
 
-	FString Text = FString::Printf(TEXT("Players in the game: %d\n"), Voice->GetPlayersInGame().Num());
+	FString Text = FString::Printf(TEXT("Players in the game: %d%s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""));
 	for (const FSteamId& Player : Voice->GetPlayersInGame())
 	{
-		Text += FString::Printf(TEXT("  %s%s   %s%s\n"), *Player.ToString(), Player == Voice->GetLocalPlayerId() ? TEXT(" (you)") : TEXT(""),
-			Voice->IsPlayerTalking(Player) ? TEXT("TALKING") : TEXT("quiet"), Voice->IsPlayerMuted(Player) ? TEXT("   muted") : TEXT(""));
+		const FSteamVoicePlayerRules Rules = Voice->GetPlayerVoiceRules(Player);
+		Text += FString::Printf(TEXT("  %s%s   %s%s%s%s\n"), *Player.ToString(), Player == Voice->GetLocalPlayerId() ? TEXT(" (you)") : TEXT(""),
+			Voice->IsPlayerTalking(Player) ? TEXT("TALKING") : TEXT("quiet"), Voice->IsPlayerMuted(Player) ? TEXT("   muted") : TEXT(""),
+			Rules.bCanTalk ? TEXT("") : TEXT("   server muted"), Rules.bCanUseOwnerVoice ? TEXT("") : TEXT("   no owner voice"));
 	}
 	return FText::FromString(Text.TrimEnd());
 }
@@ -403,6 +407,43 @@ FReply SSandwichSteamVoiceTestPage::OnUnmuteAll()
 		Count += Voice->UnmutePlayer(Player).IsSuccess() ? 1 : 0;
 	}
 	Status = FText::Format(LOCTEXT("Unmuted", "Removed {0} game mute(s). Players blocked on Steam stay muted."), FText::AsNumber(Count));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnServerToggleFirst(bool bOwnerVoice)
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureServer", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	// Fake talkers count as players, so the rules can be tried on one machine.
+	for (const FSteamId& Player : Voice->GetPlayersInGame())
+	{
+		if (Player == Voice->GetLocalPlayerId())
+		{
+			continue;
+		}
+
+		const FSteamVoicePlayerRules Rules = Voice->GetPlayerVoiceRules(Player);
+		if (bOwnerVoice)
+		{
+			ReportResult(Voice->ServerSetPlayerCanUseOwnerVoice(Player, !Rules.bCanUseOwnerVoice), FText::Format(Rules.bCanUseOwnerVoice
+				? LOCTEXT("ServerMouthOff", "Server: {0} has no owner voice (only their channels play, for everyone).")
+				: LOCTEXT("ServerMouthOn", "Server: {0} has their owner voice again."), FText::FromString(Player.ToString())));
+		}
+		else
+		{
+			ReportResult(Voice->ServerSetPlayerCanTalk(Player, !Rules.bCanTalk), FText::Format(Rules.bCanTalk
+				? LOCTEXT("ServerMuted", "Server: {0} is server muted (their microphone closes, everyone drops their voice).")
+				: LOCTEXT("ServerUnmuted", "Server: {0} may talk again."), FText::FromString(Player.ToString())));
+		}
+		return FReply::Handled();
+	}
+
+	Status = LOCTEXT("NoOtherServer", "No other player in the game yet. Join with a second account, or start a fake talker.");
 	return FReply::Handled();
 }
 

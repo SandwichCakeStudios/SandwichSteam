@@ -12,7 +12,7 @@ class USteamVoiceSubsystem;
 /**
  * Test page for the Voice feature: enable / disable, mode switch, a toggle for the microphone (same as holding the push to talk key),
  * mic test, microphone level against the activation threshold, talking on channel 1, fake talkers (one machine), mute and unmute the first
- * other player, master volume, and a level bar per player with their transmit channels. The state block is the Steam.Voice.Dump report.
+ * other player, server rules on the first other player (Server Authority), master volume, and a level bar per player with their transmit channels. The state block is the Steam.Voice.Dump report.
  */
 class SSandwichSteamVoiceTestPage : public SCompoundWidget
 {
@@ -55,6 +55,8 @@ private:
 	FReply OnFakeTalkers(int32 Count, int32 Channel);
 	FReply OnMuteFirst();
 	FReply OnUnmuteAll();
+	/** Server rules on the first other player (fake talkers count): bOwnerVoice toggles Can Use Owner Voice, else Can Talk (server mute). */
+	FReply OnServerToggleFirst(bool bOwnerVoice);
 	FReply OnVolumeDown();
 	FReply OnVolumeUp();
 
