@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "DSP/MultithreadedPatching.h"
+#include "SteamVoiceRules.h"
 
 /**
  * What the game thread and the voice worker exchange. The game thread publishes immutable routing snapshots (who is in the game,
@@ -73,9 +74,9 @@ namespace SandwichSteam::Voice
 		/** Captured voice also plays back here as MicTestTalkerId (after voice activation, so it sounds like what others hear). */
 		bool bMicTest = false;
 		bool bMuteSteamFriendsWhileTalking = false;
-		/** Our voice plays on our own pawn (packet Mouth flag). */
+		/** Our voice plays on our own pawn (packet Mouth flag). Already filtered by our own server rules. */
 		bool bTransmitMouth = true;
-		/** The channels we transmit on: resolved ids, unique, sorted, at most MaxPacketChannels. Travel in every packet. */
+		/** The channels we transmit on: resolved ids, unique, sorted, at most MaxPacketChannels, filtered by our own server rules. */
 		TArray<int32> TransmitChannels;
 		/** The other players of the current game: the only peers we send to and accept. */
 		TArray<uint64> Peers;
@@ -85,10 +86,12 @@ namespace SandwichSteam::Voice
 		bool bReportMutedTalking = false;
 		/** Blocked on Steam: dropped both ways. */
 		TSet<uint64> Blocked;
-		/** Server rules: may not talk (server mute). Their packets are dropped; we still send to them. */
-		TSet<uint64> ServerMuted;
-		/** Server rules: may not use their mouth. Their packets play on channels only. */
-		TSet<uint64> NoOwnerVoice;
+		/** Server rules of the players with a restriction (everyone else has the default rules), and ours. */
+		TMap<uint64, FPlayerRules> Rules;
+		FPlayerRules LocalRules;
+		/** Owner voice distance (server rules): peers out of range of our mouth (sent channels only) and talkers whose mouth is dropped here. */
+		TSet<uint64> MouthNotSent;
+		TSet<uint64> MouthDropped;
 		/** Per player volume (0 to 2), applied before the mouth and the channel mixes. Only players not at 1. */
 		TMap<uint64, float> PlayerVolumes;
 		FFakeTalkerConfig Fake;
@@ -96,6 +99,13 @@ namespace SandwichSteam::Voice
 		float SimLossPercent = 0.0f;
 		/** The channel mixes Channel speakers play, sorted by channel. Channels nobody plays are not decoded or mixed. */
 		TArray<FChannelOutput> ChannelOutputs;
+
+		const FPlayerRules& FindRules(uint64 Player) const
+		{
+			static const FPlayerRules Default;
+			const FPlayerRules* Found = Rules.Find(Player);
+			return Found ? *Found : Default;
+		}
 	};
 
 	using FRoutingSnapshotPtr = TSharedPtr<const FRoutingSnapshot, ESPMode::ThreadSafe>;
@@ -234,10 +244,14 @@ namespace SandwichSteam::Voice
 		/** Fake talker packets with their own speaker id. */
 		uint64 FakeRewritten = 0;
 		uint64 MutedDrops = 0;
-		/** Packets of server-muted talkers dropped (server rules). */
+		/** Packets the server rules leave nothing of here (server mute, identity conflict, channels we may not hear, mouth out of range). */
 		uint64 RuleDrops = 0;
-		/** Played packets whose mouth flag the server rules removed. */
+		/** Played packets whose mouth flag the server rules removed (no owner voice, out of range). */
 		uint64 RuleMouthRemoved = 0;
+		/** Played packets with channels the server rules removed (talker may not transmit, we may not listen). */
+		uint64 RuleChannelsRemoved = 0;
+		/** Packets not sent to one peer because the server rules leave nothing for them. */
+		uint64 RuleNotSent = 0;
 		uint64 SimLossDrops = 0;
 		/**
 		 * Decoder check (two or more fake talkers): every fake decodes the same packets, interleaved with the others. With separate decoder

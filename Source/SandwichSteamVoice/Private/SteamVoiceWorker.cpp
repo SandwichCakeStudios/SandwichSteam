@@ -551,20 +551,38 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 	}
 
 	const uint16 PacketSequence = Sequence++;
+	const TConstArrayView<uint8> Payload(Data, Size);
 	if (bTransmits)
 	{
-		if (!WriteVoicePacket(PacketSequence, Flags, TransmitChannels, TConstArrayView<uint8>(Data, Size), PacketBuffer))
-		{
-			++Stats.CaptureTooLarge;
-			return;
-		}
-
-		// Every peer gets the same packet: without server rules every player may hear every channel.
+		// Each peer gets only what the server rules let them hear (their Listen channels, our mouth in range). Peers with the same
+		// route share one written packet; without server rules that is every peer.
+		FVoiceRoute Base;
+		Base.bMouth = Flags != 0;
+		Base.Channels.Append(TransmitChannels.GetData(), TransmitChannels.Num());
+		FVoiceRoute Route;
+		FVoiceRoute Written;
+		bool bWritten = false;
 		for (const uint64 Peer : Snapshot->Peers)
 		{
 			if (Snapshot->Blocked.Contains(Peer))
 			{
 				continue;
+			}
+			FilterForListener(Snapshot->FindRules(Peer), !Snapshot->MouthNotSent.Contains(Peer), Base, Route);
+			if (Route.IsEmpty())
+			{
+				++Stats.RuleNotSent;
+				continue;
+			}
+			if (!bWritten || Route != Written)
+			{
+				if (!WriteVoicePacket(PacketSequence, Route.bMouth ? PacketFlags::Mouth : 0, Route.Channels, Payload, PacketBuffer))
+				{
+					++Stats.CaptureTooLarge;
+					return;
+				}
+				Written = Route;
+				bWritten = true;
 			}
 			if (Transport->SendVoice(Peer, PacketBuffer.GetData(), PacketBuffer.Num()))
 			{
@@ -590,11 +608,11 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 		Delayed.Due = Now + (Fake.DelayMs + Index * Fake.StaggerMs) / 1000.0;
 		Delayed.Stamp = Now;
 		Delayed.Talker = FakeTalkerIdBase + static_cast<uint64>(Index);
-		if (FakeChannel < 0)
-		{
-			Delayed.Data = PacketBuffer;
-		}
-		else if (!WriteVoicePacket(PacketSequence, 0, TConstArrayView<int32>(&FakeChannel, 1), TConstArrayView<uint8>(Data, Size), Delayed.Data))
+		// The fakes get everything we send (their own receive path applies our Listen rule); a fake channel replaces it.
+		const bool bFakeWritten = FakeChannel < 0
+			? WriteVoicePacket(PacketSequence, Flags, TransmitChannels, Payload, Delayed.Data)
+			: WriteVoicePacket(PacketSequence, 0, TConstArrayView<int32>(&FakeChannel, 1), Payload, Delayed.Data);
+		if (!bFakeWritten)
 		{
 			DelayedPackets.Pop(EAllowShrinking::No);
 			continue;
@@ -680,8 +698,9 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		return;
 	}
 
-	// The server's rules: a server-muted talker is dropped by everyone.
-	if (Snapshot->ServerMuted.Contains(Sender))
+	// The server's rules: a server-muted or refused talker is dropped by everyone, and a refused local player accepts nothing.
+	const FPlayerRules& SenderRules = Snapshot->FindRules(Sender);
+	if (!SenderRules.bCanTalk || SenderRules.bRefused || Snapshot->LocalRules.bRefused)
 	{
 		++Stats.RuleDrops;
 		return;
@@ -726,6 +745,8 @@ void FSteamVoiceWorker::DeliverFakePackets(double Now)
 
 void FSteamVoiceWorker::Playout(double Now)
 {
+	FVoiceRoute Allowed;
+	FVoiceRoute Route;
 	for (TPair<uint64, TUniquePtr<FTalker>>& Pair : Talkers)
 	{
 		FTalker& Talker = *Pair.Value;
@@ -745,12 +766,25 @@ void FSteamVoiceWorker::Playout(double Now)
 				continue;
 			}
 
-			// A server mute or a mute set while packets were queued applies to them too.
-			if (Snapshot->ServerMuted.Contains(Talker.Id))
+			// The server rules as they are now apply to queued packets too: the talker's (server mute, owner voice, transmit channels),
+			// then ours (listen channels, the talker's mouth out of range). Nothing left: dropped, and the talker is not reported talking.
+			FilterForTalker(Snapshot->FindRules(Talker.Id), Packet.HasMouth(), Packet.GetChannels(), Allowed);
+			FilterForListener(Snapshot->LocalRules, !Snapshot->MouthDropped.Contains(Talker.Id), Allowed, Route);
+			if (Route.IsEmpty())
 			{
 				++Stats.RuleDrops;
 				continue;
 			}
+			if (Packet.HasMouth() && !Route.bMouth)
+			{
+				++Stats.RuleMouthRemoved;
+			}
+			if (Route.Channels.Num() != Packet.NumChannels)
+			{
+				++Stats.RuleChannelsRemoved;
+			}
+
+			// A mute set while packets were queued applies to them too.
 			const bool bMuted = Snapshot->Muted.Contains(Talker.Id);
 			if (Snapshot->Blocked.Contains(Talker.Id) || (bMuted && !Snapshot->bReportMutedTalking))
 			{
@@ -758,28 +792,20 @@ void FSteamVoiceWorker::Playout(double Now)
 				continue;
 			}
 
-			// The server rules can take a talker's mouth away (dead players); their channels still play.
-			bool bMouth = Packet.HasMouth();
-			if (bMouth && Snapshot->NoOwnerVoice.Contains(Talker.Id))
-			{
-				bMouth = false;
-				++Stats.RuleMouthRemoved;
-			}
-
 			// Talking and where the voice goes follow the played packets, whether or not a speaker here plays them.
 			Talker.LastAudio = Now;
-			UpdateTransmit(Talker.Transmit, Talker.Id, bMouth, Packet.GetChannels());
+			UpdateTransmit(Talker.Transmit, Talker.Id, Route.bMouth, Route.Channels);
 			if (bMuted)
 			{
 				++Stats.MutedDrops;
 				continue;
 			}
-			Decode(Talker, Packet, bMouth, Now, Stamp);
+			Decode(Talker, Packet, Route, Now, Stamp);
 		}
 	}
 }
 
-void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, bool bMouth, double Now, double Stamp)
+void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, const FVoiceRoute& Route, double Now, double Stamp)
 {
 #if SANDWICHSTEAM_WITH_STEAMWORKS
 	ISteamUser* User = SteamUser();
@@ -790,14 +816,14 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, bool 
 
 	// The channels of this packet somebody here plays. Nothing to play: no decode (Steam's decoder treats the gap like a lost packet).
 	TArray<FChannel*, TInlineAllocator<MaxPacketChannels>> Targets;
-	for (const int32 Id : Packet.GetChannels())
+	for (const int32 Id : Route.Channels)
 	{
 		if (const TUniquePtr<FChannel>* Found = Channels.Find(Id))
 		{
 			Targets.AddUnique(Found->Get());
 		}
 	}
-	if (!bMouth && Targets.IsEmpty())
+	if (!Route.bMouth && Targets.IsEmpty())
 	{
 		++Stats.NotPlayed;
 		return;
@@ -880,7 +906,7 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, bool 
 		}
 	}
 
-	if (bMouth)
+	if (Route.bMouth)
 	{
 		Talker.LastMouthAudio = Now;
 		Talker.Splitter->PushAudio(FloatBuffer.GetData(), NumSamples);
