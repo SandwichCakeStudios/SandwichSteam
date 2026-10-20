@@ -117,6 +117,10 @@ void SSandwichSteamVoiceTestPage::Construct(const FArguments& InArgs)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("UnmuteAll", "Unmute all"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnUnmuteAll)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerMute", "Server: mute / unmute first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerToggleFirst, false)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerMouth", "Server: owner voice on / off first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerToggleFirst, true)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerDeadChat", "Server: dead chat (channel 1) on / off first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerDeadChatFirst)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerListenNone", "Server: I hear no channel / any channel"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerListenNone)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerDistance", "Server: owner voice distance off / 500 / 2000"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerCycleDistance)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerMegaphone", "Server: megaphone on / off first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerMegaphoneFirst)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeDown", "Volume -0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeDown)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeUp", "Volume +0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeUp)) ]
 		]
@@ -235,13 +239,18 @@ FText SSandwichSteamVoiceTestPage::BuildTalkingText() const
 		return FText::GetEmpty();
 	}
 
-	FString Text = FString::Printf(TEXT("Players in the game: %d%s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""));
+	const float Distance = Voice->GetOwnerVoiceMaxDistance();
+	FString Text = FString::Printf(TEXT("Players in the game: %d%s%s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""),
+		Distance > 0.0f ? *FString::Printf(TEXT("   owner voice distance %.0f cm"), Distance) : TEXT(""));
 	for (const FSteamId& Player : Voice->GetPlayersInGame())
 	{
 		const FSteamVoicePlayerRules Rules = Voice->GetPlayerVoiceRules(Player);
-		Text += FString::Printf(TEXT("  %s%s   %s%s%s%s\n"), *Player.ToString(), Player == Voice->GetLocalPlayerId() ? TEXT(" (you)") : TEXT(""),
+		const FString Transmit = Rules.Transmit.bRestricted ? FString::Printf(TEXT("   transmit %d channel(s)"), Rules.Transmit.Channels.Num()) : FString();
+		const FString Listen = Rules.Listen.bRestricted ? FString::Printf(TEXT("   listen %d channel(s)"), Rules.Listen.Channels.Num()) : FString();
+		Text += FString::Printf(TEXT("  %s%s   %s%s%s%s%s%s%s%s\n"), *Player.ToString(), Player == Voice->GetLocalPlayerId() ? TEXT(" (you)") : TEXT(""),
 			Voice->IsPlayerTalking(Player) ? TEXT("TALKING") : TEXT("quiet"), Voice->IsPlayerMuted(Player) ? TEXT("   muted") : TEXT(""),
-			Rules.bCanTalk ? TEXT("") : TEXT("   server muted"), Rules.bCanUseOwnerVoice ? TEXT("") : TEXT("   no owner voice"));
+			Rules.bCanTalk ? TEXT("") : TEXT("   server muted"), Rules.bCanUseOwnerVoice ? TEXT("") : TEXT("   no owner voice"), *Transmit, *Listen,
+			Rules.OwnerVoiceMaxDistance < 0.0f ? TEXT("   megaphone") : TEXT(""), Rules.bIdentityConflict ? TEXT("   IDENTITY CONFLICT") : TEXT(""));
 	}
 	return FText::FromString(Text.TrimEnd());
 }
@@ -444,6 +453,109 @@ FReply SSandwichSteamVoiceTestPage::OnServerToggleFirst(bool bOwnerVoice)
 	}
 
 	Status = LOCTEXT("NoOtherServer", "No other player in the game yet. Join with a second account, or start a fake talker.");
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnServerDeadChatFirst()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureDeadChat", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	for (const FSteamId& Player : Voice->GetPlayersInGame())
+	{
+		if (Player == Voice->GetLocalPlayerId())
+		{
+			continue;
+		}
+
+		// Dead: no owner voice, talks and hears only channel 1. Alive again: everything allowed.
+		const bool bDead = !Voice->GetPlayerVoiceRules(Player).Transmit.bRestricted;
+		FSteamVoiceChannelRule DeadChat;
+		if (bDead)
+		{
+			DeadChat.bRestricted = true;
+			FSteamVoiceChannel& Channel = DeadChat.Channels.AddDefaulted_GetRef();
+			Channel.Id = 1;
+		}
+		const FSteamResult Result = Voice->ServerSetPlayerChannels(Player, DeadChat, DeadChat);
+		if (Result.IsSuccess())
+		{
+			Voice->ServerSetPlayerCanUseOwnerVoice(Player, !bDead);
+		}
+		ReportResult(Result, FText::Format(bDead
+			? LOCTEXT("DeadChatOn", "Server: {0} is dead: no owner voice, talks and hears channel 1 only (dead chat).")
+			: LOCTEXT("DeadChatOff", "Server: {0} is alive again: owner voice and every channel."), FText::FromString(Player.ToString())));
+		return FReply::Handled();
+	}
+
+	Status = LOCTEXT("NoOtherDeadChat", "No other player in the game yet. Join with a second account, or start a fake talker.");
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnServerListenNone()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureListen", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const FSteamId Local = Voice->GetLocalPlayerId();
+	const FSteamVoicePlayerRules Rules = Voice->GetPlayerVoiceRules(Local);
+	FSteamVoiceChannelRule Listen;
+	Listen.bRestricted = !Rules.Listen.bRestricted;
+	ReportResult(Voice->ServerSetPlayerChannels(Local, Rules.Transmit, Listen), Listen.bRestricted
+		? LOCTEXT("ListenNone", "Server: you hear no channel (channel voice is not sent to you and is dropped here).")
+		: LOCTEXT("ListenAny", "Server: you hear every channel again."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnServerCycleDistance()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureDistance", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const float Current = Voice->GetOwnerVoiceMaxDistance();
+	const float Next = Current <= 0.0f ? 500.0f : (Current < 2000.0f ? 2000.0f : 0.0f);
+	ReportResult(Voice->ServerSetOwnerVoiceMaxDistance(Next), Next > 0.0f
+		? FText::Format(LOCTEXT("DistanceOn", "Server: owner voice carries {0} cm (fake talkers have no pawn and are not limited)."), FText::AsNumber(Next))
+		: LOCTEXT("DistanceOff", "Server: owner voice distance off."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamVoiceTestPage::OnServerMegaphoneFirst()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureMegaphone", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	for (const FSteamId& Player : Voice->GetPlayersInGame())
+	{
+		if (Player == Voice->GetLocalPlayerId())
+		{
+			continue;
+		}
+
+		const bool bOn = Voice->GetPlayerVoiceRules(Player).OwnerVoiceMaxDistance >= 0.0f;
+		ReportResult(Voice->ServerSetPlayerOwnerVoiceMaxDistance(Player, bOn ? -1.0f : 0.0f), FText::Format(bOn
+			? LOCTEXT("MegaphoneOn", "Server: {0} has a megaphone (no distance limit for their voice).")
+			: LOCTEXT("MegaphoneOff", "Server: {0} uses the game's distance again."), FText::FromString(Player.ToString())));
+		return FReply::Handled();
+	}
+
+	Status = LOCTEXT("NoOtherMegaphone", "No other player in the game yet. Join with a second account.");
 	return FReply::Handled();
 }
 

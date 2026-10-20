@@ -57,6 +57,14 @@ private:
 	FReply OnUnmuteAll();
 	/** Server rules on the first other player (fake talkers count): bOwnerVoice toggles Can Use Owner Voice, else Can Talk (server mute). */
 	FReply OnServerToggleFirst(bool bOwnerVoice);
+	/** Dead chat on the first other player: no owner voice, talks and listens on channel 1 only (or back to the default rules). */
+	FReply OnServerDeadChatFirst();
+	/** The local player may hear no channel (or any channel again): a forbidden channel is dropped. */
+	FReply OnServerListenNone();
+	/** Owner voice distance: off -> 500 cm -> 2000 cm -> off. */
+	FReply OnServerCycleDistance();
+	/** Megaphone on the first other player: no distance limit for their voice (or the game's again). */
+	FReply OnServerMegaphoneFirst();
 	FReply OnVolumeDown();
 	FReply OnVolumeUp();
 
