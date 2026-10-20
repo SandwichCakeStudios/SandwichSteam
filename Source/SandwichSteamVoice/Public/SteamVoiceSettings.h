@@ -61,6 +61,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Server Authority", meta = (ToolTip = "The server decides the voice rules and every client follows them: Voice Allowed and Pawnless Voice (set them on the server; clients are refused), and per player rules (Server Set Player Can Talk / Can Use Owner Voice). A client sends and plays nothing until the rules arrived, so voice starts a moment after joining or travel. Without it every client receives every player and every channel: proximity and channels only decide what is played, and a modified client can hear everything. With it an honest client only sends what the rules allow and everyone drops what they forbid; cheaters working together can still get around it. Rules are visible to every client. Player identity is the Steam ID of the player state, which needs Steam auth to be verified. Steam voice pipeline only."))
 	bool bServerAuthority = false;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Server Authority", meta = (EditCondition = "bServerAuthority", ClampMin = "0", Units = "cm", ToolTip = "How far a player's own voice (their pawn) carries when the server starts; 0 = no limit. Beyond it the voice is not sent at all, which keeps proximity private and saves bandwidth. Keep it at least the end of your voice attenuation, and pawns net relevant that far. Change it at runtime with Server Set Owner Voice Max Distance, per talker with Server Set Player Owner Voice Max Distance."))
+	float DefaultOwnerVoiceMaxDistance = 0.0f;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "255", ToolTip = "Steam networking messages channel used for voice. Change it only when your game uses SteamNetworkingMessages on channel 7 itself."))
 	int32 SteamMessageChannel = 7;
 

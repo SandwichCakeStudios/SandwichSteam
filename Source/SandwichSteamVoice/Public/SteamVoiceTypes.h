@@ -7,6 +7,8 @@
 #include "GameplayTagContainer.h"
 #include "SteamVoiceTypes.generated.h"
 
+class APlayerState;
+
 /** How the local microphone is opened. */
 UENUM(BlueprintType)
 enum class ESteamVoiceMode : uint8
@@ -69,6 +71,24 @@ struct SANDWICHSTEAMVOICE_API FSteamVoiceChannel
 	bool operator==(const FSteamVoiceChannel& Other) const { return Tag == Other.Tag && Id == Other.Id; }
 };
 
+/** Which channels a server rule allows a player to talk or listen on (Server Authority). */
+USTRUCT(BlueprintType)
+struct SANDWICHSTEAMVOICE_API FSteamVoiceChannelRule
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ToolTip = "Off: every channel. On: only the channels below; on with an empty list: no channel at all."))
+	bool bRestricted = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (EditCondition = "bRestricted", ToolTip = "The allowed channels (only used when Restricted). Every client resolves tags with its own Channel Tag Map, so all builds need the same map."))
+	TArray<FSteamVoiceChannel> Channels;
+
+	bool IsDefault() const { return !bRestricted; }
+
+	bool operator==(const FSteamVoiceChannelRule& Other) const { return bRestricted == Other.bRestricted && Channels == Other.Channels; }
+	bool operator!=(const FSteamVoiceChannelRule& Other) const { return !(*this == Other); }
+};
+
 /**
  * What the server allows one player (Server Authority in the Voice settings). Every client follows it on both ends: the player's own client
  * does not send what is forbidden, and everyone else drops it.
@@ -84,10 +104,29 @@ struct SANDWICHSTEAMVOICE_API FSteamVoicePlayerRules
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ToolTip = "The player's voice may play on their own pawn (Owner speakers, proximity). Off = only their channels play (dead players, spectators)."))
 	bool bCanUseOwnerVoice = true;
 
-	/** True when nothing is restricted (the rules every player has until the server says otherwise). */
-	bool IsDefault() const { return bCanTalk && bCanUseOwnerVoice; }
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ToolTip = "The channels the player may talk on (team radio, dead chat). Channels they transmit on outside it are not sent and are dropped by everyone."))
+	FSteamVoiceChannelRule Transmit;
 
-	bool operator==(const FSteamVoicePlayerRules& Other) const { return bCanTalk == Other.bCanTalk && bCanUseOwnerVoice == Other.bCanUseOwnerVoice; }
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ToolTip = "The channels the player may hear. Nobody sends them other channels, and their Channel speakers on other channels stay silent."))
+	FSteamVoiceChannelRule Listen;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ClampMin = "-1", Units = "cm", ToolTip = "How far this player's own voice (their pawn) carries. 0 = the game's Owner Voice Max Distance; below 0 = no limit (megaphone)."))
+	float OwnerVoiceMaxDistance = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Steam Voice", meta = (ToolTip = "Set by the server: another player in the game has the same Steam ID. This Steam ID is neither sent nor played until one of them leaves (On Voice Identity Conflict on the server)."))
+	bool bIdentityConflict = false;
+
+	/** True when nothing is restricted (the rules every player has until the server says otherwise). */
+	bool IsDefault() const { return bCanTalk && bCanUseOwnerVoice && Transmit.IsDefault() && Listen.IsDefault() && OwnerVoiceMaxDistance == 0.0f && !bIdentityConflict; }
+
+	/** May talk at all: not server muted and no identity conflict. */
+	bool MayTalk() const { return bCanTalk && !bIdentityConflict; }
+
+	bool operator==(const FSteamVoicePlayerRules& Other) const
+	{
+		return bCanTalk == Other.bCanTalk && bCanUseOwnerVoice == Other.bCanUseOwnerVoice && Transmit == Other.Transmit && Listen == Other.Listen
+			&& OwnerVoiceMaxDistance == Other.OwnerVoiceMaxDistance && bIdentityConflict == Other.bIdentityConflict;
+	}
 	bool operator!=(const FSteamVoicePlayerRules& Other) const { return !(*this == Other); }
 };
 
@@ -111,3 +150,6 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoicePlayerFlood, FSteamId, Pl
 
 /** The server's voice rules arrived or changed (Server Authority). */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FSteamVoiceRulesChanged);
+
+/** Server: a player joined with a Steam ID another player already has (Server Authority). Joining is the newer player state. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSteamVoiceIdentityConflict, FSteamId, Player, APlayerState*, Joining);

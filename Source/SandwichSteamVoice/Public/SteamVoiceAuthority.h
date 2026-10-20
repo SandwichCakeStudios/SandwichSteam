@@ -60,8 +60,8 @@ struct TStructOpsTypeTraits<FSteamVoicePlayerRulesArray> : public TStructOpsType
 /**
  * The server's voice rules for the current world (Server Authority in the Voice settings). The Steam Voice subsystem spawns it on the
  * server (listen host or standalone) when a world starts and fills it; it replicates to every client, whose subsystem applies it.
- * Holds the game rules (Voice Allowed, Pawnless Voice) and per player rules keyed by Steam ID, plus a version the server raises on
- * every change and on every new authority (after travel). Not placeable: use the Server Set functions of the subsystem.
+ * Holds the game rules (Voice Allowed, Pawnless Voice, Owner Voice Max Distance) and per player rules keyed by Steam ID, the server's
+ * channel map hash, and a version the server raises on every change and on every new authority (after travel). Not placeable: use the Server Set functions of the subsystem.
  */
 UCLASS(NotBlueprintable, NotPlaceable, Transient)
 class SANDWICHSTEAMVOICE_API ASteamVoiceAuthority : public AInfo
@@ -81,10 +81,15 @@ public:
 	int32 GetRulesVersion() const { return RulesVersion; }
 	bool IsVoiceAllowed() const { return bVoiceAllowed; }
 	ESteamVoicePawnlessMode GetPawnlessVoice() const { return PawnlessVoice; }
+	float GetOwnerVoiceMaxDistance() const { return OwnerVoiceMaxDistance; }
+	uint32 GetChannelMapHash() const { return ChannelMapHash; }
 	const TArray<FSteamVoicePlayerRulesItem>& GetPlayerRules() const { return PlayerRules.Items; }
 
 	/** Server: the game rules. */
-	void SetGameRules(bool bAllowed, ESteamVoicePawnlessMode Pawnless);
+	void SetGameRules(bool bAllowed, ESteamVoicePawnlessMode Pawnless, float MaxDistance);
+
+	/** Server: the hash of the server's Channel Tag Map; clients compare it with their own. */
+	void SetChannelMapHash(uint32 Hash) { ChannelMapHash = Hash; }
 
 	/** Server: one player's rules. Default rules remove the player from the list. */
 	void SetPlayerRules(FSteamId Player, const FSteamVoicePlayerRules& Rules);
@@ -113,4 +118,10 @@ private:
 
 	UPROPERTY(ReplicatedUsing = OnRep_Rules)
 	ESteamVoicePawnlessMode PawnlessVoice = ESteamVoicePawnlessMode::Play2D;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Rules)
+	float OwnerVoiceMaxDistance = 0.0f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Rules)
+	uint32 ChannelMapHash = 0;
 };

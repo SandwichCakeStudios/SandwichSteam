@@ -51,6 +51,8 @@ void ASteamVoiceAuthority::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(ASteamVoiceAuthority, RulesVersion);
 	DOREPLIFETIME(ASteamVoiceAuthority, bVoiceAllowed);
 	DOREPLIFETIME(ASteamVoiceAuthority, PawnlessVoice);
+	DOREPLIFETIME(ASteamVoiceAuthority, OwnerVoiceMaxDistance);
+	DOREPLIFETIME(ASteamVoiceAuthority, ChannelMapHash);
 }
 
 void ASteamVoiceAuthority::BeginPlay()
@@ -74,10 +76,11 @@ void ASteamVoiceAuthority::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-void ASteamVoiceAuthority::SetGameRules(bool bAllowed, ESteamVoicePawnlessMode Pawnless)
+void ASteamVoiceAuthority::SetGameRules(bool bAllowed, ESteamVoicePawnlessMode Pawnless, float MaxDistance)
 {
 	bVoiceAllowed = bAllowed;
 	PawnlessVoice = Pawnless;
+	OwnerVoiceMaxDistance = MaxDistance;
 }
 
 void ASteamVoiceAuthority::SetPlayerRules(FSteamId Player, const FSteamVoicePlayerRules& Rules)
