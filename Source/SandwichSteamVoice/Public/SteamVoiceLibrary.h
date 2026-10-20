@@ -30,13 +30,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "True while voice chat is on."))
 	static bool IsSteamVoiceEnabled(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The game's voice rule, separate from the player's Set Steam Voice Enabled option: forbid voice in a lobby, allow it in the match. Not allowed: nothing is sent or played; the player's setting and the mic test stay. Local to this client: call it on every client (for example from replicated game state). Online Subsystem voice: only closes the microphone."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The game's voice rule, separate from the player's Set Steam Voice Enabled option: forbid voice in a lobby, allow it in the match. Not allowed: nothing is sent or played; the player's setting and the mic test stay. Without Server Authority it is local to this client: call it on every client (for example from replicated game state). With Server Authority call it on the server only; it reaches every client. Online Subsystem voice: only closes the microphone."))
 	static FSteamResult SetSteamVoiceAllowed(const UObject* WorldContextObject, bool bAllowed);
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the game allows voice."))
 	static bool IsSteamVoiceAllowed(const UObject* WorldContextObject);
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn). 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). For example 2D in the lobby, Silent in the match. Local to this client. Steam voice pipeline only."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn). 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). For example 2D in the lobby, Silent in the match. Without Server Authority local to this client; with it call it on the server only. Steam voice pipeline only."))
 	static FSteamResult SetSteamPawnlessVoice(const UObject* WorldContextObject, ESteamVoicePawnlessMode Mode);
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How players without a pawn are heard right now."))
@@ -158,4 +158,19 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice", meta = (WorldContext = "WorldContextObject", ToolTip = "Loudness of the player's voice as it plays (0 to 1, same scale as Get Steam Local Mic Level), before the volume you set for them; 0 while they do not talk or are muted. Your own Steam ID gives your microphone level. Drive a per player meter with it. Steam voice pipeline only."))
 	static float GetSteamPlayerVoiceLevel(const UObject* WorldContextObject, FSteamId Player);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "Server mute (Server Authority in the Voice settings): off closes the player's microphone and everyone drops their voice. Kept while the server runs, also when the player leaves and joins again. Call it on the server; clients are refused (Steam.Error.WrongScope)."))
+	static FSteamResult ServerSetSteamPlayerCanTalk(const UObject* WorldContextObject, FSteamId Player, bool bCanTalk);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "Whether the player's voice plays on their own pawn (Server Authority). Off: only their channels play, for dead players or spectators who may still use dead chat. Call it on the server; clients are refused (Steam.Error.WrongScope)."))
+	static FSteamResult ServerSetSteamPlayerCanUseOwnerVoice(const UObject* WorldContextObject, FSteamId Player, bool bCanUse);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The server's voice rules for the player (Server Authority). Every client can read them: show a 'muted by the host' icon with Can Talk. Default rules (everything allowed) when none are set."))
+	static FSteamVoicePlayerRules GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True when Server Authority is on and this game is the server (listen host or offline): the Server Set functions and Set Steam Voice Allowed work here."))
+	static bool HasSteamVoiceAuthority(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True while Server Authority is on and the server's voice rules have not arrived yet (right after joining or travel). Nothing is sent or played meanwhile; On Voice Rules Changed fires when they arrive."))
+	static bool IsSteamVoiceWaitingForRules(const UObject* WorldContextObject);
 };

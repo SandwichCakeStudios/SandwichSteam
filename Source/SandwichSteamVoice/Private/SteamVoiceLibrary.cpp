@@ -283,3 +283,33 @@ float USteamVoiceLibrary::GetSteamPlayerVoiceLevel(const UObject* WorldContextOb
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetPlayerVoiceLevel(Player) : 0.0f;
 }
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerCanTalk(const UObject* WorldContextObject, FSteamId Player, bool bCanTalk)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerCanTalk(Player, bCanTalk) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerCanUseOwnerVoice(const UObject* WorldContextObject, FSteamId Player, bool bCanUse)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerCanUseOwnerVoice(Player, bCanUse) : NotAvailable();
+}
+
+FSteamVoicePlayerRules USteamVoiceLibrary::GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceRules(Player) : FSteamVoicePlayerRules();
+}
+
+bool USteamVoiceLibrary::HasSteamVoiceAuthority(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->HasVoiceAuthority();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceWaitingForRules(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsWaitingForVoiceRules();
+}
