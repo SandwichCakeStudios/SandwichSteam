@@ -48,6 +48,62 @@ namespace
 	/** Steam voice pipeline: how often the players of the game, their pawns and the push to talk binding are checked (talking is event-driven). */
 	constexpr float PipelinePlayerPollSeconds = 0.25f;
 
+	/** Most channels one Transmit or Listen rule may list (rules replicate to everyone). */
+	constexpr int32 MaxRuleChannels = 32;
+
+	/** Server: checks a channel rule and drops duplicates (an unrestricted rule keeps no list). False with OutResult set when a channel is not usable. */
+	bool NormalizeChannelRule(const FSteamVoiceChannelRule& In, FSteamVoiceChannelRule& Out, FSteamResult& OutResult)
+	{
+		Out = FSteamVoiceChannelRule();
+		if (!In.bRestricted)
+		{
+			return true;
+		}
+
+		Out.bRestricted = true;
+		const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+		for (const FSteamVoiceChannel& Channel : In.Channels)
+		{
+			if (!Channel.IsSet() || Settings->ResolveChannelId(Channel) < 0)
+			{
+				OutResult = FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, FText::Format(NSLOCTEXT("SandwichSteam", "VoiceRuleChannelInvalid", "The rule channel {0} has neither a tag nor an id, or its tag has no id in Channel Tag Map (Project Settings > Plugins > Sandwich Steam - Voice)."),
+					FText::FromString(Channel.Tag.IsValid() ? Channel.Tag.ToString() : FString::FromInt(Channel.Id))));
+				return false;
+			}
+			Out.Channels.AddUnique(Channel);
+		}
+		if (Out.Channels.Num() > MaxRuleChannels)
+		{
+			OutResult = FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, FText::Format(NSLOCTEXT("SandwichSteam", "VoiceRuleTooManyChannels", "At most {0} channels per rule."), MaxRuleChannels));
+			return false;
+		}
+		return true;
+	}
+
+	FString DescribeChannelRule(const FSteamVoiceChannelRule& Rule)
+	{
+		if (!Rule.bRestricted)
+		{
+			return TEXT("any");
+		}
+		FString Text;
+		for (const FSteamVoiceChannel& Channel : Rule.Channels)
+		{
+			Text += Text.IsEmpty() ? TEXT("") : TEXT(", ");
+			Text += Channel.Tag.IsValid() ? Channel.Tag.ToString() : FString::FromInt(Channel.Id);
+		}
+		return Text.IsEmpty() ? FString(TEXT("none")) : Text;
+	}
+
+	FString DescribeRules(const FSteamVoicePlayerRules& Rules)
+	{
+		const FString Distance = Rules.OwnerVoiceMaxDistance > 0.0f ? FString::Printf(TEXT("%.0f cm"), Rules.OwnerVoiceMaxDistance)
+			: (Rules.OwnerVoiceMaxDistance < 0.0f ? FString(TEXT("no limit")) : FString(TEXT("game's")));
+		return FString::Printf(TEXT("%s%s, owner voice %s (distance %s), transmit %s, listen %s"), Rules.bCanTalk ? TEXT("may talk") : TEXT("server muted"),
+			Rules.bIdentityConflict ? TEXT(", IDENTITY CONFLICT (refused)") : TEXT(""), Rules.bCanUseOwnerVoice ? TEXT("on") : TEXT("off"), *Distance,
+			*DescribeChannelRule(Rules.Transmit), *DescribeChannelRule(Rules.Listen));
+	}
+
 	/** Tags already reported as missing from the Channel Tag Map. Game thread only. */
 	TSet<FGameplayTag> GWarnedUnmappedTags;
 
@@ -159,9 +215,18 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	bServerAuthority = Settings && Settings->bServerAuthority && bUseSteamPipeline;
 	bServerVoiceAllowed = bVoiceAllowed;
 	ServerPawnlessVoice = PawnlessVoice;
+	ServerOwnerVoiceMaxDistance = Settings ? FMath::Max(Settings->DefaultOwnerVoiceMaxDistance, 0.0f) : 0.0f;
+	IdentityConflicts.Reset();
+	LocalChannelMapHash = Settings ? SandwichSteam::Voice::HashChannelMap(Settings->ChannelTagMap) : 0;
 	bRulesReceived = false;
 	AppliedRulesVersion = 0;
 	AppliedPlayerRules.Reset();
+	ResolvedRules.Reset();
+	OwnerVoiceMaxDistance = 0.0f;
+	bChannelMapMismatch = false;
+	MouthInRange.Reset();
+	MouthNotSent.Reset();
+	MouthDropped.Reset();
 	if (bServerAuthority)
 	{
 		ActorsInitializedHandle = FWorldDelegates::OnWorldInitializedActors.AddWeakLambda(this, [this](const UWorld::FActorsInitializedParams& Params)
@@ -232,6 +297,13 @@ void USteamVoiceSubsystem::ShutdownFeature()
 	bRulesReceived = false;
 	AppliedRulesVersion = 0;
 	AppliedPlayerRules.Reset();
+	ResolvedRules.Reset();
+	OwnerVoiceMaxDistance = 0.0f;
+	bChannelMapMismatch = false;
+	IdentityConflicts.Reset();
+	MouthInRange.Reset();
+	MouthNotSent.Reset();
+	MouthDropped.Reset();
 
 	if (OssFallback.IsValid() && bMicOpen && !bUseSteamPipeline)
 	{
@@ -954,6 +1026,10 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	SeenPlayerStates = 0;
 	SeenWithoutNetId = 0;
 	SeenNotSteamId = 0;
+	// Server: every player's Steam ID in player array order (the joining player last), for the identity check.
+	const bool bCheckIdentity = HasVoiceAuthority();
+	TArray<int64, TInlineAllocator<16>> AllIds;
+	TArray<APlayerState*, TInlineAllocator<16>> AllStates;
 	if (GameState)
 	{
 		for (APlayerState* PlayerState : GameState->PlayerArray)
@@ -976,6 +1052,11 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 				++SeenNotSteamId;
 				NotSteamSample = FString::Printf(TEXT("type %s, id \"%s\""), *NetId->GetType().ToString(), *NetId->ToString());
 				continue;
+			}
+			if (bCheckIdentity)
+			{
+				AllIds.Add(Id.Value);
+				AllStates.Add(PlayerState);
 			}
 			if (Id == LocalId)
 			{
@@ -1059,6 +1140,11 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		}
 	}
 
+	if (bCheckIdentity)
+	{
+		UpdateIdentityConflicts(AllIds, AllStates);
+	}
+	UpdateOwnerVoiceRange();
 	PublishRouting();
 	return true;
 }
@@ -1209,12 +1295,19 @@ void USteamVoiceSubsystem::PublishRouting()
 	}
 	Muted.Sort();
 	Blocked.Sort();
-	TArray<int32> Transmit = ResolveTransmitChannels();
-	const bool bTransmitMouth = bTransmitToOwner && CanLocalUseOwnerVoiceByRules();
+	// Our own server rules decide what we send at all (no owner voice, allowed transmit channels); receivers check it again.
+	static const SandwichSteam::Voice::FPlayerRules DefaultRules;
+	const SandwichSteam::Voice::FPlayerRules* FoundLocalRules = LocalId.IsValid() ? ResolvedRules.Find(LocalId.Value) : nullptr;
+	const SandwichSteam::Voice::FPlayerRules& LocalRules = FoundLocalRules ? *FoundLocalRules : DefaultRules;
+	const TArray<int32> Wanted = ResolveTransmitChannels();
+	SandwichSteam::Voice::FVoiceRoute LocalRoute;
+	SandwichSteam::Voice::FilterForTalker(LocalRules, bTransmitToOwner, Wanted, LocalRoute);
+	const bool bTransmitMouth = LocalRoute.bMouth;
+	TArray<int32> Transmit(LocalRoute.Channels.GetData(), LocalRoute.Channels.Num());
 
 	// Server rule changes force a publish (bRoutingPublished = false), so they need no comparison here.
 	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && bPublishedMicTest == bMicTest && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
-		&& bPublishedTransmitMouth == bTransmitMouth && PublishedTransmitChannels == Transmit)
+		&& bPublishedTransmitMouth == bTransmitMouth && PublishedTransmitChannels == Transmit && PublishedMouthNotSent == MouthNotSent && PublishedMouthDropped == MouthDropped)
 	{
 		return;
 	}
@@ -1232,17 +1325,14 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->Muted.Append(Muted);
 	Snapshot->bReportMutedTalking = Settings && Settings->bReportMutedTalking;
 	Snapshot->Blocked.Append(Blocked);
-	for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
+	Snapshot->Rules.Reserve(ResolvedRules.Num());
+	for (const TPair<int64, SandwichSteam::Voice::FPlayerRules>& Pair : ResolvedRules)
 	{
-		if (!Pair.Value.bCanTalk)
-		{
-			Snapshot->ServerMuted.Add(static_cast<uint64>(Pair.Key));
-		}
-		if (!Pair.Value.bCanUseOwnerVoice)
-		{
-			Snapshot->NoOwnerVoice.Add(static_cast<uint64>(Pair.Key));
-		}
+		Snapshot->Rules.Add(static_cast<uint64>(Pair.Key), Pair.Value);
 	}
+	Snapshot->LocalRules = LocalRules;
+	Snapshot->MouthNotSent.Append(MouthNotSent);
+	Snapshot->MouthDropped.Append(MouthDropped);
 	Snapshot->PlayerVolumes.Reserve(PlayerVolumes.Num());
 	for (const TPair<int64, float>& Pair : PlayerVolumes)
 	{
@@ -1274,6 +1364,8 @@ void USteamVoiceSubsystem::PublishRouting()
 	PublishedMuted = MoveTemp(Muted);
 	PublishedBlocked = MoveTemp(Blocked);
 	PublishedTransmitChannels = MoveTemp(Transmit);
+	PublishedMouthNotSent = MouthNotSent;
+	PublishedMouthDropped = MouthDropped;
 	bPublishedTransmitMouth = bTransmitMouth;
 	PublishedLocalId = LocalId.Value;
 	bPublishedRecord = bMicOpen;
@@ -2082,8 +2174,14 @@ void USteamVoiceSubsystem::HandleAuthorityChanged(ASteamVoiceAuthority* InAuthor
 		if (InAuthority->HasAuthority())
 		{
 			// A new authority (new world, travel) starts from what this game instance decided, with a higher version than any before.
-			InAuthority->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice);
-			InAuthority->ResetPlayerRules(ServerPlayerRules);
+			TMap<int64, FSteamVoicePlayerRules> Effective = ServerPlayerRules;
+			for (const int64 Player : IdentityConflicts)
+			{
+				Effective.FindOrAdd(Player).bIdentityConflict = true;
+			}
+			InAuthority->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice, ServerOwnerVoiceMaxDistance);
+			InAuthority->SetChannelMapHash(LocalChannelMapHash);
+			InAuthority->ResetPlayerRules(Effective);
 			BumpServerRulesVersion();
 			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: server authority started in %s (rules version %d, %d player rule(s))."), *GetNameSafe(InAuthority->GetWorld()), ServerRulesVersion, ServerPlayerRules.Num());
 		}
@@ -2146,10 +2244,234 @@ FSteamResult USteamVoiceSubsystem::ServerSetPlayerCanUseOwnerVoice(FSteamId Play
 	return FSteamResult::Success();
 }
 
+FSteamResult USteamVoiceSubsystem::ServerSetPlayerChannels(FSteamId Player, const FSteamVoiceChannelRule& Transmit, const FSteamVoiceChannelRule& Listen)
+{
+	FSteamResult Result;
+	if (!CanSetServerRules(Result))
+	{
+		return Result;
+	}
+	if (!Player.IsValid())
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoiceRulesInvalidPlayerChannels", "The Steam ID is not valid."));
+	}
+
+	FSteamVoicePlayerRules Rules = ServerPlayerRules.FindRef(Player.Value);
+	if (!NormalizeChannelRule(Transmit, Rules.Transmit, Result) || !NormalizeChannelRule(Listen, Rules.Listen, Result))
+	{
+		return Result;
+	}
+	SetServerPlayerRules(Player, Rules);
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::ServerSetOwnerVoiceMaxDistance(float Distance)
+{
+	FSteamResult Result;
+	if (!CanSetServerRules(Result))
+	{
+		return Result;
+	}
+	if (!(Distance >= 0.0f))
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoiceDistanceInvalid", "The owner voice max distance must be 0 (no limit) or more."));
+	}
+
+	if (Distance != ServerOwnerVoiceMaxDistance)
+	{
+		ServerOwnerVoiceMaxDistance = Distance;
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: the server limits owner voice to %s."), Distance > 0.0f ? *FString::Printf(TEXT("%.0f cm"), Distance) : TEXT("no distance (off)"));
+		PushServerGameRules();
+	}
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::ServerSetPlayerOwnerVoiceMaxDistance(FSteamId Player, float Distance)
+{
+	FSteamResult Result;
+	if (!CanSetServerRules(Result))
+	{
+		return Result;
+	}
+	if (!Player.IsValid() || FMath::IsNaN(Distance))
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoicePlayerDistanceInvalid", "The Steam ID or the distance is not valid."));
+	}
+
+	FSteamVoicePlayerRules Rules = ServerPlayerRules.FindRef(Player.Value);
+	Rules.OwnerVoiceMaxDistance = Distance < 0.0f ? -1.0f : Distance;
+	SetServerPlayerRules(Player, Rules);
+	return FSteamResult::Success();
+}
+
 FSteamVoicePlayerRules USteamVoiceSubsystem::GetPlayerVoiceRules(FSteamId Player) const
 {
 	// The server's own map is current even between worlds, when no authority actor exists.
-	return (HasVoiceAuthority() ? ServerPlayerRules : AppliedPlayerRules).FindRef(Player.Value);
+	return HasVoiceAuthority() ? GetEffectiveServerRules(Player.Value) : AppliedPlayerRules.FindRef(Player.Value);
+}
+
+FSteamVoicePlayerRules USteamVoiceSubsystem::GetEffectiveServerRules(int64 Player) const
+{
+	FSteamVoicePlayerRules Rules = ServerPlayerRules.FindRef(Player);
+	Rules.bIdentityConflict = IdentityConflicts.Contains(Player);
+	return Rules;
+}
+
+void USteamVoiceSubsystem::PushServerPlayerRules(int64 Player)
+{
+	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
+	{
+		Actor->SetPlayerRules(FSteamId(Player), GetEffectiveServerRules(Player));
+		BumpServerRulesVersion();
+	}
+	ApplyAuthorityRules();
+}
+
+void USteamVoiceSubsystem::UpdateIdentityConflicts(TConstArrayView<int64> Ids, TConstArrayView<APlayerState*> States)
+{
+	TSet<int64> Duplicates;
+	SandwichSteam::Voice::FindDuplicateIds(Ids, Duplicates);
+	if (Duplicates.Num() == IdentityConflicts.Num() && Duplicates.Includes(IdentityConflicts))
+	{
+		return;
+	}
+
+	TArray<int64> Changed;
+	for (const int64 Player : Duplicates)
+	{
+		if (!IdentityConflicts.Contains(Player))
+		{
+			Changed.Add(Player);
+		}
+	}
+	for (const int64 Player : IdentityConflicts)
+	{
+		if (!Duplicates.Contains(Player))
+		{
+			Changed.Add(Player);
+		}
+	}
+	IdentityConflicts = MoveTemp(Duplicates);
+
+	for (const int64 Player : Changed)
+	{
+		PushServerPlayerRules(Player);
+		if (!IdentityConflicts.Contains(Player))
+		{
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: only one player has Steam ID %s again; their voice follows the rules again."), *FSteamId(Player).ToString());
+			continue;
+		}
+
+		// The player array grows at the end, so the last player state with the id is the one that joined.
+		APlayerState* Joining = nullptr;
+		for (int32 Index = Ids.Num() - 1; Index >= 0; --Index)
+		{
+			if (Ids[Index] == Player)
+			{
+				Joining = States[Index];
+				break;
+			}
+		}
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: two players have Steam ID %s (joining: %s). Their voice is refused until one leaves; On Voice Identity Conflict lets the game kick. Steam auth verifies Steam IDs."),
+			*FSteamId(Player).ToString(), *GetNameSafe(Joining));
+		OnVoiceIdentityConflict.Broadcast(FSteamId(Player), Joining);
+	}
+}
+
+void USteamVoiceSubsystem::UpdateOwnerVoiceRange()
+{
+	MouthNotSent.Reset();
+	MouthDropped.Reset();
+
+	bool bAnyLimit = OwnerVoiceMaxDistance > 0.0f;
+	for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
+	{
+		bAnyLimit |= Pair.Value.OwnerVoiceMaxDistance > 0.0f;
+	}
+	if (!bAnyLimit)
+	{
+		MouthInRange.Reset();
+		return;
+	}
+
+	UGameInstance* GameInstance = GetGameInstance();
+	const APlayerController* Controller = GameInstance ? GameInstance->GetFirstLocalPlayerController(GameInstance->GetWorld()) : nullptr;
+	const APawn* LocalPawn = Controller ? Controller->GetPawn() : nullptr;
+	const FSteamVoicePlayerRules* LocalRules = LocalId.IsValid() ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
+	const float LocalDistance = SandwichSteam::Voice::ResolveOwnerVoiceDistance(OwnerVoiceMaxDistance, LocalRules ? LocalRules->OwnerVoiceMaxDistance : 0.0f);
+
+	for (auto It = MouthInRange.CreateIterator(); It; ++It)
+	{
+		if (!Present.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	// Distance between our pawn and theirs, as this client sees them. A pawn that is not net relevant here is gone, so it counts as out of range.
+	for (const int64 Player : Present)
+	{
+		if (Player == LocalId.Value || SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player)))
+		{
+			continue; // Fake talkers have no pawn: they are test tools and keep their mouth.
+		}
+
+		const TWeakObjectPtr<APlayerState>* State = PlayerStates.Find(Player);
+		const APawn* Pawn = State && State->IsValid() ? (*State)->GetPawn() : nullptr;
+		const bool bKnown = IsValid(LocalPawn) && IsValid(Pawn);
+		const double DistanceSquared = bKnown ? FVector::DistSquared(LocalPawn->GetActorLocation(), Pawn->GetActorLocation()) : 0.0;
+
+		// Sending: our distance, with hysteresis. Receiving: the talker's distance, with a wider margin.
+		bool& bInRange = MouthInRange.FindOrAdd(Player, false);
+		bInRange = SandwichSteam::Voice::UpdateMouthInRange(bInRange, bKnown, DistanceSquared, LocalDistance);
+		if (!bInRange)
+		{
+			MouthNotSent.Add(static_cast<uint64>(Player));
+		}
+		const FSteamVoicePlayerRules* Rules = AppliedPlayerRules.Find(Player);
+		const float TalkerDistance = SandwichSteam::Voice::ResolveOwnerVoiceDistance(OwnerVoiceMaxDistance, Rules ? Rules->OwnerVoiceMaxDistance : 0.0f);
+		if (!SandwichSteam::Voice::IsMouthAcceptable(bKnown, DistanceSquared, TalkerDistance))
+		{
+			MouthDropped.Add(static_cast<uint64>(Player));
+		}
+	}
+	MouthNotSent.Sort();
+	MouthDropped.Sort();
+}
+
+void USteamVoiceSubsystem::ResolveAppliedRules()
+{
+	// A tag this build cannot map allows nothing (fail closed); the channel map hash warns about it.
+	const TMap<FGameplayTag, int32>& TagMap = USteamVoiceSettings::Get()->ChannelTagMap;
+	const auto ResolveChannels = [&TagMap](const FSteamVoiceChannelRule& In, SandwichSteam::Voice::FChannelRule& Out)
+	{
+		Out.bRestricted = In.bRestricted;
+		Out.Allowed.Reset();
+		if (In.bRestricted)
+		{
+			for (const FSteamVoiceChannel& Channel : In.Channels)
+			{
+				const int32 Id = Channel.Resolve(TagMap);
+				if (Id >= 0)
+				{
+					Out.Allowed.AddUnique(Id);
+				}
+			}
+			Out.Allowed.Sort();
+		}
+	};
+
+	ResolvedRules.Reset();
+	ResolvedRules.Reserve(AppliedPlayerRules.Num());
+	for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
+	{
+		SandwichSteam::Voice::FPlayerRules& Rules = ResolvedRules.Add(Pair.Key);
+		Rules.bCanTalk = Pair.Value.bCanTalk;
+		Rules.bOwnerVoice = Pair.Value.bCanUseOwnerVoice;
+		Rules.bRefused = Pair.Value.bIdentityConflict;
+		ResolveChannels(Pair.Value.Transmit, Rules.Transmit);
+		ResolveChannels(Pair.Value.Listen, Rules.Listen);
+	}
 }
 
 void USteamVoiceSubsystem::SetServerPlayerRules(FSteamId Player, const FSteamVoicePlayerRules& Rules)
@@ -2168,22 +2490,15 @@ void USteamVoiceSubsystem::SetServerPlayerRules(FSteamId Player, const FSteamVoi
 	{
 		ServerPlayerRules.Add(Player.Value, Rules);
 	}
-	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: server rules for %s: %s, owner voice %s."), *Player.ToString(),
-		Rules.bCanTalk ? TEXT("may talk") : TEXT("server muted"), Rules.bCanUseOwnerVoice ? TEXT("on") : TEXT("off"));
-
-	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
-	{
-		Actor->SetPlayerRules(Player, Rules);
-		BumpServerRulesVersion();
-	}
-	ApplyAuthorityRules();
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: server rules for %s: %s."), *Player.ToString(), *DescribeRules(Rules));
+	PushServerPlayerRules(Player.Value);
 }
 
 void USteamVoiceSubsystem::PushServerGameRules()
 {
 	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
 	{
-		Actor->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice);
+		Actor->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice, ServerOwnerVoiceMaxDistance);
 		BumpServerRulesVersion();
 	}
 	ApplyAuthorityRules();
@@ -2210,11 +2525,15 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 	const bool bReceived = Actor && Actor->GetRulesVersion() > 0;
 	bool bNewAllowed = bVoiceAllowed;
 	ESteamVoicePawnlessMode NewPawnless = PawnlessVoice;
+	float NewDistance = OwnerVoiceMaxDistance;
+	bool bNewMismatch = false;
 	TMap<int64, FSteamVoicePlayerRules> NewRules;
 	if (bReceived)
 	{
 		bNewAllowed = Actor->IsVoiceAllowed();
 		NewPawnless = Actor->GetPawnlessVoice();
+		NewDistance = FMath::Max(Actor->GetOwnerVoiceMaxDistance(), 0.0f);
+		bNewMismatch = Actor->GetChannelMapHash() != LocalChannelMapHash;
 		for (const FSteamVoicePlayerRulesItem& Item : Actor->GetPlayerRules())
 		{
 			if (Item.Player.IsValid() && !Item.Rules.IsDefault())
@@ -2226,17 +2545,24 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 	const int32 NewVersion = bReceived ? Actor->GetRulesVersion() : 0;
 
 	if (bReceived == bRulesReceived && NewVersion == AppliedRulesVersion && bNewAllowed == bVoiceAllowed && NewPawnless == PawnlessVoice
-		&& NewRules.OrderIndependentCompareEqual(AppliedPlayerRules))
+		&& NewDistance == OwnerVoiceMaxDistance && bNewMismatch == bChannelMapMismatch && NewRules.OrderIndependentCompareEqual(AppliedPlayerRules))
 	{
 		return;
 	}
 
 	const bool bReceivedChanged = bReceived != bRulesReceived;
 	const bool bAllowedChanged = bNewAllowed != bVoiceAllowed;
+	if (bNewMismatch && !bChannelMapMismatch)
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: the server's Channel Tag Map differs from this build's. Channel rules and Channel speakers may not match the server's channels; give every build the same map (Project Settings > Plugins > Sandwich Steam - Voice)."));
+	}
+	bChannelMapMismatch = bNewMismatch;
 	bRulesReceived = bReceived;
 	AppliedRulesVersion = NewVersion;
 	AppliedPlayerRules = MoveTemp(NewRules);
+	OwnerVoiceMaxDistance = NewDistance;
 	bVoiceAllowed = bNewAllowed;
+	ResolveAppliedRules();
 	if (NewPawnless != PawnlessVoice)
 	{
 		PawnlessVoice = NewPawnless;
@@ -2244,6 +2570,7 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 	}
 
 	RefreshTalking(false);
+	UpdateOwnerVoiceRange();
 	bRoutingPublished = false;
 	PublishRouting();
 
@@ -2274,13 +2601,7 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 bool USteamVoiceSubsystem::CanLocalTalkByRules() const
 {
 	const FSteamVoicePlayerRules* Rules = LocalId.IsValid() ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
-	return !Rules || Rules->bCanTalk;
-}
-
-bool USteamVoiceSubsystem::CanLocalUseOwnerVoiceByRules() const
-{
-	const FSteamVoicePlayerRules* Rules = LocalId.IsValid() ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
-	return !Rules || Rules->bCanUseOwnerVoice;
+	return !Rules || Rules->MayTalk();
 }
 
 bool USteamVoiceSubsystem::TryBindPushToTalk(APlayerController* Controller)
@@ -2486,13 +2807,17 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 	if (bServerAuthority)
 	{
 		const FString Rules = !bRulesReceived ? FString(TEXT("WAITING FOR RULES (nothing sent or played)"))
-			: FString::Printf(TEXT("rules version %d, voice %s, pawnless %s, %d player rule(s)"), AppliedRulesVersion, bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed"),
-				PawnlessVoice == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("2D"), AppliedPlayerRules.Num());
+			: FString::Printf(TEXT("rules version %d, voice %s, pawnless %s, owner voice distance %s, %d player rule(s)%s"), AppliedRulesVersion, bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed"),
+				PawnlessVoice == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("2D"), OwnerVoiceMaxDistance > 0.0f ? *FString::Printf(TEXT("%.0f cm"), OwnerVoiceMaxDistance) : TEXT("off"),
+				AppliedPlayerRules.Num(), bChannelMapMismatch ? TEXT(", CHANNEL MAP DIFFERS FROM THE SERVER'S") : TEXT(""));
 		Report += FString::Printf(TEXT("  Server authority: on, %s, %s\n"), HasVoiceAuthority() ? TEXT("this game instance is the server") : TEXT("client"), *Rules);
 		for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
 		{
-			Report += FString::Printf(TEXT("    rules: %s%s%s%s\n"), *FSteamId(Pair.Key).ToString(), Pair.Key == LocalId.Value ? TEXT(" (you)") : TEXT(""),
-				Pair.Value.bCanTalk ? TEXT("") : TEXT(", server muted"), Pair.Value.bCanUseOwnerVoice ? TEXT("") : TEXT(", no owner voice"));
+			Report += FString::Printf(TEXT("    rules: %s%s: %s\n"), *FSteamId(Pair.Key).ToString(), Pair.Key == LocalId.Value ? TEXT(" (you)") : TEXT(""), *DescribeRules(Pair.Value));
+		}
+		if (!MouthNotSent.IsEmpty() || !MouthDropped.IsEmpty())
+		{
+			Report += FString::Printf(TEXT("    owner voice out of range: %d player(s) not sent our voice, %d player(s) whose voice is dropped here\n"), MouthNotSent.Num(), MouthDropped.Num());
 		}
 	}
 	else
@@ -2509,8 +2834,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			Channels += Id < 0 ? FString::Printf(TEXT("%s (unmapped, not sent)"), *Name)
 				: (Channel.Tag.IsValid() ? FString::Printf(TEXT("%s (%d)"), *Name, Id) : Name);
 		}
-		Report += FString::Printf(TEXT("  Transmit: mouth %s, channels %s\n"), !bTransmitToOwner ? TEXT("off")
-			: (CanLocalUseOwnerVoiceByRules() ? TEXT("on") : TEXT("off (server rules)")), Channels.IsEmpty() ? TEXT("none") : *Channels);
+		Report += FString::Printf(TEXT("  Transmit: mouth %s, channels %s (after the server rules: mouth %s, %d channel(s))\n"), bTransmitToOwner ? TEXT("on") : TEXT("off"),
+			Channels.IsEmpty() ? TEXT("none") : *Channels, bPublishedTransmitMouth ? TEXT("on") : TEXT("off"), PublishedTransmitChannels.Num());
 	}
 
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
@@ -2571,8 +2896,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		Report += FString::Printf(TEXT("    Worker: %s, loop avg %.2f ms / max %.2f ms, recording %s, last capture result %d\n"),
 			Stats.bRunning ? TEXT("running") : TEXT("stopped"), Stats.LoopAverageMs, Stats.LoopMaxMs, Stats.bRecording ? TEXT("yes") : TEXT("no"), Stats.LastCaptureResult);
 		Report += FString::Printf(TEXT("    Sample rate: Steam optimal %d Hz, decoding at %d Hz\n"), Stats.OptimalSampleRate, Stats.DecodeSampleRate);
-		Report += FString::Printf(TEXT("    Capture: %llu chunk(s), %llu bytes, %llu too large, %llu not transmitted (no mouth, no channel); sent %llu packet(s), %llu failed, %llu hello(s)\n"),
-			Stats.CapturedChunks, Stats.CapturedBytes, Stats.CaptureTooLarge, Stats.NotTransmitted, Stats.PacketsSent, Stats.SendFailures, Stats.HellosSent);
+		Report += FString::Printf(TEXT("    Capture: %llu chunk(s), %llu bytes, %llu too large, %llu not transmitted (no mouth, no channel); sent %llu packet(s), %llu failed, %llu skipped for a peer (server rules), %llu hello(s)\n"),
+			Stats.CapturedChunks, Stats.CapturedBytes, Stats.CaptureTooLarge, Stats.NotTransmitted, Stats.PacketsSent, Stats.SendFailures, Stats.RuleNotSent, Stats.HellosSent);
 		Report += FString::Printf(TEXT("    Microphone: level %.3f, voice activation %s, %llu packet(s) below it not sent, %llu could not be measured\n"),
 			Worker->GetLocalLevel(), Stats.ActivationThreshold > 0.0f ? *FString::Printf(TEXT("%.3f"), Stats.ActivationThreshold) : TEXT("off"), Stats.GatedChunks, Stats.LevelDecodeErrors);
 		Report += FString::Printf(TEXT("    Payload format: %llu/%llu start with our Steam ID, %llu/%llu end with a valid CRC-32 -> %s\n"),
@@ -2583,8 +2908,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		{
 			Report += FString::Printf(TEXT("    Fake speaker ids: %llu packet(s) rewritten, %llu kept ours (layout not as expected)\n"), Stats.FakeRewritten, Stats.FakeRewriteFailed);
 		}
-		Report += FString::Printf(TEXT("    Receive: %llu packet(s), %llu invalid, %llu from non-players, %llu muted, %llu server muted, %llu mouth removed by the server rules, %llu simulated loss, %llu dropped: speaker id is not the sender\n"),
-			Stats.PacketsReceived, Stats.Invalid, Stats.FromUnknown, Stats.MutedDrops, Stats.RuleDrops, Stats.RuleMouthRemoved, Stats.SimLossDrops, Stats.SpeakerMismatch);
+		Report += FString::Printf(TEXT("    Receive: %llu packet(s), %llu invalid, %llu from non-players, %llu muted, %llu dropped by the server rules, %llu mouth removed and %llu with channels removed by the server rules, %llu simulated loss, %llu dropped: speaker id is not the sender\n"),
+			Stats.PacketsReceived, Stats.Invalid, Stats.FromUnknown, Stats.MutedDrops, Stats.RuleDrops, Stats.RuleMouthRemoved, Stats.RuleChannelsRemoved, Stats.SimLossDrops, Stats.SpeakerMismatch);
 		Report += FString::Printf(TEXT("    Sessions: %llu accepted, %llu rejected, %d pending\n"), Stats.SessionsAccepted, Stats.SessionsRejected, Stats.SessionsPending);
 		if (FakeTalkerCount > 0 || SimulatedLossPercent > 0.0f)
 		{

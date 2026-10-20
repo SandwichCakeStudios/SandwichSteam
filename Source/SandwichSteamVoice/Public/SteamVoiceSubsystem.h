@@ -271,8 +271,34 @@ public:
 	/** Whether the player's voice may play on their own pawn (off: only their channels, e.g. dead chat). Server only; needs Server Authority. */
 	FSteamResult ServerSetPlayerCanUseOwnerVoice(FSteamId Player, bool bCanUse);
 
+	/**
+	 * The channels the player may talk and listen on (dead chat, team radio, spectators). Not restricted = every channel; restricted with an
+	 * empty list = none. Their client does not send other channels, nobody sends them channels they may not hear, and everyone drops the rest.
+	 * Channels must resolve with the server's Channel Tag Map. Server only; needs Server Authority.
+	 */
+	FSteamResult ServerSetPlayerChannels(FSteamId Player, const FSteamVoiceChannelRule& Transmit, const FSteamVoiceChannelRule& Listen);
+
+	/**
+	 * How far every player's own voice (their pawn) carries, in cm; 0 = no limit. Beyond it their voice is not sent; a listener whose pawn or the
+	 * talker's pawn is unknown (no pawn, not net relevant) gets no owner voice either. Channels are not limited. Keep it at least the end of
+	 * your voice attenuation, and pawns net relevant that far. Server only; needs Server Authority.
+	 */
+	FSteamResult ServerSetOwnerVoiceMaxDistance(float Distance);
+
+	/** One talker's own distance (megaphone): above 0 replaces the game's distance for their voice, below 0 = no limit, 0 = the game's. Server only; needs Server Authority. */
+	FSteamResult ServerSetPlayerOwnerVoiceMaxDistance(FSteamId Player, float Distance);
+
+	/** The game's owner voice distance as applied here (0 = no limit). */
+	float GetOwnerVoiceMaxDistance() const { return OwnerVoiceMaxDistance; }
+
 	/** The server's rules for the player (default rules when none are set or Server Authority is off). */
 	FSteamVoicePlayerRules GetPlayerVoiceRules(FSteamId Player) const;
+
+	/** True when the server's Channel Tag Map differs from this build's: channel rules and speakers may not match the server's channels. */
+	bool IsChannelMapMismatched() const { return bChannelMapMismatch; }
+
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Server only (Server Authority): a player joined with a Steam ID another player already has. Their voice is refused both ways until one of them leaves. Kick the joining player if your game wants to; the plugin does not kick. Steam auth is needed to verify Steam IDs."))
+	FSteamVoiceIdentityConflict OnVoiceIdentityConflict;
 
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when the server's voice rules arrived or changed (Server Authority): after joining or travel, and whenever the server changes a rule. Refresh a 'muted by the host' icon with it."))
 	FSteamVoiceRulesChanged OnVoiceRulesChanged;
@@ -403,6 +429,21 @@ private:
 	/** Server: one player's rules changed; pushes them to the authority and applies them here. */
 	void SetServerPlayerRules(FSteamId Player, const FSteamVoicePlayerRules& Rules);
 
+	/** Server: a player's rules as the authority carries them (the game's, plus an identity conflict). */
+	FSteamVoicePlayerRules GetEffectiveServerRules(int64 Player) const;
+
+	/** Server: pushes one player's effective rules to the authority and applies them here. */
+	void PushServerPlayerRules(int64 Player);
+
+	/** Server: Ids are the Steam IDs of every player state in order (the joining player last); refuses voice for duplicates and fires the event. */
+	void UpdateIdentityConflicts(TConstArrayView<int64> Ids, TConstArrayView<APlayerState*> States);
+
+	/** Owner voice distance: which peers our mouth reaches and which talkers' mouths may play here (from the pawns, every poll). */
+	void UpdateOwnerVoiceRange();
+
+	/** The applied rules as the voice thread needs them (channel ids from this build's Channel Tag Map). */
+	void ResolveAppliedRules();
+
 	/** Server: the game rules changed; pushes them to the authority and applies them here. */
 	void PushServerGameRules();
 
@@ -414,7 +455,6 @@ private:
 
 	/** The local player may talk / use their mouth under the applied rules. */
 	bool CanLocalTalkByRules() const;
-	bool CanLocalUseOwnerVoiceByRules() const;
 
 	/** Voice may run under the game rules: allowed, and the server's rules arrived (Server Authority). */
 	bool IsVoiceAllowedByRules() const { return bVoiceAllowed && !IsWaitingForVoiceRules(); }
@@ -475,6 +515,8 @@ private:
 	TArray<uint64> PublishedMuted;
 	TArray<uint64> PublishedBlocked;
 	TArray<int32> PublishedTransmitChannels;
+	TArray<uint64> PublishedMouthNotSent;
+	TArray<uint64> PublishedMouthDropped;
 	int64 PublishedLocalId = 0;
 	bool bPublishedRecord = false;
 	bool bPublishedMicTest = false;
@@ -508,11 +550,25 @@ private:
 	bool bServerVoiceAllowed = true;
 	ESteamVoicePawnlessMode ServerPawnlessVoice = ESteamVoicePawnlessMode::Play2D;
 	TMap<int64, FSteamVoicePlayerRules> ServerPlayerRules;
+	float ServerOwnerVoiceMaxDistance = 0.0f;
+	/** Server: Steam IDs two players in the game have; their voice is refused. */
+	TSet<int64> IdentityConflicts;
 	int32 ServerRulesVersion = 0;
 	/** The rules as applied here (from the authority actor). Only players with a restriction. */
 	bool bRulesReceived = false;
 	int32 AppliedRulesVersion = 0;
 	TMap<int64, FSteamVoicePlayerRules> AppliedPlayerRules;
+	float OwnerVoiceMaxDistance = 0.0f;
+	/** AppliedPlayerRules resolved for the worker. */
+	TMap<int64, SandwichSteam::Voice::FPlayerRules> ResolvedRules;
+	/** Hash of this build's Channel Tag Map (the server sends its own on the authority). */
+	uint32 LocalChannelMapHash = 0;
+	/** The server's channel map differs from ours (warned when it starts). */
+	bool bChannelMapMismatch = false;
+	/** Owner voice distance: peers in range of our mouth (sender hysteresis), and the current out-of-range sets for the worker. */
+	TMap<int64, bool> MouthInRange;
+	TArray<uint64> MouthNotSent;
+	TArray<uint64> MouthDropped;
 	FDelegateHandle ActorsInitializedHandle;
 	ESteamVoiceMode Mode = ESteamVoiceMode::PushToTalk;
 	/** Push to talk held, or Start Talking called. */
