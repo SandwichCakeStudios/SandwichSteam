@@ -10,6 +10,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -20,6 +21,7 @@
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
 #include "Core/SteamSDK.h"
+#include "SteamVoiceAuthority.h"
 #include "SteamVoiceOssFallback.h"
 #include "SteamVoiceComponent.h"
 #include "SteamVoiceRouting.h"
@@ -153,6 +155,31 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	TalkingEventsSent = 0;
 	MuteCallsFailed = 0;
 
+	// Server rules: the server's own game rules start from the settings; clients take theirs from the authority actor.
+	bServerAuthority = Settings && Settings->bServerAuthority && bUseSteamPipeline;
+	bServerVoiceAllowed = bVoiceAllowed;
+	ServerPawnlessVoice = PawnlessVoice;
+	bRulesReceived = false;
+	AppliedRulesVersion = 0;
+	AppliedPlayerRules.Reset();
+	if (bServerAuthority)
+	{
+		ActorsInitializedHandle = FWorldDelegates::OnWorldInitializedActors.AddWeakLambda(this, [this](const UWorld::FActorsInitializedParams& Params)
+		{
+			EnsureAuthority(Params.World);
+		});
+
+		// The feature can start after the world (Steam became ready later): its authority is set up now.
+		if (UGameInstance* GameInstance = GetGameInstance())
+		{
+			EnsureAuthority(GameInstance->GetWorld());
+		}
+	}
+	else if (Settings && Settings->bServerAuthority)
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: Server Authority needs the Steam voice pipeline; the Online Subsystem voice runs without server rules."));
+	}
+
 	if (bEnabled)
 	{
 		ApplyEnabledState();
@@ -193,6 +220,18 @@ void USteamVoiceSubsystem::ShutdownFeature()
 		FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
 		WorldCleanupHandle.Reset();
 	}
+
+	// The authority actor stays in its world: a feature that starts again finds it there.
+	if (ActorsInitializedHandle.IsValid())
+	{
+		FWorldDelegates::OnWorldInitializedActors.Remove(ActorsInitializedHandle);
+		ActorsInitializedHandle.Reset();
+	}
+	Authority.Reset();
+	bServerAuthority = false;
+	bRulesReceived = false;
+	AppliedRulesVersion = 0;
+	AppliedPlayerRules.Reset();
 
 	if (OssFallback.IsValid() && bMicOpen && !bUseSteamPipeline)
 	{
@@ -237,6 +276,22 @@ FSteamResult USteamVoiceSubsystem::SetVoiceAllowed(bool bAllowed)
 		return Result;
 	}
 
+	// Server Authority: the server's value reaches every client (and this one) through the authority actor.
+	if (bServerAuthority)
+	{
+		if (!IsServerWorld())
+		{
+			return FSteamResult::Failure(SteamGameplayTags::Error_WrongScope, NSLOCTEXT("SandwichSteam", "VoiceAllowedServerOnly", "Server Authority is on: only the server sets Voice Allowed. It reaches every client with the voice rules."));
+		}
+		if (bAllowed != bServerVoiceAllowed)
+		{
+			bServerVoiceAllowed = bAllowed;
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: the server %s voice for every player."), bAllowed ? TEXT("allows") : TEXT("does not allow"));
+			PushServerGameRules();
+		}
+		return FSteamResult::Success();
+	}
+
 	if (bAllowed != bVoiceAllowed)
 	{
 		bVoiceAllowed = bAllowed;
@@ -254,6 +309,21 @@ FSteamResult USteamVoiceSubsystem::SetPawnlessVoice(ESteamVoicePawnlessMode NewM
 	if (!RequireActive(Result))
 	{
 		return Result;
+	}
+
+	if (bServerAuthority)
+	{
+		if (!IsServerWorld())
+		{
+			return FSteamResult::Failure(SteamGameplayTags::Error_WrongScope, NSLOCTEXT("SandwichSteam", "VoicePawnlessServerOnly", "Server Authority is on: only the server sets Pawnless Voice. It reaches every client with the voice rules."));
+		}
+		if (NewMode != ServerPawnlessVoice)
+		{
+			ServerPawnlessVoice = NewMode;
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: the server makes players without a pawn %s for every player."), NewMode == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("heard in 2D"));
+			PushServerGameRules();
+		}
+		return FSteamResult::Success();
 	}
 
 	if (NewMode != PawnlessVoice)
@@ -760,7 +830,7 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 
 bool USteamVoiceSubsystem::ShouldTalk() const
 {
-	return bEnabled && bVoiceAllowed && (Mode == ESteamVoiceMode::OpenMic || bTalkRequested);
+	return bEnabled && IsVoiceAllowedByRules() && CanLocalTalkByRules() && (Mode == ESteamVoiceMode::OpenMic || bTalkRequested);
 }
 
 void USteamVoiceSubsystem::RefreshTalking(bool bForce)
@@ -1105,9 +1175,10 @@ void USteamVoiceSubsystem::PublishRouting()
 		return;
 	}
 
-	// Not allowed by the game: no peers, so the worker sends nothing and drops voice from everyone (the mic test still plays back).
+	// Not allowed by the game, or the server's rules not here yet: no peers, so the worker sends nothing and drops voice from everyone
+	// (the mic test still plays back).
 	TArray<uint64> Peers;
-	if (bVoiceAllowed)
+	if (IsVoiceAllowedByRules())
 	{
 		Peers.Reserve(Present.Num());
 		for (const int64 Player : Present)
@@ -1139,9 +1210,11 @@ void USteamVoiceSubsystem::PublishRouting()
 	Muted.Sort();
 	Blocked.Sort();
 	TArray<int32> Transmit = ResolveTransmitChannels();
+	const bool bTransmitMouth = bTransmitToOwner && CanLocalUseOwnerVoiceByRules();
 
+	// Server rule changes force a publish (bRoutingPublished = false), so they need no comparison here.
 	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && bPublishedMicTest == bMicTest && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
-		&& bPublishedTransmitMouth == bTransmitToOwner && PublishedTransmitChannels == Transmit)
+		&& bPublishedTransmitMouth == bTransmitMouth && PublishedTransmitChannels == Transmit)
 	{
 		return;
 	}
@@ -1153,12 +1226,23 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->bSend = bMicOpen;
 	Snapshot->bMicTest = bMicTest;
 	Snapshot->bMuteSteamFriendsWhileTalking = Settings && Settings->bMuteSteamFriendsVoiceWhileTalking;
-	Snapshot->bTransmitMouth = bTransmitToOwner;
+	Snapshot->bTransmitMouth = bTransmitMouth;
 	Snapshot->TransmitChannels = Transmit;
 	Snapshot->Peers = Peers;
 	Snapshot->Muted.Append(Muted);
 	Snapshot->bReportMutedTalking = Settings && Settings->bReportMutedTalking;
 	Snapshot->Blocked.Append(Blocked);
+	for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
+	{
+		if (!Pair.Value.bCanTalk)
+		{
+			Snapshot->ServerMuted.Add(static_cast<uint64>(Pair.Key));
+		}
+		if (!Pair.Value.bCanUseOwnerVoice)
+		{
+			Snapshot->NoOwnerVoice.Add(static_cast<uint64>(Pair.Key));
+		}
+	}
 	Snapshot->PlayerVolumes.Reserve(PlayerVolumes.Num());
 	for (const TPair<int64, float>& Pair : PlayerVolumes)
 	{
@@ -1190,7 +1274,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	PublishedMuted = MoveTemp(Muted);
 	PublishedBlocked = MoveTemp(Blocked);
 	PublishedTransmitChannels = MoveTemp(Transmit);
-	bPublishedTransmitMouth = bTransmitToOwner;
+	bPublishedTransmitMouth = bTransmitMouth;
 	PublishedLocalId = LocalId.Value;
 	bPublishedRecord = bMicOpen;
 	bPublishedMicTest = bMicTest;
@@ -1931,6 +2015,274 @@ void USteamVoiceSubsystem::HandlePawnSet(APlayerState* /*Player*/, APawn* /*NewP
 
 // ---- Push to talk ----
 
+// ---- Server rules ----
+
+bool USteamVoiceSubsystem::IsServerWorld() const
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UWorld* World = GameInstance ? GameInstance->GetWorld() : nullptr;
+	return World && World->GetNetMode() != NM_Client;
+}
+
+bool USteamVoiceSubsystem::HasVoiceAuthority() const
+{
+	return bServerAuthority && IsServerWorld();
+}
+
+void USteamVoiceSubsystem::EnsureAuthority(UWorld* World)
+{
+	if (!bServerAuthority || !World || !World->IsGameWorld() || World->GetGameInstance() != GetGameInstance())
+	{
+		return;
+	}
+
+	// One that is already there (the feature started after the world, or started again; on a client the replicated one): use it.
+	for (TActorIterator<ASteamVoiceAuthority> It(World); It; ++It)
+	{
+		if (IsValid(*It) && !It->IsActorBeingDestroyed())
+		{
+			HandleAuthorityChanged(*It, false);
+			return;
+		}
+	}
+	if (World->GetNetMode() == NM_Client)
+	{
+		return; // Its authority replicates from the server.
+	}
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.ObjectFlags |= RF_Transient;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ASteamVoiceAuthority* NewAuthority = World->SpawnActor<ASteamVoiceAuthority>(SpawnParameters);
+	if (!NewAuthority)
+	{
+		UE_LOG(LogSandwichSteam, Error, TEXT("Steam voice: the voice authority could not be spawned in %s; clients wait for voice rules that never come."), *World->GetName());
+		return;
+	}
+	HandleAuthorityChanged(NewAuthority, false);
+}
+
+void USteamVoiceSubsystem::HandleAuthorityChanged(ASteamVoiceAuthority* InAuthority, bool bRemoved)
+{
+	if (!bServerAuthority || !InAuthority)
+	{
+		return;
+	}
+
+	if (bRemoved)
+	{
+		if (Authority.Get() == InAuthority)
+		{
+			Authority.Reset();
+		}
+	}
+	else if (Authority.Get() != InAuthority)
+	{
+		Authority = InAuthority;
+		if (InAuthority->HasAuthority())
+		{
+			// A new authority (new world, travel) starts from what this game instance decided, with a higher version than any before.
+			InAuthority->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice);
+			InAuthority->ResetPlayerRules(ServerPlayerRules);
+			BumpServerRulesVersion();
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: server authority started in %s (rules version %d, %d player rule(s))."), *GetNameSafe(InAuthority->GetWorld()), ServerRulesVersion, ServerPlayerRules.Num());
+		}
+	}
+	ApplyAuthorityRules();
+}
+
+bool USteamVoiceSubsystem::CanSetServerRules(FSteamResult& OutResult) const
+{
+	if (!RequireActive(OutResult))
+	{
+		return false;
+	}
+	if (!bServerAuthority)
+	{
+		OutResult = FSteamResult::Failure(SteamGameplayTags::Error_NotSupported, NSLOCTEXT("SandwichSteam", "VoiceRulesNeedAuthority", "Server voice rules need Server Authority (Voice settings) and the Steam voice pipeline."));
+		return false;
+	}
+	if (!IsServerWorld())
+	{
+		OutResult = FSteamResult::Failure(SteamGameplayTags::Error_WrongScope, NSLOCTEXT("SandwichSteam", "VoiceRulesServerOnly", "Only the server sets voice rules."));
+		return false;
+	}
+	return true;
+}
+
+FSteamResult USteamVoiceSubsystem::ServerSetPlayerCanTalk(FSteamId Player, bool bCanTalk)
+{
+	FSteamResult Result;
+	if (!CanSetServerRules(Result))
+	{
+		return Result;
+	}
+	if (!Player.IsValid())
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoiceRulesInvalidPlayer", "The Steam ID is not valid."));
+	}
+
+	FSteamVoicePlayerRules Rules = ServerPlayerRules.FindRef(Player.Value);
+	Rules.bCanTalk = bCanTalk;
+	SetServerPlayerRules(Player, Rules);
+	return FSteamResult::Success();
+}
+
+FSteamResult USteamVoiceSubsystem::ServerSetPlayerCanUseOwnerVoice(FSteamId Player, bool bCanUse)
+{
+	FSteamResult Result;
+	if (!CanSetServerRules(Result))
+	{
+		return Result;
+	}
+	if (!Player.IsValid())
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "VoiceRulesInvalidPlayerMouth", "The Steam ID is not valid."));
+	}
+
+	FSteamVoicePlayerRules Rules = ServerPlayerRules.FindRef(Player.Value);
+	Rules.bCanUseOwnerVoice = bCanUse;
+	SetServerPlayerRules(Player, Rules);
+	return FSteamResult::Success();
+}
+
+FSteamVoicePlayerRules USteamVoiceSubsystem::GetPlayerVoiceRules(FSteamId Player) const
+{
+	// The server's own map is current even between worlds, when no authority actor exists.
+	return (HasVoiceAuthority() ? ServerPlayerRules : AppliedPlayerRules).FindRef(Player.Value);
+}
+
+void USteamVoiceSubsystem::SetServerPlayerRules(FSteamId Player, const FSteamVoicePlayerRules& Rules)
+{
+	const FSteamVoicePlayerRules* Current = ServerPlayerRules.Find(Player.Value);
+	if (Current ? *Current == Rules : Rules.IsDefault())
+	{
+		return;
+	}
+
+	if (Rules.IsDefault())
+	{
+		ServerPlayerRules.Remove(Player.Value);
+	}
+	else
+	{
+		ServerPlayerRules.Add(Player.Value, Rules);
+	}
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: server rules for %s: %s, owner voice %s."), *Player.ToString(),
+		Rules.bCanTalk ? TEXT("may talk") : TEXT("server muted"), Rules.bCanUseOwnerVoice ? TEXT("on") : TEXT("off"));
+
+	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
+	{
+		Actor->SetPlayerRules(Player, Rules);
+		BumpServerRulesVersion();
+	}
+	ApplyAuthorityRules();
+}
+
+void USteamVoiceSubsystem::PushServerGameRules()
+{
+	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
+	{
+		Actor->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice);
+		BumpServerRulesVersion();
+	}
+	ApplyAuthorityRules();
+}
+
+void USteamVoiceSubsystem::BumpServerRulesVersion()
+{
+	++ServerRulesVersion;
+	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
+	{
+		Actor->SetRulesVersion(ServerRulesVersion);
+	}
+}
+
+void USteamVoiceSubsystem::ApplyAuthorityRules()
+{
+	if (!bServerAuthority)
+	{
+		return;
+	}
+
+	// No authority (joining, travel) or one the server has not filled: wait, and forget the rules of the last server.
+	const ASteamVoiceAuthority* Actor = Authority.Get();
+	const bool bReceived = Actor && Actor->GetRulesVersion() > 0;
+	bool bNewAllowed = bVoiceAllowed;
+	ESteamVoicePawnlessMode NewPawnless = PawnlessVoice;
+	TMap<int64, FSteamVoicePlayerRules> NewRules;
+	if (bReceived)
+	{
+		bNewAllowed = Actor->IsVoiceAllowed();
+		NewPawnless = Actor->GetPawnlessVoice();
+		for (const FSteamVoicePlayerRulesItem& Item : Actor->GetPlayerRules())
+		{
+			if (Item.Player.IsValid() && !Item.Rules.IsDefault())
+			{
+				NewRules.Add(Item.Player.Value, Item.Rules);
+			}
+		}
+	}
+	const int32 NewVersion = bReceived ? Actor->GetRulesVersion() : 0;
+
+	if (bReceived == bRulesReceived && NewVersion == AppliedRulesVersion && bNewAllowed == bVoiceAllowed && NewPawnless == PawnlessVoice
+		&& NewRules.OrderIndependentCompareEqual(AppliedPlayerRules))
+	{
+		return;
+	}
+
+	const bool bReceivedChanged = bReceived != bRulesReceived;
+	const bool bAllowedChanged = bNewAllowed != bVoiceAllowed;
+	bRulesReceived = bReceived;
+	AppliedRulesVersion = NewVersion;
+	AppliedPlayerRules = MoveTemp(NewRules);
+	bVoiceAllowed = bNewAllowed;
+	if (NewPawnless != PawnlessVoice)
+	{
+		PawnlessVoice = NewPawnless;
+		bSpeakersDirty = true;
+	}
+
+	RefreshTalking(false);
+	bRoutingPublished = false;
+	PublishRouting();
+
+	if (bReceivedChanged)
+	{
+		if (bRulesReceived)
+		{
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: server voice rules received (version %d): voice %s, players without a pawn %s, %d player rule(s)."), AppliedRulesVersion,
+				bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed"), PawnlessVoice == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("2D"), AppliedPlayerRules.Num());
+		}
+		else
+		{
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: waiting for the server's voice rules; nothing is sent or played until they arrive."));
+		}
+	}
+	else
+	{
+		UE_LOG(LogSandwichSteam, Verbose, TEXT("Steam voice: server voice rules version %d applied."), AppliedRulesVersion);
+	}
+
+	if (bAllowedChanged)
+	{
+		OnVoiceAllowedChanged.Broadcast(bVoiceAllowed);
+	}
+	OnVoiceRulesChanged.Broadcast();
+}
+
+bool USteamVoiceSubsystem::CanLocalTalkByRules() const
+{
+	const FSteamVoicePlayerRules* Rules = LocalId.IsValid() ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
+	return !Rules || Rules->bCanTalk;
+}
+
+bool USteamVoiceSubsystem::CanLocalUseOwnerVoiceByRules() const
+{
+	const FSteamVoicePlayerRules* Rules = LocalId.IsValid() ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
+	return !Rules || Rules->bCanUseOwnerVoice;
+}
+
 bool USteamVoiceSubsystem::TryBindPushToTalk(APlayerController* Controller)
 {
 	UEnhancedInputComponent* InputComponent = Controller ? Cast<UEnhancedInputComponent>(Controller->InputComponent) : nullptr;
@@ -2131,6 +2483,22 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		bEnabled ? TEXT("enabled") : TEXT("disabled"), bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed by the game (nothing sent or played)"), Mode == ESteamVoiceMode::PushToTalk ? TEXT("push to talk") : TEXT("open mic"),
 		bMicOpen ? TEXT("open") : TEXT("closed"), bTalkRequested ? TEXT("yes") : TEXT("no"), bMicTest ? TEXT("on (plays back, sends nothing by itself)") : TEXT("off"), IsHeadsetPresent() ? TEXT("present") : TEXT("not found"));
 	Report += FString::Printf(TEXT("  Local user: %s, local talking: %s\n"), *LocalId.ToString(), IsLocalTalking() ? TEXT("yes") : TEXT("no"));
+	if (bServerAuthority)
+	{
+		const FString Rules = !bRulesReceived ? FString(TEXT("WAITING FOR RULES (nothing sent or played)"))
+			: FString::Printf(TEXT("rules version %d, voice %s, pawnless %s, %d player rule(s)"), AppliedRulesVersion, bVoiceAllowed ? TEXT("allowed") : TEXT("not allowed"),
+				PawnlessVoice == ESteamVoicePawnlessMode::Silent ? TEXT("silent") : TEXT("2D"), AppliedPlayerRules.Num());
+		Report += FString::Printf(TEXT("  Server authority: on, %s, %s\n"), HasVoiceAuthority() ? TEXT("this game instance is the server") : TEXT("client"), *Rules);
+		for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
+		{
+			Report += FString::Printf(TEXT("    rules: %s%s%s%s\n"), *FSteamId(Pair.Key).ToString(), Pair.Key == LocalId.Value ? TEXT(" (you)") : TEXT(""),
+				Pair.Value.bCanTalk ? TEXT("") : TEXT(", server muted"), Pair.Value.bCanUseOwnerVoice ? TEXT("") : TEXT(", no owner voice"));
+		}
+	}
+	else
+	{
+		Report += TEXT("  Server authority: off (every client receives every player; proximity and channels are not private)\n");
+	}
 	{
 		FString Channels;
 		for (const FSteamVoiceChannel& Channel : TransmitChannels)
@@ -2141,7 +2509,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			Channels += Id < 0 ? FString::Printf(TEXT("%s (unmapped, not sent)"), *Name)
 				: (Channel.Tag.IsValid() ? FString::Printf(TEXT("%s (%d)"), *Name, Id) : Name);
 		}
-		Report += FString::Printf(TEXT("  Transmit: mouth %s, channels %s\n"), bTransmitToOwner ? TEXT("on") : TEXT("off"), Channels.IsEmpty() ? TEXT("none") : *Channels);
+		Report += FString::Printf(TEXT("  Transmit: mouth %s, channels %s\n"), !bTransmitToOwner ? TEXT("off")
+			: (CanLocalUseOwnerVoiceByRules() ? TEXT("on") : TEXT("off (server rules)")), Channels.IsEmpty() ? TEXT("none") : *Channels);
 	}
 
 	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
@@ -2214,8 +2583,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		{
 			Report += FString::Printf(TEXT("    Fake speaker ids: %llu packet(s) rewritten, %llu kept ours (layout not as expected)\n"), Stats.FakeRewritten, Stats.FakeRewriteFailed);
 		}
-		Report += FString::Printf(TEXT("    Receive: %llu packet(s), %llu invalid, %llu from non-players, %llu muted, %llu simulated loss, %llu dropped: speaker id is not the sender\n"),
-			Stats.PacketsReceived, Stats.Invalid, Stats.FromUnknown, Stats.MutedDrops, Stats.SimLossDrops, Stats.SpeakerMismatch);
+		Report += FString::Printf(TEXT("    Receive: %llu packet(s), %llu invalid, %llu from non-players, %llu muted, %llu server muted, %llu mouth removed by the server rules, %llu simulated loss, %llu dropped: speaker id is not the sender\n"),
+			Stats.PacketsReceived, Stats.Invalid, Stats.FromUnknown, Stats.MutedDrops, Stats.RuleDrops, Stats.RuleMouthRemoved, Stats.SimLossDrops, Stats.SpeakerMismatch);
 		Report += FString::Printf(TEXT("    Sessions: %llu accepted, %llu rejected, %d pending\n"), Stats.SessionsAccepted, Stats.SessionsRejected, Stats.SessionsPending);
 		if (FakeTalkerCount > 0 || SimulatedLossPercent > 0.0f)
 		{

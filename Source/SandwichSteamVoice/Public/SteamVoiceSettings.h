@@ -31,7 +31,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Voice is on when the game starts. Turn off to enable it from your options menu (Set Voice Enabled). While voice is off nothing runs: no microphone, no polling, no input binding."))
 	bool bEnabledByDefault = true;
 
-	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "The game allows voice when it starts. Turn off for a game that starts in a lobby without voice, then call Set Voice Allowed when voice should start (the match). This is the game's rule, separate from the player's Enabled option: voice runs only while both are on. Not allowed: nothing is sent or played, the player's own setting is kept and the mic test still works. Online Subsystem voice: only the microphone closes."))
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "The game allows voice when it starts. Turn off for a game that starts in a lobby without voice, then call Set Voice Allowed when voice should start (the match). This is the game's rule, separate from the player's Enabled option: voice runs only while both are on. Not allowed: nothing is sent or played, the player's own setting is kept and the mic test still works. With Server Authority this is the server's start value and clients get it from the server. Online Subsystem voice: only the microphone closes."))
 	bool bVoiceAllowedByDefault = true;
 
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "On: the Steam voice pipeline (Steam capture and codec over Steam networking messages; clearer and louder). Off: the Online Subsystem voice (IOnlineVoice over the game connection) as a fallback. Changing it offers Configure Steam, which removes (on) or adds (off) [OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled in DefaultEngine.ini. Restart the editor afterwards."))
@@ -57,6 +57,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Microphone", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "2000", ForceUnits = "ms", ToolTip = "How long the microphone keeps sending after the level fell below the voice activation threshold, so word ends and short pauses are kept."))
 	int32 VoiceActivationHoldMs = 300;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Server Authority", meta = (ToolTip = "The server decides the voice rules and every client follows them: Voice Allowed and Pawnless Voice (set them on the server; clients are refused), and per player rules (Server Set Player Can Talk / Can Use Owner Voice). A client sends and plays nothing until the rules arrived, so voice starts a moment after joining or travel. Without it every client receives every player and every channel: proximity and channels only decide what is played, and a modified client can hear everything. With it an honest client only sends what the rules allow and everyone drops what they forbid; cheaters working together can still get around it. Rules are visible to every client. Player identity is the Steam ID of the player state, which needs Steam auth to be verified. Steam voice pipeline only."))
+	bool bServerAuthority = false;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "255", ToolTip = "Steam networking messages channel used for voice. Change it only when your game uses SteamNetworkingMessages on channel 7 itself."))
 	int32 SteamMessageChannel = 7;
@@ -85,7 +88,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "The component class the plugin adds to pawns (Auto Add Voice Component) and uses for players without a pawn (Pawnless Voice 2D; unattached and always 2D). Make a Blueprint child of Steam Voice to give it an attenuation, concurrency and effects. Empty = Steam Voice (2D, no attenuation)."))
 	TSoftClassPtr<USteamVoiceComponent> VoiceComponentClass;
 
-	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn) when the game starts. 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). Change it at runtime with Set Pawnless Voice, for example 2D in the lobby and Silent in the match. Steam voice pipeline only."))
+	UPROPERTY(Config, EditAnywhere, Category = "Speakers", meta = (ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn) when the game starts. 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). Change it at runtime with Set Pawnless Voice, for example 2D in the lobby and Silent in the match. With Server Authority this is the server's start value and clients get it from the server. Steam voice pipeline only."))
 	ESteamVoicePawnlessMode DefaultPawnlessVoice = ESteamVoicePawnlessMode::Play2D;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Push To Talk", meta = (ToolTip = "The Enhanced Input action that is held to talk (a digital action). The plugin binds it on the local player controller's Enhanced Input component: pressed = start talking, released = stop. Leave empty to drive Start Talking / Stop Talking yourself."))

@@ -15,6 +15,7 @@ class AGameStateBase;
 class APawn;
 class APlayerController;
 class APlayerState;
+class ASteamVoiceAuthority;
 class FSteamVoiceOssFallback;
 class FSteamVoiceTransport;
 class FSteamVoiceWorker;
@@ -45,6 +46,9 @@ namespace Audio
  * Both work while players are in the same game session. The feature adds a mode (push to talk / open mic) you can switch at runtime,
  * push to talk through Enhanced Input, mute by Steam ID with automatic muting of players you blocked on Steam, talking events and a master volume.
  *
+ * With Server Authority (Voice settings) the server decides the voice rules: an ASteamVoiceAuthority replicates them to every client, which
+ * follows them on both ends and sends and plays nothing until they arrived.
+ *
  * While voice is disabled (Set Voice Enabled false, or Enabled By Default off) nothing runs: no polling, no input binding, no microphone.
  * All methods run on the game thread.
  */
@@ -72,15 +76,17 @@ public:
 	/**
 	 * The game's voice rule, separate from the player's Set Voice Enabled option (voice runs while both are on): forbid voice in a lobby, allow
 	 * it in the match. Not allowed: the microphone closes, nothing is sent and other players are not played or reported talking; the mic test
-	 * and push to talk binding stay, and a held push to talk opens the microphone once allowed. Local to this client: call it on every client
-	 * (from replicated game state). Online Subsystem voice: only closes the microphone.
+	 * and push to talk binding stay, and a held push to talk opens the microphone once allowed. Without Server Authority it is local to this
+	 * client: call it on every client (from replicated game state). With Server Authority call it on the server; it reaches every client with
+	 * the rules, and clients are refused (WrongScope). Online Subsystem voice: only closes the microphone.
 	 */
 	FSteamResult SetVoiceAllowed(bool bAllowed);
 	bool IsVoiceAllowed() const { return bVoiceAllowed; }
 
 	/**
 	 * How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn): one 2D speaker, or silent until they
-	 * have a pawn again. Applies on the next speaker update. Fake talkers and the mic test always play 2D. Steam voice pipeline only.
+	 * have a pawn again. Applies on the next speaker update. Fake talkers and the mic test always play 2D. With Server Authority call it on the
+	 * server (clients are refused, WrongScope). Steam voice pipeline only.
 	 */
 	FSteamResult SetPawnlessVoice(ESteamVoicePawnlessMode NewMode);
 	ESteamVoicePawnlessMode GetPawnlessVoice() const { return PawnlessVoice; }
@@ -242,6 +248,38 @@ public:
 	 */
 	TArray<FSteamId> GetSpeakerTalkers(const USteamVoiceComponent* Speaker) const;
 
+	// ---- Server rules (Server Authority in the Voice settings) ----
+
+	/** True when Server Authority is on and the Steam voice pipeline is used: the server decides the voice rules. */
+	bool IsServerAuthorityEnabled() const { return bServerAuthority; }
+
+	/** True when Server Authority is on and this game instance is the server (listen host or standalone): the Server Set functions work here. */
+	bool HasVoiceAuthority() const;
+
+	/** True while Server Authority is on and the server's rules have not arrived (joining, travel): nothing is sent or played. */
+	bool IsWaitingForVoiceRules() const { return bServerAuthority && !bRulesReceived; }
+
+	/** The version of the rules last applied here (0 = none yet). Rises with every change on the server. */
+	int32 GetVoiceRulesVersion() const { return AppliedRulesVersion; }
+
+	/**
+	 * Server mute: the player's microphone closes and everyone drops their voice. Kept for the life of the server's game instance, also
+	 * when the player leaves and joins again. Server only (clients: WrongScope); needs Server Authority.
+	 */
+	FSteamResult ServerSetPlayerCanTalk(FSteamId Player, bool bCanTalk);
+
+	/** Whether the player's voice may play on their own pawn (off: only their channels, e.g. dead chat). Server only; needs Server Authority. */
+	FSteamResult ServerSetPlayerCanUseOwnerVoice(FSteamId Player, bool bCanUse);
+
+	/** The server's rules for the player (default rules when none are set or Server Authority is off). */
+	FSteamVoicePlayerRules GetPlayerVoiceRules(FSteamId Player) const;
+
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Called when the server's voice rules arrived or changed (Server Authority): after joining or travel, and whenever the server changes a rule. Refresh a 'muted by the host' icon with it."))
+	FSteamVoiceRulesChanged OnVoiceRulesChanged;
+
+	/** The authority actor of the current world began play, changed or ends play (called by ASteamVoiceAuthority). */
+	void HandleAuthorityChanged(ASteamVoiceAuthority* InAuthority, bool bRemoved);
+
 	/** True when the Steam voice pipeline runs (false: Online Subsystem voice, or voice disabled). */
 	bool IsUsingSteamPipeline() const { return bUseSteamPipeline; }
 
@@ -351,6 +389,36 @@ private:
 	void DestroySpeakers();
 	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
 
+	// ---- Server rules ----
+
+	/** True when the world of this game instance is not a network client. */
+	bool IsServerWorld() const;
+
+	/** Uses the authority actor already in the world (feature started late), or on the server spawns one. World: a world of this game instance. */
+	void EnsureAuthority(UWorld* World);
+
+	/** Server: the shared checks of the Server Set functions. */
+	bool CanSetServerRules(FSteamResult& OutResult) const;
+
+	/** Server: one player's rules changed; pushes them to the authority and applies them here. */
+	void SetServerPlayerRules(FSteamId Player, const FSteamVoicePlayerRules& Rules);
+
+	/** Server: the game rules changed; pushes them to the authority and applies them here. */
+	void PushServerGameRules();
+
+	/** Server: raises the version on the authority (clients see one version per change). */
+	void BumpServerRulesVersion();
+
+	/** Reads the authority actor (or its absence) into the applied rules; publishes routing and fires events when something changed. */
+	void ApplyAuthorityRules();
+
+	/** The local player may talk / use their mouth under the applied rules. */
+	bool CanLocalTalkByRules() const;
+	bool CanLocalUseOwnerVoiceByRules() const;
+
+	/** Voice may run under the game rules: allowed, and the server's rules arrived (Server Authority). */
+	bool IsVoiceAllowedByRules() const { return bVoiceAllowed && !IsWaitingForVoiceRules(); }
+
 	/** Remembers a talker's player state and listens to its pawn changes. */
 	void TrackPlayerState(int64 Player, APlayerState* PlayerState);
 	void ForgetPlayerStates();
@@ -428,9 +496,24 @@ private:
 	FTSTicker::FDelegateHandle TickHandle;
 
 	bool bEnabled = false;
-	/** The game's rule (Set Voice Allowed); voice runs while bEnabled and this. */
+	/** The game's rule as applied here (Set Voice Allowed, or the server's with Server Authority); voice runs while bEnabled and this. */
 	bool bVoiceAllowed = true;
 	ESteamVoicePawnlessMode PawnlessVoice = ESteamVoicePawnlessMode::Play2D;
+
+	/** Server Authority setting and the Steam voice pipeline, fixed when the feature starts. */
+	bool bServerAuthority = false;
+	/** The authority actor of the current world (spawned here on the server, replicated on clients). */
+	TWeakObjectPtr<ASteamVoiceAuthority> Authority;
+	/** Server: what this game instance decides while it is the server. Kept across travel; a new authority starts from it. */
+	bool bServerVoiceAllowed = true;
+	ESteamVoicePawnlessMode ServerPawnlessVoice = ESteamVoicePawnlessMode::Play2D;
+	TMap<int64, FSteamVoicePlayerRules> ServerPlayerRules;
+	int32 ServerRulesVersion = 0;
+	/** The rules as applied here (from the authority actor). Only players with a restriction. */
+	bool bRulesReceived = false;
+	int32 AppliedRulesVersion = 0;
+	TMap<int64, FSteamVoicePlayerRules> AppliedPlayerRules;
+	FDelegateHandle ActorsInitializedHandle;
 	ESteamVoiceMode Mode = ESteamVoiceMode::PushToTalk;
 	/** Push to talk held, or Start Talking called. */
 	bool bTalkRequested = false;

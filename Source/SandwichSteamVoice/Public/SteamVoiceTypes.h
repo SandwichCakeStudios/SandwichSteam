@@ -69,6 +69,28 @@ struct SANDWICHSTEAMVOICE_API FSteamVoiceChannel
 	bool operator==(const FSteamVoiceChannel& Other) const { return Tag == Other.Tag && Id == Other.Id; }
 };
 
+/**
+ * What the server allows one player (Server Authority in the Voice settings). Every client follows it on both ends: the player's own client
+ * does not send what is forbidden, and everyone else drops it.
+ */
+USTRUCT(BlueprintType)
+struct SANDWICHSTEAMVOICE_API FSteamVoicePlayerRules
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ToolTip = "The player may talk. Off = server mute: their microphone closes and everyone drops their voice."))
+	bool bCanTalk = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam Voice", meta = (ToolTip = "The player's voice may play on their own pawn (Owner speakers, proximity). Off = only their channels play (dead players, spectators)."))
+	bool bCanUseOwnerVoice = true;
+
+	/** True when nothing is restricted (the rules every player has until the server says otherwise). */
+	bool IsDefault() const { return bCanTalk && bCanUseOwnerVoice; }
+
+	bool operator==(const FSteamVoicePlayerRules& Other) const { return bCanTalk == Other.bCanTalk && bCanUseOwnerVoice == Other.bCanUseOwnerVoice; }
+	bool operator!=(const FSteamVoicePlayerRules& Other) const { return !(*this == Other); }
+};
+
 /** A player (or the local player) started or stopped talking. Fires on the game thread. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FSteamVoiceTalkingChanged, FSteamId, Player, bool, bTalking, bool, bIsLocal);
 
@@ -86,3 +108,6 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSteamVoiceTransmitChannelsChanged,
 
 /** A player sent too much voice data for 5 seconds in a row and is muted for the session. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoicePlayerFlood, FSteamId, Player);
+
+/** The server's voice rules arrived or changed (Server Authority). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FSteamVoiceRulesChanged);

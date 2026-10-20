@@ -4,7 +4,8 @@ using UnrealBuildTool;
 using System.IO;
 
 // Steam in-session voice chat: the Steam voice pipeline (Steam capture and codec, SteamNetworkingMessages, a voice worker thread,
-// USteamVoiceComponent speakers) or the OSS IOnlineVoice fallback, Enhanced Input push to talk, mute + Steam block list.
+// USteamVoiceComponent speakers) or the OSS IOnlineVoice fallback, Enhanced Input push to talk, mute + Steam block list,
+// optional server rules (ASteamVoiceAuthority).
 // Remove this module (and its uplugin entry) to ship without it. It only needs the core.
 public class SandwichSteamVoice : ModuleRules
 {
@@ -23,6 +24,7 @@ public class SandwichSteamVoice : ModuleRules
                 "Engine",
                 "DeveloperSettings",
                 "GameplayTags",
+                "NetCore",          // FFastArraySerializer (the server rules of ASteamVoiceAuthority)
                 "OnlineSubsystem",
                 "AudioMixer",       // USynthComponent (USteamVoiceComponent derives from it)
                 "SignalProcessing", // Audio::FPatchSplitter / FPatchOutput between the voice worker and the speakers
