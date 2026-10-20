@@ -296,6 +296,30 @@ FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerCanUseOwnerVoice(const UObj
 	return Voice ? Voice->ServerSetPlayerCanUseOwnerVoice(Player, bCanUse) : NotAvailable();
 }
 
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerChannels(const UObject* WorldContextObject, FSteamId Player, const FSteamVoiceChannelRule& Transmit, const FSteamVoiceChannelRule& Listen)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerChannels(Player, Transmit, Listen) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject, float Distance)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetOwnerVoiceMaxDistance(Distance) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerOwnerVoiceMaxDistance(const UObject* WorldContextObject, FSteamId Player, float Distance)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerOwnerVoiceMaxDistance(Player, Distance) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetOwnerVoiceMaxDistance() : 0.0f;
+}
+
 FSteamVoicePlayerRules USteamVoiceLibrary::GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);

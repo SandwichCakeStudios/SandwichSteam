@@ -165,6 +165,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "Whether the player's voice plays on their own pawn (Server Authority). Off: only their channels play, for dead players or spectators who may still use dead chat. Call it on the server; clients are refused (Steam.Error.WrongScope)."))
 	static FSteamResult ServerSetSteamPlayerCanUseOwnerVoice(const UObject* WorldContextObject, FSteamId Player, bool bCanUse);
 
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The channels the player may talk and listen on (Server Authority): dead chat, team radio, spectators. Not Restricted = every channel; Restricted with no channels = none. Their client does not send other channels, nobody sends them channels they may not hear, and everyone drops the rest. Call it on the server; clients are refused (Steam.Error.WrongScope)."))
+	static FSteamResult ServerSetSteamPlayerChannels(const UObject* WorldContextObject, FSteamId Player, const FSteamVoiceChannelRule& Transmit, const FSteamVoiceChannelRule& Listen);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How far every player's own voice (their pawn) carries, in cm; 0 = no limit (Server Authority). Beyond it their voice is not sent at all, so proximity stays private. Players without a pawn, or whose pawn is not net relevant, are out of range. Channels are not limited. Keep it at least the end of your voice attenuation. Call it on the server."))
+	static FSteamResult ServerSetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject, float Distance);
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How far one player's own voice carries (Server Authority), for example a megaphone power-up: above 0 replaces the game's distance for their voice, below 0 = no limit, 0 = the game's distance again. Call it on the server."))
+	static FSteamResult ServerSetSteamPlayerOwnerVoiceMaxDistance(const UObject* WorldContextObject, FSteamId Player, float Distance);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The game's owner voice distance in cm as applied here (0 = no limit). A player's own distance in their rules replaces it for their voice."))
+	static float GetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject);
+
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The server's voice rules for the player (Server Authority). Every client can read them: show a 'muted by the host' icon with Can Talk. Default rules (everything allowed) when none are set."))
 	static FSteamVoicePlayerRules GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player);
 
