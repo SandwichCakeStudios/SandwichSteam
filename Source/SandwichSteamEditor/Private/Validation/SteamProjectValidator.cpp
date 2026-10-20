@@ -337,6 +337,33 @@ namespace
 		}
 	}
 
+	void CheckVoicePrivacy(TArray<FSteamValidationCheck>& Out)
+	{
+		namespace Voice = SandwichSteam::Editor::Voice;
+		if (!Voice::IsModuleInstalled() || !Voice::UsesSteamPipeline())
+		{
+			return; // Server rules need the Steam voice pipeline.
+		}
+
+		// The Voice module is optional, so its settings are read from the config instead of through its class.
+		bool bServerAuthority = false;
+		if (GConfig)
+		{
+			GConfig->GetBool(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("bServerAuthority"), bServerAuthority, GGameIni);
+		}
+
+		const FName Id(TEXT("VoicePrivacy"));
+		const FText Label = LOCTEXT("VoicePrivacyLabel", "Voice privacy (Voice)");
+		if (bServerAuthority)
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoicePrivacyAuthority", "Server Authority is on: honest clients only send what the server's rules allow (channels, owner voice distance) and everyone drops the rest. Cheaters working together can still get around it, and rules are visible to every client.")));
+		}
+		else
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("VoicePrivacyNoAuthority", "Server Authority is off: every client receives every player's voice on every channel. Proximity and channels only decide what plays, so they are not private; a modified client hears everything. Turn on Server Authority (Project Settings > Plugins > Sandwich Steam - Voice) when team radio or proximity must stay private.")));
+		}
+	}
+
 	void CheckSteamAuth(TArray<FSteamValidationCheck>& Out)
 	{
 		namespace Auth = SandwichSteam::Editor::Auth;
@@ -449,6 +476,7 @@ TArray<FSteamValidationCheck> FSteamProjectValidator::Run()
 	CheckSessions(Checks);
 	CheckVoice(Checks);
 	CheckVoiceChannels(Checks);
+	CheckVoicePrivacy(Checks);
 	CheckSteamAuth(Checks);
 	CheckInput(Checks, Settings);
 	return Checks;
