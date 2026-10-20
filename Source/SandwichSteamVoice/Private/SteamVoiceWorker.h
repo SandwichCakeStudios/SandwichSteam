@@ -154,7 +154,8 @@ private:
 	void DeliverFakePackets(double Now);
 	void Playout(double Now);
 	/** Decodes one played packet and routes it to the mouth and to the channels it carries. */
-	void Decode(FTalker& Talker, const SandwichSteam::Voice::FPacketView& Packet, double Now, double Stamp);
+	/** bMouth: the packet plays on the talker's pawn (its Mouth flag, unless the server rules take the talker's mouth away). */
+	void Decode(FTalker& Talker, const SandwichSteam::Voice::FPacketView& Packet, bool bMouth, double Now, double Stamp);
 	void ApplyChannelOutputs();
 	void MixChannels(double Now);
 	void CheckDecode(double Stamp, const int16* Samples, int32 NumSamples, double Now);

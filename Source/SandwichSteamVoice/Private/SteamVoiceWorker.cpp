@@ -680,6 +680,13 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		return;
 	}
 
+	// The server's rules: a server-muted talker is dropped by everyone.
+	if (Snapshot->ServerMuted.Contains(Sender))
+	{
+		++Stats.RuleDrops;
+		return;
+	}
+
 	// A muted talker whose talking is still reported is queued like anybody else and skipped at playout (never decoded).
 	if (Snapshot->Blocked.Contains(Sender) || (Snapshot->Muted.Contains(Sender) && !Snapshot->bReportMutedTalking))
 	{
@@ -738,7 +745,12 @@ void FSteamVoiceWorker::Playout(double Now)
 				continue;
 			}
 
-			// A mute set while packets were queued applies to them too.
+			// A server mute or a mute set while packets were queued applies to them too.
+			if (Snapshot->ServerMuted.Contains(Talker.Id))
+			{
+				++Stats.RuleDrops;
+				continue;
+			}
 			const bool bMuted = Snapshot->Muted.Contains(Talker.Id);
 			if (Snapshot->Blocked.Contains(Talker.Id) || (bMuted && !Snapshot->bReportMutedTalking))
 			{
@@ -746,20 +758,28 @@ void FSteamVoiceWorker::Playout(double Now)
 				continue;
 			}
 
+			// The server rules can take a talker's mouth away (dead players); their channels still play.
+			bool bMouth = Packet.HasMouth();
+			if (bMouth && Snapshot->NoOwnerVoice.Contains(Talker.Id))
+			{
+				bMouth = false;
+				++Stats.RuleMouthRemoved;
+			}
+
 			// Talking and where the voice goes follow the played packets, whether or not a speaker here plays them.
 			Talker.LastAudio = Now;
-			UpdateTransmit(Talker.Transmit, Talker.Id, Packet.HasMouth(), Packet.GetChannels());
+			UpdateTransmit(Talker.Transmit, Talker.Id, bMouth, Packet.GetChannels());
 			if (bMuted)
 			{
 				++Stats.MutedDrops;
 				continue;
 			}
-			Decode(Talker, Packet, Now, Stamp);
+			Decode(Talker, Packet, bMouth, Now, Stamp);
 		}
 	}
 }
 
-void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, double Now, double Stamp)
+void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, bool bMouth, double Now, double Stamp)
 {
 #if SANDWICHSTEAM_WITH_STEAMWORKS
 	ISteamUser* User = SteamUser();
@@ -777,7 +797,6 @@ void FSteamVoiceWorker::Decode(FTalker& Talker, const FPacketView& Packet, doubl
 			Targets.AddUnique(Found->Get());
 		}
 	}
-	const bool bMouth = Packet.HasMouth();
 	if (!bMouth && Targets.IsEmpty())
 	{
 		++Stats.NotPlayed;

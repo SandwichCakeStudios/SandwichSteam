@@ -85,6 +85,10 @@ namespace SandwichSteam::Voice
 		bool bReportMutedTalking = false;
 		/** Blocked on Steam: dropped both ways. */
 		TSet<uint64> Blocked;
+		/** Server rules: may not talk (server mute). Their packets are dropped; we still send to them. */
+		TSet<uint64> ServerMuted;
+		/** Server rules: may not use their mouth. Their packets play on channels only. */
+		TSet<uint64> NoOwnerVoice;
 		/** Per player volume (0 to 2), applied before the mouth and the channel mixes. Only players not at 1. */
 		TMap<uint64, float> PlayerVolumes;
 		FFakeTalkerConfig Fake;
@@ -230,6 +234,10 @@ namespace SandwichSteam::Voice
 		/** Fake talker packets with their own speaker id. */
 		uint64 FakeRewritten = 0;
 		uint64 MutedDrops = 0;
+		/** Packets of server-muted talkers dropped (server rules). */
+		uint64 RuleDrops = 0;
+		/** Played packets whose mouth flag the server rules removed. */
+		uint64 RuleMouthRemoved = 0;
 		uint64 SimLossDrops = 0;
 		/**
 		 * Decoder check (two or more fake talkers): every fake decodes the same packets, interleaved with the others. With separate decoder
