@@ -1,6 +1,8 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "SteamVoiceRules.h"
+#include "Algo/BinarySearch.h"
+#include "Misc/Crc.h"
 
 namespace SandwichSteam::Voice
 {
@@ -113,5 +115,120 @@ namespace SandwichSteam::Voice
 		Auto.Reset();
 		SystemWide.Reset();
 		Applied.Reset();
+	}
+
+	bool FChannelRule::Allows(int32 Id) const
+	{
+		return !bRestricted || Algo::BinarySearch(Allowed, Id) != INDEX_NONE;
+	}
+
+	void FilterForTalker(const FPlayerRules& Talker, bool bMouth, TConstArrayView<int32> Channels, FVoiceRoute& Out)
+	{
+		Out.bMouth = false;
+		Out.Channels.Reset();
+		if (!Talker.bCanTalk || Talker.bRefused)
+		{
+			return;
+		}
+
+		Out.bMouth = bMouth && Talker.bOwnerVoice;
+		for (const int32 Id : Channels)
+		{
+			if (Talker.Transmit.Allows(Id))
+			{
+				Out.Channels.Add(Id);
+			}
+		}
+	}
+
+	void FilterForListener(const FPlayerRules& Listener, bool bMouthInRange, const FVoiceRoute& Route, FVoiceRoute& Out)
+	{
+		Out.bMouth = false;
+		Out.Channels.Reset();
+		if (Listener.bRefused)
+		{
+			return;
+		}
+
+		Out.bMouth = Route.bMouth && bMouthInRange;
+		for (const int32 Id : Route.Channels)
+		{
+			if (Listener.Listen.Allows(Id))
+			{
+				Out.Channels.Add(Id);
+			}
+		}
+	}
+
+	float ResolveOwnerVoiceDistance(float Global, float TalkerOverride)
+	{
+		if (TalkerOverride > 0.0f)
+		{
+			return TalkerOverride;
+		}
+		if (TalkerOverride < 0.0f)
+		{
+			return 0.0f;
+		}
+		return FMath::Max(Global, 0.0f);
+	}
+
+	bool UpdateMouthInRange(bool bWasInRange, bool bKnown, double DistanceSquared, float MaxDistance)
+	{
+		if (MaxDistance <= 0.0f)
+		{
+			return true;
+		}
+		if (!bKnown)
+		{
+			return false;
+		}
+		const double Limit = bWasInRange ? MaxDistance * (1.0 + OwnerVoiceHysteresis) : MaxDistance;
+		return DistanceSquared <= Limit * Limit;
+	}
+
+	bool IsMouthAcceptable(bool bKnown, double DistanceSquared, float MaxDistance)
+	{
+		if (MaxDistance <= 0.0f)
+		{
+			return true;
+		}
+		const double Limit = MaxDistance * (1.0 + OwnerVoiceReceiveSlack);
+		return bKnown && DistanceSquared <= Limit * Limit;
+	}
+
+	uint32 HashChannelMap(const TMap<FGameplayTag, int32>& TagMap)
+	{
+		TArray<TPair<FString, int32>> Entries;
+		Entries.Reserve(TagMap.Num());
+		for (const TPair<FGameplayTag, int32>& Pair : TagMap)
+		{
+			Entries.Emplace(Pair.Key.ToString(), Pair.Value);
+		}
+		Entries.Sort([](const TPair<FString, int32>& A, const TPair<FString, int32>& B) { return A.Key < B.Key; });
+
+		uint32 Hash = 0;
+		for (const TPair<FString, int32>& Entry : Entries)
+		{
+			Hash = FCrc::StrCrc32(*Entry.Key, Hash);
+			Hash = FCrc::MemCrc32(&Entry.Value, sizeof(Entry.Value), Hash);
+		}
+		return Hash;
+	}
+
+	void FindDuplicateIds(TConstArrayView<int64> Ids, TSet<int64>& Out)
+	{
+		Out.Reset();
+		TSet<int64> Seen;
+		Seen.Reserve(Ids.Num());
+		for (const int64 Id : Ids)
+		{
+			bool bAlreadySeen = false;
+			Seen.Add(Id, &bAlreadySeen);
+			if (bAlreadySeen)
+			{
+				Out.Add(Id);
+			}
+		}
 	}
 }
