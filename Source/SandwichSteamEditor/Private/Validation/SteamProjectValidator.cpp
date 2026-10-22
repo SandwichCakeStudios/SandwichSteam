@@ -347,14 +347,25 @@ namespace
 
 		// The Voice module is optional, so its settings are read from the config instead of through its class.
 		bool bServerAuthority = false;
+		FString Topology;
 		if (GConfig)
 		{
 			GConfig->GetBool(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("bServerAuthority"), bServerAuthority, GGameIni);
+			GConfig->GetString(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("Topology"), Topology, GGameIni);
 		}
+		const bool bServerRelay = Topology == TEXT("ServerRelay");
 
 		const FName Id(TEXT("VoicePrivacy"));
 		const FText Label = LOCTEXT("VoicePrivacyLabel", "Voice privacy (Voice)");
-		if (bServerAuthority)
+		if (bServerRelay && !bServerAuthority)
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, LOCTEXT("VoicePrivacyRelayNoAuthority", "Topology is Server Relay, but Server Authority is off: the relay needs the server's rules, so voice runs peer to peer and is not private. Turn on Server Authority (Project Settings > Plugins > Sandwich Steam - Voice), or set Topology back to Peer To Peer.")));
+		}
+		else if (bServerAuthority && bServerRelay)
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoicePrivacyRelay", "Server Relay: clients send their voice to the host only, and the host forwards only what the server's rules allow. Proximity and channels stay private even against cheaters working together. Rules are still visible to every client; the host uploads every forwarded stream.")));
+		}
+		else if (bServerAuthority)
 		{
 			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoicePrivacyAuthority", "Server Authority is on: honest clients only send what the server's rules allow (channels, owner voice distance) and everyone drops the rest. Cheaters working together can still get around it, and rules are visible to every client.")));
 		}
