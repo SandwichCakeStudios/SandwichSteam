@@ -130,7 +130,7 @@ private:
 	FSteamSessionSettings Applied;
 };
 
-/** Changes the settings of the running session (or lobby only lobby). Host / lobby owner only. */
+/** Changes the settings of the running session (or of the party lobby without a session). Host / lobby owner only. */
 UCLASS()
 class SANDWICHSTEAMSESSIONS_API USteamUpdateSessionAsyncAction : public USteamAsyncActionBase
 {
@@ -141,7 +141,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions|By Settings", meta = (ToolTip = "Called with the settings Steam actually applied."))
 	FSteamSessionSettingsAppliedAsyncDelegate OnUpdated;
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|By Settings", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Settings", DisplayName = "Update Steam Session", ToolTip = "Changes the settings of the running session or lobby only lobby (name, visibility, slots, extra settings). Host / lobby owner only (Steam.Error.NotOwner otherwise). Rules are guardrails checked on the host: a modified client can skip them."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|By Settings", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Settings", DisplayName = "Update Steam Session", ToolTip = "Changes the settings of the running session, or of the party lobby when there is no session, (name, visibility, slots, extra settings). Host / lobby owner only (Steam.Error.NotOwner otherwise). Rules are guardrails checked on the host: a modified client can skip them."))
 	static USteamUpdateSessionAsyncAction* UpdateSteamSession(const UObject* WorldContextObject, const FSteamSessionSettings& Settings);
 
 protected:
@@ -172,7 +172,7 @@ protected:
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamLobbyIdAsyncDelegate, FSteamId, LobbyId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamLobbiesFoundAsyncDelegate, const TArray<FSteamLobbyInfo>&, Lobbies);
 
-/** Creates a lobby without a net session (lobby only mode). */
+/** Creates the party lobby (a lobby without a net session). */
 UCLASS()
 class SANDWICHSTEAMSESSIONS_API USteamCreateLobbyAsyncAction : public USteamAsyncActionBase
 {
@@ -183,7 +183,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions", meta = (ToolTip = "Called with the Steam ID of the new lobby."))
 	FSteamLobbyIdAsyncDelegate OnLobbyEntered;
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", Categories = "Steam.Session", DisplayName = "Create Steam Lobby", ToolTip = "Creates a Steam lobby without a net session (chat, lobby data and a ready check, for example a character select before the match). Uses the slots, visibility and settings of a session profile. Exclusive with a session."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", Categories = "Steam.Session", DisplayName = "Create Steam Lobby", ToolTip = "Creates a Steam lobby without a net session (chat, lobby data and a ready check, for example a character select before the match). Uses the slots, visibility and settings of a session profile. This is the party lobby: it may exist next to a session and outlives it."))
 	static USteamCreateLobbyAsyncAction* CreateSteamLobby(const UObject* WorldContextObject, FGameplayTag ProfileTag);
 
 protected:
@@ -207,7 +207,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions|By Settings", meta = (ToolTip = "Called with the Steam ID of the new lobby and the settings Steam actually applied."))
 	FSteamLobbySettingsAppliedAsyncDelegate OnLobbyEntered;
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|By Settings", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Settings", DisplayName = "Create Steam Lobby With Settings", ToolTip = "Creates a Steam lobby without a net session, from a plain settings struct: full player control, no session profile and no rules. Exclusive with a session."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|By Settings", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Settings", DisplayName = "Create Steam Lobby With Settings", ToolTip = "Creates a Steam lobby without a net session, from a plain settings struct: full player control, no session profile and no rules. This is the party lobby: it may exist next to a session and outlives it."))
 	static USteamCreateLobbyWithSettingsAsyncAction* CreateSteamLobbyWithSettings(const UObject* WorldContextObject, const FSteamSessionSettings& Settings);
 
 protected:
@@ -232,7 +232,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions|By Settings", meta = (ToolTip = "Called with the Steam ID of the new lobby and the settings Steam actually applied."))
 	FSteamLobbySettingsAppliedAsyncDelegate OnLobbyEntered;
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|By Settings", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", Categories = "Steam.Session", AutoCreateRefTerm = "Settings", DisplayName = "Create Steam Lobby From Profile", ToolTip = "Creates a Steam lobby without a net session, from a session profile with player-chosen settings. Values outside the profile's optional guardrails are clamped or refused. Exclusive with a session."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|By Settings", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", Categories = "Steam.Session", AutoCreateRefTerm = "Settings", DisplayName = "Create Steam Lobby From Profile", ToolTip = "Creates a Steam lobby without a net session, from a session profile with player-chosen settings. Values outside the profile's optional guardrails are clamped or refused. This is the party lobby: it may exist next to a session and outlives it."))
 	static USteamCreateLobbyFromProfileAsyncAction* CreateSteamLobbyFromProfile(const UObject* WorldContextObject, FGameplayTag ProfileTag, const FSteamSessionSettings& Settings);
 
 protected:
@@ -247,7 +247,7 @@ private:
 	FSteamSessionSettings Applied;
 };
 
-/** Joins a lobby by its Steam ID (lobby only mode). */
+/** Joins a lobby by its Steam ID as the party lobby. */
 UCLASS()
 class SANDWICHSTEAMSESSIONS_API USteamJoinLobbyAsyncAction : public USteamAsyncActionBase
 {
@@ -258,7 +258,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions", meta = (ToolTip = "Called with the Steam ID of the lobby that was entered."))
 	FSteamLobbyIdAsyncDelegate OnLobbyEntered;
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Join Steam Lobby", ToolTip = "Joins a Steam lobby by its Steam ID (lobby only mode, no net session). Fails with Lobby Full, Lobby Not Found or Lobby Denied."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Join Steam Lobby", ToolTip = "Joins a Steam lobby by its Steam ID (the party lobby, no net session). Fails with Lobby Full, Lobby Not Found or Lobby Denied."))
 	static USteamJoinLobbyAsyncAction* JoinSteamLobby(const UObject* WorldContextObject, FSteamId LobbyId);
 
 protected:
@@ -271,7 +271,74 @@ private:
 	FSteamId EnteredId;
 };
 
-/** Searches lobby only lobbies. */
+/** Hosts a session of a profile and begins a party match with it (party owner only). */
+UCLASS()
+class SANDWICHSTEAMSESSIONS_API USteamHostPartySessionAsyncAction : public USteamAsyncActionBase
+{
+	GENERATED_BODY()
+
+public:
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|Party", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", Categories = "Steam.Session", DisplayName = "Host Steam Party Session", ToolTip = "Party owner only. Creates a session of a profile (as Create Steam Session) and begins a party match with its lobby, so the party members join it. Call it when this game already listens (after Steam Server Travel with Listen), so the members can connect at once."))
+	static USteamHostPartySessionAsyncAction* HostSteamPartySession(const UObject* WorldContextObject, FGameplayTag ProfileTag);
+
+protected:
+	virtual TSubclassOf<USteamFeatureSubsystem> GetFeatureClass() const override;
+	virtual void StartRequest() override;
+
+private:
+	FGameplayTag ProfileTag;
+};
+
+/** Hosts a session from a plain settings struct and begins a party match with it (party owner only). */
+UCLASS()
+class SANDWICHSTEAMSESSIONS_API USteamHostPartySessionWithSettingsAsyncAction : public USteamAsyncActionBase
+{
+	GENERATED_BODY()
+
+public:
+	/** Fires (in addition to OnSuccess) with the settings Steam actually applied. */
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions|Party", meta = (ToolTip = "Called with the settings Steam actually applied."))
+	FSteamSessionSettingsAppliedAsyncDelegate OnCreated;
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|Party", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Settings", DisplayName = "Host Steam Party Session With Settings", ToolTip = "Party owner only. Creates a session from a plain settings struct (as Create Steam Session With Settings) and begins a party match with its lobby. Call it when this game already listens (after Steam Server Travel with Listen)."))
+	static USteamHostPartySessionWithSettingsAsyncAction* HostSteamPartySessionWithSettings(const UObject* WorldContextObject, const FSteamSessionSettings& Settings);
+
+protected:
+	virtual TSubclassOf<USteamFeatureSubsystem> GetFeatureClass() const override;
+	virtual void StartRequest() override;
+	virtual void BroadcastSuccess() override;
+
+private:
+	FSteamSessionSettings Settings;
+	FSteamSessionSettings Applied;
+};
+
+/** Hosts a session of a profile with player-chosen settings and begins a party match with it (party owner only). */
+UCLASS()
+class SANDWICHSTEAMSESSIONS_API USteamHostPartySessionFromProfileAsyncAction : public USteamAsyncActionBase
+{
+	GENERATED_BODY()
+
+public:
+	/** Fires (in addition to OnSuccess) with the settings Steam actually applied. */
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions|Party", meta = (ToolTip = "Called with the settings Steam actually applied."))
+	FSteamSessionSettingsAppliedAsyncDelegate OnCreated;
+
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions|Party", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", Categories = "Steam.Session", AutoCreateRefTerm = "Settings", DisplayName = "Host Steam Party Session From Profile", ToolTip = "Party owner only. Creates a session of a profile with player-chosen settings (as Create Steam Session From Profile) and begins a party match with its lobby. Call it when this game already listens (after Steam Server Travel with Listen)."))
+	static USteamHostPartySessionFromProfileAsyncAction* HostSteamPartySessionFromProfile(const UObject* WorldContextObject, FGameplayTag ProfileTag, const FSteamSessionSettings& Settings);
+
+protected:
+	virtual TSubclassOf<USteamFeatureSubsystem> GetFeatureClass() const override;
+	virtual void StartRequest() override;
+	virtual void BroadcastSuccess() override;
+
+private:
+	FGameplayTag ProfileTag;
+	FSteamSessionSettings Settings;
+	FSteamSessionSettings Applied;
+};
+
+/** Searches lobbies (party lobbies). */
 UCLASS()
 class SANDWICHSTEAMSESSIONS_API USteamFindLobbiesAsyncAction : public USteamAsyncActionBase
 {
@@ -282,7 +349,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Steam|Sessions", meta = (ToolTip = "Called with the lobbies that were found (possibly none)."))
 	FSteamLobbiesFoundAsyncDelegate OnLobbiesFound;
 
-	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Options", DisplayName = "Find Steam Lobbies", ToolTip = "Searches Steam lobbies (lobby only mode). Only lobbies with a free slot. Lobbies of net sessions are found with Find Steam Sessions."))
+	UFUNCTION(BlueprintCallable, Category = "Steam|Sessions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm = "Options", DisplayName = "Find Steam Lobbies", ToolTip = "Searches Steam lobbies (party lobbies). Only lobbies with a free slot. Lobbies of net sessions are found with Find Steam Sessions."))
 	static USteamFindLobbiesAsyncAction* FindSteamLobbies(const UObject* WorldContextObject, const FSteamSessionSearchOptions& Options);
 
 protected:
