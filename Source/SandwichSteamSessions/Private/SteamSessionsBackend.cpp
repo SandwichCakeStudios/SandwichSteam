@@ -394,7 +394,8 @@ bool FSteamSessionsBackend::FindSessionById(FSteamId LobbyId)
 		return false;
 	}
 
-	// [verify] The Steam Online Subsystem resolves a lobby ID passed as the session ID (join by +connect_lobby).
+	// The Steam Online Subsystem's FindSessionById is a stub (UE 5.7 / 5.8): it calls the delegate at once with no result.
+	// Kept for other Online Subsystems; on Steam a party match is followed by the host's Steam ID instead (DecideFollow).
 	return Sessions->FindSessionById(*LocalUserId, *LobbyNetId, *LocalUserId,
 		FOnSingleSessionResultCompleteDelegate::CreateSP(this, &FSteamSessionsBackend::OnFindSessionByIdComplete));
 }
