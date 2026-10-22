@@ -61,6 +61,18 @@ namespace SandwichSteam::Sessions
 	/** Steam lobby data key that carries the player-chosen display name of a session (Phase 9c). */
 	inline const TCHAR* NameKey() { return TEXT("OSTNAME"); }
 
+	/** Party lobby data key: 1 while a party match runs, 0 otherwise. */
+	inline const TCHAR* InGameKey() { return TEXT("OSTINGAME"); }
+
+	/** Party lobby data key: the running party match (EncodePartyMatch). */
+	inline const TCHAR* MatchKey() { return TEXT("OSTMATCH"); }
+
+	/** Party lobby data key: the lobby type and joinable flag saved by Begin Party Match (EncodeSavedLobbyState), so a new owner can restore them. */
+	inline const TCHAR* VisibilityKey() { return TEXT("OSTVISIBILITY"); }
+
+	/** Lobby data key that marks a party lobby (1). Join requests for such a lobby join the party, not a net session. */
+	inline const TCHAR* PartyKey() { return TEXT("OSTPARTY"); }
+
 	// ---- Lobby extras (Phase 9b) ----
 
 	/** Steam limits: a lobby key is at most 255 bytes, a lobby / member data value 8192 bytes, a chat message 4096 bytes (UTF-8). */
@@ -76,7 +88,7 @@ namespace SandwichSteam::Sessions
 
 	FString KickKey(const FSteamId& Member);
 
-	/** Keys the plugin owns (profile tag, session name, kick markers). The game cannot set or delete them. */
+	/** Keys the plugin owns (profile tag, session name, party keys, kick markers). The game cannot set or delete them. */
 	bool IsReservedLobbyKey(const FString& Key);
 
 	/** "1" and "true" (any case) are true. Anything else, including empty, is false. */
@@ -128,4 +140,62 @@ namespace SandwichSteam::Sessions
 	 * change from Current (it decides whether the session is a Steam lobby, which cannot be flipped after creation).
 	 */
 	bool ValidateSessionUpdate(const FSteamSessionProfileDef* Profile, const FSteamSessionSettings& Current, const FSteamSessionSettings& Requested, int32 CurrentPlayers, FSteamSessionSettings& OutApplied, FText& OutError);
+
+	// ---- Party lobby (Phase 17) ----
+
+	/** The lobby a target means: Active = Party when valid, else Session. Invalid when that lobby does not exist. */
+	FSteamId ResolveLobbyTarget(ESteamLobbyTarget Target, const FSteamId& Party, const FSteamId& Session);
+
+	/** The match as one lobby data value ("lobby=<id>;server=<id>;addr=<ip:port>", empty parts left out). Empty for an invalid match. */
+	FString EncodePartyMatch(const FSteamPartyMatch& Match);
+
+	/** Reads EncodePartyMatch's text. False (and an empty match) when nothing usable is in it. */
+	bool DecodePartyMatch(const FString& Text, FSteamPartyMatch& OutMatch);
+
+	/** Steam's lobby types (ELobbyType without the SDK): what a party lobby is set to. */
+	enum class EPartyLobbyType : uint8
+	{
+		Public,
+		FriendsOnly,
+		Private,
+		Invisible
+	};
+
+	EPartyLobbyType ToPartyLobbyType(ESteamSessionVisibility Visibility);
+
+	/** Lobby type and joinable flag of a party lobby. */
+	struct FPartyLobbyState
+	{
+		EPartyLobbyType Type = EPartyLobbyType::Public;
+		bool bJoinable = true;
+
+		friend bool operator==(const FPartyLobbyState& A, const FPartyLobbyState& B) { return A.Type == B.Type && A.bJoinable == B.bJoinable; }
+	};
+
+	/** The state while a party match runs: Before with the match visibility and, when bClose, closed. */
+	FPartyLobbyState MakeMatchLobbyState(const FPartyLobbyState& Before, ESteamPartyMatchVisibility Visibility, bool bClose);
+
+	/** "<type>,<joinable>" for the VisibilityKey lobby data, and back. Decode is false on anything else. */
+	FString EncodeSavedLobbyState(const FPartyLobbyState& State);
+	bool DecodeSavedLobbyState(const FString& Text, FPartyLobbyState& OutState);
+
+	/** How a member follows a party match. */
+	enum class EPartyFollow : uint8
+	{
+		/** Nothing to do: invalid match, or the local player already hosts it / is in it. */
+		None,
+		/** Join the session lobby through the Online Subsystem. */
+		Session,
+		/** Travel to steam.<ServerSteamId>. */
+		SteamId,
+		/** Travel to the address. */
+		Address
+	};
+
+	/** Server Steam Id first, then Session Lobby, then Address. None when the local player is the server or already in the session lobby. */
+	EPartyFollow DecideFollow(const FSteamPartyMatch& Match, const FSteamId& LocalId, const FSteamId& CurrentSessionLobby);
+
+	/** Reads "a.b.c.d:port" (IPv4, port 1..65535). False on anything else, for example a host name. */
+	bool ParseIPv4Address(const FString& Address, uint32& OutIp, uint16& OutPort);
+	FString FormatIPv4Address(uint32 Ip, uint16 Port);
 }
