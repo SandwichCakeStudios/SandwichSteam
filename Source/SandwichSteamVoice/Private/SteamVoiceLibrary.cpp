@@ -37,6 +37,12 @@ bool USteamVoiceLibrary::IsSteamVoiceAllowed(const UObject* WorldContextObject)
 	return Voice && Voice->IsVoiceAllowed();
 }
 
+bool USteamVoiceLibrary::IsSteamLobbyVoiceActive(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsLobbyVoiceActive();
+}
+
 FSteamResult USteamVoiceLibrary::SetSteamPawnlessVoice(const UObject* WorldContextObject, ESteamVoicePawnlessMode Mode)
 {
 	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);

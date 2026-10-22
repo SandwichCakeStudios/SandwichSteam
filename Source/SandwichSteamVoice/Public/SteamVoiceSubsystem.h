@@ -17,6 +17,7 @@ class APawn;
 class APlayerController;
 class APlayerState;
 class ASteamVoiceAuthority;
+class FSteamVoiceLobby;
 class FSteamVoiceOssFallback;
 class FSteamVoiceTransport;
 class FSteamVoiceWorker;
@@ -44,7 +45,8 @@ namespace Audio
  *   over the game connection (IOnlineVoice). [/Script/Engine.GameSession] bRequiresPushToTalk=true keeps the engine from opening the microphone.
  * When the ini does not match the setting, the path the ini allows runs and an error is logged.
  *
- * Both work while players are in the same game session. The feature adds a mode (push to talk / open mic) you can switch at runtime,
+ * Both work while players are in the same game session; with Allow Voice In Lobby the Steam pipeline also plays the members of a Steam lobby
+ * while there is no networked game (2D, peer to peer). The feature adds a mode (push to talk / open mic) you can switch at runtime,
  * push to talk through Enhanced Input, mute by Steam ID with automatic muting of players you blocked on Steam, talking events and a master volume.
  *
  * With Server Authority (Voice settings) the server decides the voice rules: an ASteamVoiceAuthority replicates them to every client, which
@@ -162,8 +164,15 @@ public:
 	/** Steam ID of the local player. Invalid until Steam answered. */
 	FSteamId GetLocalPlayerId() const { return LocalId; }
 
-	/** The players of the current game as of the last poll (the local player included). Empty while voice is disabled. */
+	/** The players of the current game as of the last poll (the local player included), or the lobby members while lobby voice runs. Empty while voice is disabled. */
 	TArray<FSteamId> GetPlayersInGame() const;
+
+	/**
+	 * True while lobby voice runs (Allow Voice In Lobby in the Voice settings): voice is enabled, the local player is in a Steam lobby and the
+	 * world is not a networked game. The lobby members are the players then, heard in 2D and peer to peer; Server Relay, the server's player
+	 * rules and the owner voice distance start with the game. Steam voice pipeline only.
+	 */
+	bool IsLobbyVoiceActive() const { return bLobbyVoiceActive; }
 
 	/**
 	 * True while the player talks (the local player too). Steam voice pipeline: from the voice itself, at once (a muted player only with
@@ -302,8 +311,8 @@ public:
 	 */
 	FSteamResult ServerSetVoiceTopology(ESteamVoiceTopology NewTopology);
 
-	/** How voice travels as applied here (the server's choice; Peer To Peer until the rules arrived). */
-	ESteamVoiceTopology GetVoiceTopology() const { return AppliedRelayHost != 0 ? ESteamVoiceTopology::ServerRelay : ESteamVoiceTopology::PeerToPeer; }
+	/** How voice travels as applied here (the server's choice; Peer To Peer until the rules arrived and while lobby voice runs). */
+	ESteamVoiceTopology GetVoiceTopology() const { return GetActiveRelayHost() != 0 ? ESteamVoiceTopology::ServerRelay : ESteamVoiceTopology::PeerToPeer; }
 
 	/** True when this game instance forwards everybody's voice (the Server Relay host). It keeps forwarding while its own player has voice off. */
 	bool IsVoiceRelayHost() const;
@@ -488,6 +497,12 @@ private:
 	/** Server: the relay host the authority carries (this host's Steam ID for Server Relay, invalid for peer to peer). */
 	FSteamId GetServerRelayHost() const;
 
+	/** The relay host voice uses right now: the applied one, 0 (peer to peer) while lobby voice runs. */
+	int64 GetActiveRelayHost() const { return bLobbyVoiceActive ? 0 : AppliedRelayHost; }
+
+	/** Lobby voice started or stopped: speakers, microphone and routing follow (relay host and server rules change with it). */
+	void SetLobbyVoiceActive(bool bActive);
+
 	/** Server: raises the version on the authority (clients see one version per change). */
 	void BumpServerRulesVersion();
 
@@ -511,6 +526,12 @@ private:
 	TSharedPtr<FSteamVoiceTransport> Transport;
 	/** Shared pointers keep the forward declarations above enough for the generated code. */
 	TSharedPtr<FSteamVoiceWorker> Worker;
+	/** The Steam lobbies the local player is in (Allow Voice In Lobby, Steam voice pipeline). */
+	TSharedPtr<FSteamVoiceLobby> Lobby;
+	/** Lobby voice runs: the lobby members are the players. */
+	bool bLobbyVoiceActive = false;
+	/** Other lobby members at the last poll (for the dump). */
+	int32 LobbyMemberCount = 0;
 	bool bUseSteamPipeline = false;
 	/** Seconds since the last player poll (the ticker runs every frame while the pipeline is up). */
 	float PollAccumulator = 0.0f;

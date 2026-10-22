@@ -36,6 +36,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True while the game allows voice."))
 	static bool IsSteamVoiceAllowed(const UObject* WorldContextObject);
 
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True while lobby voice runs (Allow Voice In Lobby in the Voice settings): the local player is in a Steam lobby and there is no networked game yet, so the lobby members are heard (2D, peer to peer). Show a 'lobby voice' icon with it. Steam voice pipeline only."))
+	static bool IsSteamLobbyVoiceActive(const UObject* WorldContextObject);
+
 	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Game Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How players are heard while they have no pawn (menus, lobby, spectating, between death and respawn). 2D: heard everywhere. Silent: not heard until they have a pawn again (proximity games). For example 2D in the lobby, Silent in the match. Without Server Authority local to this client; with it call it on the server only. Steam voice pipeline only."))
 	static FSteamResult SetSteamPawnlessVoice(const UObject* WorldContextObject, ESteamVoicePawnlessMode Mode);
 

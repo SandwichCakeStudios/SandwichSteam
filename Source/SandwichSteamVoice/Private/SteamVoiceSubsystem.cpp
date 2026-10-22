@@ -24,6 +24,7 @@
 #include "SteamVoiceAuthority.h"
 #include "SteamVoiceOssFallback.h"
 #include "SteamVoiceComponent.h"
+#include "SteamVoiceLobby.h"
 #include "SteamVoiceRouting.h"
 #include "SteamVoiceRules.h"
 #include "SteamVoiceSettings.h"
@@ -231,6 +232,22 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	AppliedRelayHost = 0;
 	RelayMouthInRange.Reset();
 	RelayMouthOutOfRange.Reset();
+
+	// Lobby voice: lobbies are followed from the start, so a lobby entered while voice is off is known once it is enabled.
+	bLobbyVoiceActive = false;
+	LobbyMemberCount = 0;
+	if (Settings && Settings->bAllowVoiceInLobby)
+	{
+		if (bUseSteamPipeline)
+		{
+			Lobby = MakeShared<FSteamVoiceLobby>();
+		}
+		else
+		{
+			UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: Allow Voice In Lobby needs the Steam voice pipeline; the Online Subsystem voice only carries voice over the game connection."));
+		}
+	}
+
 	if (Settings && Settings->Topology == ESteamVoiceTopology::ServerRelay && !bServerAuthority)
 	{
 		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: Topology is Server Relay, but Server Authority is off (or the Online Subsystem voice runs): voice runs peer to peer."));
@@ -316,6 +333,9 @@ void USteamVoiceSubsystem::ShutdownFeature()
 	RelayMouthInRange.Reset();
 	RelayMouthOutOfRange.Reset();
 	bRelayEcho = false;
+	Lobby.Reset();
+	bLobbyVoiceActive = false;
+	LobbyMemberCount = 0;
 
 	if (OssFallback.IsValid() && bMicOpen && !bUseSteamPipeline)
 	{
@@ -878,6 +898,9 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 		return;
 	}
 
+	// Lobby voice needs this player's voice; it starts again with the next poll once voice is enabled.
+	bLobbyVoiceActive = false;
+
 	// A relay host keeps forwarding everybody else's voice: only this player's side stops (no microphone, nothing played or reported).
 	const bool bRelayOnly = IsVoiceRelayHost();
 	if (!bRelayOnly && TickHandle.IsValid())
@@ -1112,6 +1135,28 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		}
 	}
 
+	// Lobby voice: in a Steam lobby without a networked game, the other lobby members are the players (no player state: 2D speakers).
+	if (Lobby.IsValid())
+	{
+		TSet<int64> Members;
+		Lobby->Update(static_cast<uint64>(LocalId.Value), Members);
+		LobbyMemberCount = Members.Num();
+		const bool bLobbyVoice = bEnabled && Lobby->NumLobbies() > 0 && World && World->GetNetMode() == NM_Standalone;
+		if (bLobbyVoice)
+		{
+			for (const int64 Member : Members)
+			{
+				bool bAlreadyPresent = false;
+				NowPresent.Add(Member, &bAlreadyPresent);
+				if (!bAlreadyPresent)
+				{
+					Others.Emplace(FSteamId(Member), nullptr);
+				}
+			}
+		}
+		SetLobbyVoiceActive(bLobbyVoice);
+	}
+
 	// Fake talkers (Steam.Voice.FakeTalker) count as present, so the test panel lists them. The mic test talker is no player.
 	for (const TPair<int64, FSpeakerSource>& Source : SpeakerSources)
 	{
@@ -1183,6 +1228,22 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	UpdateOwnerVoiceRange();
 	PublishRouting();
 	return true;
+}
+
+void USteamVoiceSubsystem::SetLobbyVoiceActive(bool bActive)
+{
+	if (bActive == bLobbyVoiceActive)
+	{
+		return;
+	}
+
+	bLobbyVoiceActive = bActive;
+	bSpeakersDirty = true; // Lobby members play 2D whatever Pawnless Voice says.
+	RefreshTalking(false);
+	bRoutingPublished = false;
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: lobby voice %s."), bActive
+		? TEXT("started: the lobby members are heard in 2D, peer to peer (Server Relay and the server's player rules start with the game)")
+		: TEXT("stopped"));
 }
 
 void USteamVoiceSubsystem::BroadcastTalking(int64 Player, bool bTalking)
@@ -1332,8 +1393,9 @@ void USteamVoiceSubsystem::PublishRouting()
 	Muted.Sort();
 	Blocked.Sort();
 	// Our own server rules decide what we send at all (no owner voice, allowed transmit channels); receivers check it again.
+	// Lobby voice: the server's player rules start with the game (a menu world is its own server, its rules are not the lobby's).
 	static const SandwichSteam::Voice::FPlayerRules DefaultRules;
-	const SandwichSteam::Voice::FPlayerRules* FoundLocalRules = LocalId.IsValid() ? ResolvedRules.Find(LocalId.Value) : nullptr;
+	const SandwichSteam::Voice::FPlayerRules* FoundLocalRules = LocalId.IsValid() && !bLobbyVoiceActive ? ResolvedRules.Find(LocalId.Value) : nullptr;
 	const SandwichSteam::Voice::FPlayerRules& LocalRules = FoundLocalRules ? *FoundLocalRules : DefaultRules;
 	const TArray<int32> Wanted = ResolveTransmitChannels();
 	SandwichSteam::Voice::FVoiceRoute LocalRoute;
@@ -1344,7 +1406,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	// Server rule changes force a publish (bRoutingPublished = false), so they need no comparison here.
 	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && bPublishedMicTest == bMicTest && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
 		&& bPublishedTransmitMouth == bTransmitMouth && PublishedTransmitChannels == Transmit && PublishedMouthNotSent == MouthNotSent && PublishedMouthDropped == MouthDropped
-		&& PublishedRelayHost == AppliedRelayHost && bPublishedLocalPlayback == bEnabled && PublishedRelayMouthOutOfRange.OrderIndependentCompareEqual(RelayMouthOutOfRange))
+		&& PublishedRelayHost == GetActiveRelayHost() && bPublishedLocalPlayback == bEnabled && PublishedRelayMouthOutOfRange.OrderIndependentCompareEqual(RelayMouthOutOfRange))
 	{
 		return;
 	}
@@ -1362,15 +1424,18 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->Muted.Append(Muted);
 	Snapshot->bReportMutedTalking = Settings && Settings->bReportMutedTalking;
 	Snapshot->Blocked.Append(Blocked);
-	Snapshot->Rules.Reserve(ResolvedRules.Num());
-	for (const TPair<int64, SandwichSteam::Voice::FPlayerRules>& Pair : ResolvedRules)
+	if (!bLobbyVoiceActive)
 	{
-		Snapshot->Rules.Add(static_cast<uint64>(Pair.Key), Pair.Value);
+		Snapshot->Rules.Reserve(ResolvedRules.Num());
+		for (const TPair<int64, SandwichSteam::Voice::FPlayerRules>& Pair : ResolvedRules)
+		{
+			Snapshot->Rules.Add(static_cast<uint64>(Pair.Key), Pair.Value);
+		}
 	}
 	Snapshot->LocalRules = LocalRules;
 	Snapshot->MouthNotSent.Append(MouthNotSent);
 	Snapshot->MouthDropped.Append(MouthDropped);
-	Snapshot->RelayHost = static_cast<uint64>(AppliedRelayHost);
+	Snapshot->RelayHost = static_cast<uint64>(GetActiveRelayHost());
 	Snapshot->bLocalPlayback = bEnabled;
 	if (IsVoiceRelayHost())
 	{
@@ -1412,7 +1477,7 @@ void USteamVoiceSubsystem::PublishRouting()
 	PublishedMouthNotSent = MouthNotSent;
 	PublishedMouthDropped = MouthDropped;
 	PublishedRelayMouthOutOfRange = RelayMouthOutOfRange;
-	PublishedRelayHost = AppliedRelayHost;
+	PublishedRelayHost = GetActiveRelayHost();
 	bPublishedLocalPlayback = bEnabled;
 	bPublishedTransmitMouth = bTransmitMouth;
 	PublishedLocalId = LocalId.Value;
@@ -1829,7 +1894,7 @@ void USteamVoiceSubsystem::UpdateSpeakers()
 		{
 			// No pawn (menus, lobby, spectators, dead): one unattached 2D speaker, or silent until a pawn comes back. Fake talkers and the mic test always play.
 			DestroyPluginSpeaker(AutoSpeakers, Talker);
-			if (PawnlessVoice == ESteamVoicePawnlessMode::Silent && !Source.bFake)
+			if (PawnlessVoice == ESteamVoicePawnlessMode::Silent && !Source.bFake && !bLobbyVoiceActive)
 			{
 				DestroyPluginSpeaker(FallbackSpeakers, Talker);
 			}
@@ -2386,7 +2451,8 @@ FSteamId USteamVoiceSubsystem::GetServerRelayHost() const
 
 bool USteamVoiceSubsystem::IsVoiceRelayHost() const
 {
-	return AppliedRelayHost != 0 && LocalId.IsValid() && AppliedRelayHost == LocalId.Value && HasVoiceAuthority();
+	const int64 RelayHost = GetActiveRelayHost();
+	return RelayHost != 0 && LocalId.IsValid() && RelayHost == LocalId.Value && HasVoiceAuthority();
 }
 
 void USteamVoiceSubsystem::SetRelayFilter(TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe> Filter)
@@ -2492,7 +2558,8 @@ void USteamVoiceSubsystem::UpdateOwnerVoiceRange()
 	// Server Relay clients send everything to the host, which decides every distance with the server's pawns (a pawn that is not net relevant
 	// here would wrongly drop voice).
 	const bool bRelayHost = IsVoiceRelayHost();
-	if (!bAnyLimit || (AppliedRelayHost != 0 && !bRelayHost))
+	// Lobby voice: nobody has a pawn yet, the distance starts with the game.
+	if (!bAnyLimit || bLobbyVoiceActive || (GetActiveRelayHost() != 0 && !bRelayHost))
 	{
 		MouthInRange.Reset();
 		RelayMouthInRange.Reset();
@@ -2782,7 +2849,7 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 
 bool USteamVoiceSubsystem::CanLocalTalkByRules() const
 {
-	const FSteamVoicePlayerRules* Rules = LocalId.IsValid() ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
+	const FSteamVoicePlayerRules* Rules = LocalId.IsValid() && !bLobbyVoiceActive ? AppliedPlayerRules.Find(LocalId.Value) : nullptr;
 	return !Rules || Rules->MayTalk();
 }
 
@@ -3019,7 +3086,8 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		{
 			Report += FString::Printf(TEXT("    owner voice out of range: %d player(s) not sent our voice, %d player(s) whose voice is dropped here\n"), MouthNotSent.Num(), MouthDropped.Num());
 		}
-		const FString Topology = AppliedRelayHost == 0 ? FString(TEXT("peer to peer"))
+		const FString Topology = bLobbyVoiceActive ? FString(TEXT("peer to peer (lobby voice; the server's player rules and distance start with the game)"))
+			: AppliedRelayHost == 0 ? FString(TEXT("peer to peer"))
 			: IsVoiceRelayHost() ? FString::Printf(TEXT("Server Relay, this host forwards%s, relay filter %s, echo %s"), bEnabled ? TEXT("") : TEXT(" (its own voice is off: relay only)"),
 				RelayFilter.IsValid() ? TEXT("set") : TEXT("none"), bRelayEcho ? TEXT("on") : TEXT("off"))
 			: FString::Printf(TEXT("Server Relay through %s"), *FSteamId(AppliedRelayHost).ToString());
@@ -3062,6 +3130,15 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		Settings && !Settings->VoiceSoundMix.IsNull() ? *Settings->VoiceSoundMix.GetAssetName() : TEXT("none"));
 
 	Report += FString::Printf(TEXT("  Players in the game: %d, talking: %d\n"), Present.Num(), Tracker.IsValid() ? Tracker->GetTalking().Num() : 0);
+	{
+		const FString LobbyVoice = !Settings || !Settings->bAllowVoiceInLobby ? FString(TEXT("off (Allow Voice In Lobby)"))
+			: !Lobby.IsValid() ? FString(TEXT("off (needs the Steam voice pipeline)"))
+			: Lobby->NumLobbies() == 0 ? FString(TEXT("on, not in a Steam lobby"))
+			: bLobbyVoiceActive ? FString::Printf(TEXT("ACTIVE: %d lobby(s), %d other member(s) heard in 2D, peer to peer"), Lobby->NumLobbies(), LobbyMemberCount)
+			: FString::Printf(TEXT("on, %d lobby(s) with %d other member(s), paused (%s)"), Lobby->NumLobbies(), LobbyMemberCount,
+				bEnabled ? TEXT("the world is a networked game: its players are heard") : TEXT("voice is disabled"));
+		Report += FString::Printf(TEXT("  Lobby voice: %s\n"), *LobbyVoice);
+	}
 	Report += FString::Printf(TEXT("  Game state: %s, %d player state(s), %d without a unique id, %d with an id that is not a Steam ID%s\n"),
 		LastGameState.IsValid() ? TEXT("present") : TEXT("none"), SeenPlayerStates, SeenWithoutNetId, SeenNotSteamId,
 		NotSteamSample.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (last: %s)"), *NotSteamSample));
@@ -3131,7 +3208,7 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			Report += FString::Printf(TEXT("    Relay: %llu packet(s) in, %llu send(s) forwarded, %llu dropped by the talker's rules, %llu by the filter, %llu recipient(s) left nothing, %llu echo send(s), upload %.1f KB/s\n"),
 				Stats.RelayIn, Stats.RelayForwarded, Stats.RelayRuleDrops, Stats.RelayFilterDrops, Stats.RelayNotSent, Stats.RelayEchoSent, Stats.RelayUploadKBps);
 		}
-		else if (AppliedRelayHost != 0)
+		else if (GetActiveRelayHost() != 0)
 		{
 			Report += FString::Printf(TEXT("    Relay: client, sending to %s only; %llu relayed packet(s) for talkers not in the game\n"), *FSteamId(AppliedRelayHost).ToString(), Stats.RelayUnknownTalker);
 		}
@@ -3198,7 +3275,7 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			const TObjectPtr<USteamVoiceComponent>* Auto = AutoSpeakers.Find(static_cast<int64>(Talker.Talker));
 			const FString Placement = Fallback && IsValid(*Fallback) ? FString(TEXT("no pawn, 2D"))
 				: Source && Source->Pawn.IsValid() ? FString::Printf(TEXT("pawn %s%s"), *Source->Pawn->GetName(), Auto && IsValid(*Auto) ? TEXT(", added") : TEXT(""))
-				: Source && !Source->bFake && PawnlessVoice == ESteamVoicePawnlessMode::Silent ? FString(TEXT("no pawn, silent"))
+				: Source && !Source->bFake && !bLobbyVoiceActive && PawnlessVoice == ESteamVoicePawnlessMode::Silent ? FString(TEXT("no pawn, silent"))
 				: FString(TEXT("not placed"));
 			const float BufferedMs = Component ? Component->GetBufferedMs() : 0.0f;
 

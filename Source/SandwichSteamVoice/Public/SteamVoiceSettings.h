@@ -34,6 +34,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "The game allows voice when it starts. Turn off for a game that starts in a lobby without voice, then call Set Voice Allowed when voice should start (the match). This is the game's rule, separate from the player's Enabled option: voice runs only while both are on. Not allowed: nothing is sent or played, the player's own setting is kept and the mic test still works. With Server Authority this is the server's start value and clients get it from the server. Online Subsystem voice: only the microphone closes."))
 	bool bVoiceAllowedByDefault = true;
 
+	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "Players in the same Steam lobby hear each other before there is a game, for example in a main menu lobby (Create Steam Lobby) before the host starts the match. Works with any Steam lobby. Only while the world is not a networked game: once players are connected (listen server, client) the game's players are heard as usual, so a networked lobby level needs nothing here. Lobby members are heard in 2D and peer to peer: Server Relay, the server's player rules and the owner voice distance start with the game. Voice Allowed, mutes, blocked players and player volumes still apply. Voice pauses while a player connects to the game or loads the map. Steam voice pipeline only."))
+	bool bAllowVoiceInLobby = false;
+
 	UPROPERTY(Config, EditAnywhere, Category = "General", meta = (ToolTip = "On: the Steam voice pipeline (Steam capture and codec over Steam networking messages; clearer and louder). Off: the Online Subsystem voice (IOnlineVoice over the game connection) as a fallback. Changing it offers Configure Steam, which removes (on) or adds (off) [OnlineSubsystem] bHasVoiceEnabled and [Voice] bEnabled in DefaultEngine.ini. Restart the editor afterwards."))
 	bool bUseSteamVoicePipeline = true;
 
