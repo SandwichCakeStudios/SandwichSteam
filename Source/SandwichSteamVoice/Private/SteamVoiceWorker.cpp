@@ -1,6 +1,7 @@
 // Copyright 2026 Sandwich Cake Studios. All Rights Reserved.
 
 #include "SteamVoiceWorker.h"
+#include "Algo/BinarySearch.h"
 #include "Core/SteamLog.h"
 #include "Core/SteamSDK.h"
 #include "HAL/Event.h"
@@ -70,6 +71,8 @@ FSteamVoiceWorker::FSteamVoiceWorker(const FWorkerConfig& InConfig, TSharedRef<F
 
 	CaptureBuffer.SetNumUninitialized(CaptureBufferBytes);
 	PacketBuffer.Reserve(MaxPacketBytes);
+	RelayBuffer.Reserve(MaxRelayedPacketBytes);
+	EchoBuffer.Reserve(MaxRelayedPacketBytes);
 	PreRollBuffer.Reserve(MaxPacketBytes);
 	PcmBuffer.SetNumUninitialized(MaxDecodedSamples);
 	FloatBuffer.SetNumUninitialized(MaxDecodedSamples);
@@ -227,6 +230,8 @@ void FSteamVoiceWorker::ApplySnapshot(double Now)
 	const bool bPeersChanged = !Snapshot.IsValid() || Snapshot->Peers != NewSnapshot->Peers;
 	const bool bFakeChanged = !Snapshot.IsValid() || !(Snapshot->Fake == NewSnapshot->Fake);
 	const bool bChannelsChanged = !Snapshot.IsValid() || Snapshot->ChannelOutputs != NewSnapshot->ChannelOutputs;
+	const bool bRelayChanged = !Snapshot.IsValid() || Snapshot->RelayHost != NewSnapshot->RelayHost;
+	const bool bPlaybackStopped = Snapshot.IsValid() && Snapshot->bLocalPlayback && !NewSnapshot->bLocalPlayback;
 	Snapshot = MoveTemp(NewSnapshot);
 
 	if (bChannelsChanged)
@@ -248,15 +253,21 @@ void FSteamVoiceWorker::ApplySnapshot(double Now)
 	{
 		PeerSet.Reset();
 		PeerSet.Append(Snapshot->Peers);
-		NextHello = Now; // Say hello to newcomers right away.
+	}
+	if (bPeersChanged || bRelayChanged)
+	{
+		NextHello = Now; // Say hello to newcomers (or the new relay host) right away.
 	}
 
-	// Talkers who left the game, and fake talkers beyond the configured count, go away.
+	// Talkers who left the game, and fake talkers beyond the configured count, go away. A relay host that stops playing (its player
+	// turned voice off) lets the game thread forget every talker; they come back here unannounced, only for forwarding (rate limit).
 	TArray<uint64, TInlineAllocator<16>> Gone;
 	for (const TPair<uint64, TUniquePtr<FTalker>>& Pair : Talkers)
 	{
 		const FTalker& Talker = *Pair.Value;
-		const bool bKeep = Talker.Id == MicTestTalkerId ? Snapshot->bMicTest
+		const bool bKeep = (bPlaybackStopped && Talker.bAnnounced) ? false
+			: Talker.Id == MicTestTalkerId ? Snapshot->bMicTest
+			: Talker.Id == RelayEchoTalkerId ? Snapshot->IsRelayClient()
 			: Talker.bFake ? (Talker.Id - FakeTalkerIdBase) < static_cast<uint64>(Snapshot->Fake.Count)
 			: PeerSet.Contains(Talker.Id);
 		if (!bKeep)
@@ -340,7 +351,7 @@ void FSteamVoiceWorker::ProcessSessions(double Now)
 	uint64 Peer = 0;
 	while (Transport->PopSessionRequest(Peer))
 	{
-		if (IsPeer(Peer) && !Snapshot->Blocked.Contains(Peer))
+		if (IsSessionPeer(Peer) && !Snapshot->Blocked.Contains(Peer))
 		{
 			Transport->AcceptSession(Peer);
 			++Stats.SessionsAccepted;
@@ -354,7 +365,7 @@ void FSteamVoiceWorker::ProcessSessions(double Now)
 
 	for (auto It = PendingSessions.CreateIterator(); It; ++It)
 	{
-		if (IsPeer(It.Key()) && !Snapshot->Blocked.Contains(It.Key()))
+		if (IsSessionPeer(It.Key()) && !Snapshot->Blocked.Contains(It.Key()))
 		{
 			Transport->AcceptSession(It.Key());
 			++Stats.SessionsAccepted;
@@ -380,7 +391,7 @@ void FSteamVoiceWorker::SendHellos(double Now)
 
 	for (const uint64 Peer : Snapshot->Peers)
 	{
-		if (!Snapshot->Blocked.Contains(Peer) && Transport->SendHello(Peer, HelloBuffer.GetData(), HelloBuffer.Num()))
+		if (IsSessionPeer(Peer) && !Snapshot->Blocked.Contains(Peer) && Transport->SendHello(Peer, HelloBuffer.GetData(), HelloBuffer.Num()))
 		{
 			++Stats.HellosSent;
 		}
@@ -552,7 +563,28 @@ void FSteamVoiceWorker::SendCaptured(const uint8* Data, int32 Size, double Now, 
 
 	const uint16 PacketSequence = Sequence++;
 	const TConstArrayView<uint8> Payload(Data, Size);
-	if (bTransmits)
+	if (bTransmits && Snapshot->IsRelayClient())
+	{
+		// Server Relay: one packet with everything we transmit, to the host only. The host applies everybody's rules and the distances.
+		if (!IsPeer(Snapshot->RelayHost))
+		{
+			++Stats.SendFailures;
+		}
+		else if (!WriteVoicePacket(PacketSequence, Flags, TransmitChannels, Payload, PacketBuffer))
+		{
+			++Stats.CaptureTooLarge;
+			return;
+		}
+		else if (Transport->SendVoice(Snapshot->RelayHost, PacketBuffer.GetData(), PacketBuffer.Num()))
+		{
+			++Stats.PacketsSent;
+		}
+		else
+		{
+			++Stats.SendFailures;
+		}
+	}
+	else if (bTransmits)
 	{
 		// Each peer gets only what the server rules let them hear (their Listen channels, our mouth in range). Peers with the same
 		// route share one written packet; without server rules that is every peer.
@@ -654,10 +686,12 @@ void FSteamVoiceWorker::QueueMicTest(const uint8* Data, int32 Size, double Now, 
 
 void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 Size, double Now, bool bFake, double Stamp)
 {
+	const bool bRelayClient = !bFake && Snapshot->IsRelayClient();
 	if (!bFake)
 	{
 		++Stats.PacketsReceived;
-		if (!IsPeer(Sender))
+		// A relay client only hears the relay host; everybody else only hears the players of the game.
+		if (bRelayClient ? Sender != Snapshot->RelayHost : !IsPeer(Sender))
 		{
 			++Stats.FromUnknown;
 			return;
@@ -669,7 +703,28 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		}
 	}
 
-	FTalker& Talker = FindOrAddTalker(Sender, bFake);
+	FPacketView Packet;
+	const EPacketReadResult Result = ReadPacket(Data, Size, Packet);
+
+	// Who talks: the sender, or on a relay client the talker the host stamped. Only the relay host may stamp one.
+	uint64 TalkerId = Sender;
+	if (Result == EPacketReadResult::Voice && Packet.IsRelayed())
+	{
+		if (!bRelayClient)
+		{
+			++Stats.Invalid;
+			return;
+		}
+		if (!IsRelayedTalker(Packet.Talker))
+		{
+			++Stats.RelayUnknownTalker;
+			return;
+		}
+		TalkerId = Packet.Talker;
+	}
+
+	// The rate limit runs before anything is forwarded, so one flooding client is never amplified to everyone.
+	FTalker& Talker = FindOrAddTalker(TalkerId, bFake || TalkerId == RelayEchoTalkerId);
 	if (Talker.bFlooded)
 	{
 		++Talker.FloodDrops;
@@ -686,10 +741,12 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		return;
 	}
 
-	FPacketView Packet;
-	const EPacketReadResult Result = ReadPacket(Data, Size, Packet);
 	if (Result == EPacketReadResult::Hello)
 	{
+		if (Snapshot->bLocalPlayback)
+		{
+			AnnounceTalker(Talker); // Speakers connect before the first word.
+		}
 		return;
 	}
 	if (Result != EPacketReadResult::Voice)
@@ -698,30 +755,185 @@ void FSteamVoiceWorker::HandleIncoming(uint64 Sender, const uint8* Data, int32 S
 		return;
 	}
 
-	// The server's rules: a server-muted or refused talker is dropped by everyone, and a refused local player accepts nothing.
-	const FPlayerRules& SenderRules = Snapshot->FindRules(Sender);
-	if (!SenderRules.bCanTalk || SenderRules.bRefused || Snapshot->LocalRules.bRefused)
+	// The server's rules: a server-muted or refused talker is dropped by everyone (and never forwarded).
+	const FPlayerRules& TalkerRules = Snapshot->FindRules(TalkerId);
+	if (!TalkerRules.bCanTalk || TalkerRules.bRefused)
 	{
 		++Stats.RuleDrops;
 		return;
 	}
 
-	// A muted talker whose talking is still reported is queued like anybody else and skipped at playout (never decoded).
-	if (Snapshot->Blocked.Contains(Sender) || (Snapshot->Muted.Contains(Sender) && !Snapshot->bReportMutedTalking))
-	{
-		++Stats.MutedDrops;
-		return;
-	}
-
-	if (ReadPayloadSpeaker(TConstArrayView<uint8>(Packet.Payload, Packet.PayloadSize)) != Sender)
+	if (ReadPayloadSpeaker(TConstArrayView<uint8>(Packet.Payload, Packet.PayloadSize)) != TalkerId)
 	{
 		// Steam decodes per speaker id inside the payload: a packet carrying somebody else's id would drive that player's decoder state.
 		++Stats.SpeakerMismatch;
 		return;
 	}
 
+	// Relay host: forwarding does not depend on what plays here (the host's own mute, block, listen rules, or voice off).
+	if (!bFake && Snapshot->IsRelayHost())
+	{
+		Forward(Talker, Packet, Now);
+	}
+
+	if (!Snapshot->bLocalPlayback)
+	{
+		return;
+	}
+	if (Snapshot->LocalRules.bRefused)
+	{
+		++Stats.RuleDrops;
+		return;
+	}
+
+	// A muted talker whose talking is still reported is queued like anybody else and skipped at playout (never decoded).
+	if (Snapshot->Blocked.Contains(TalkerId) || (Snapshot->Muted.Contains(TalkerId) && !Snapshot->bReportMutedTalking))
+	{
+		++Stats.MutedDrops;
+		return;
+	}
+
 	// The whole packet is queued: where it plays (mouth, channels) is decided when it is played, against the routing of that moment.
+	AnnounceTalker(Talker);
 	Talker.Jitter.Push(Packet.Sequence, TConstArrayView<uint8>(Data, Size), Now, Stamp);
+}
+
+bool FSteamVoiceWorker::IsRelayedTalker(uint64 Id) const
+{
+#if !UE_BUILD_SHIPPING
+	if (Id == RelayEchoTalkerId)
+	{
+		return true;
+	}
+#endif
+	return Id != Snapshot->LocalId && Id != Snapshot->RelayHost && IsPeer(Id);
+}
+
+// ---- Relay (host) ----
+
+void FSteamVoiceWorker::Forward(FTalker& Talker, const FPacketView& Packet, double Now)
+{
+	++Stats.RelayIn;
+
+	// What the talker may send at all.
+	FVoiceRoute Allowed;
+	FilterForTalker(Snapshot->FindRules(Talker.Id), Packet.HasMouth(), Packet.GetChannels(), Allowed);
+	if (Allowed.IsEmpty())
+	{
+		++Stats.RelayRuleDrops;
+		++Talker.RelayDropped;
+		return;
+	}
+
+	FSteamVoiceRelayPacket RelayPacket;
+	RelayPacket.Talker = Talker.Id;
+	RelayPacket.Sequence = Packet.Sequence;
+	RelayPacket.ReceiveTime = Now;
+	RelayPacket.bOwnerVoice = Packet.HasMouth();
+	RelayPacket.Channels = Packet.GetChannels();
+	RelayPacket.Payload = TConstArrayView<uint8>(Packet.Payload, Packet.PayloadSize);
+
+	// The game's filter can only take away: whatever it adds is intersected away again.
+	ISteamVoiceRelayFilter* Filter = Snapshot->RelayFilter.Get();
+	if (Filter)
+	{
+		FVoiceRoute Filtered = Allowed;
+		const bool bKeep = Filter->FilterPacket(RelayPacket, Filtered);
+		IntersectRoute(Allowed, Filtered);
+		if (!bKeep || Filtered.IsEmpty())
+		{
+			++Stats.RelayFilterDrops;
+			++Talker.RelayDropped;
+			return;
+		}
+		Allowed = MoveTemp(Filtered);
+	}
+
+	Talker.LastRelayed = Now;
+	UpdateRelayed(Talker, Allowed.bMouth, Allowed.Channels);
+
+	// Per recipient: their listen rules, the pair's mouth distance, the filter. Recipients with the same route share one written packet.
+	const TArray<uint64>* OutOfRange = Snapshot->RelayMouthOutOfRange.Find(Talker.Id);
+	FVoiceRoute Route;
+	FVoiceRoute Written;
+	bool bWritten = false;
+	for (const uint64 Recipient : Snapshot->Peers)
+	{
+		if (Recipient == Talker.Id)
+		{
+			continue;
+		}
+
+		const bool bMouthInRange = !OutOfRange || Algo::BinarySearch(*OutOfRange, Recipient) == INDEX_NONE;
+		FilterForListener(Snapshot->FindRules(Recipient), bMouthInRange, Allowed, Route);
+		if (Filter && !Route.IsEmpty())
+		{
+			FVoiceRoute Filtered = Route;
+			const bool bKeep = Filter->FilterRecipient(RelayPacket, Recipient, Filtered);
+			IntersectRoute(Route, Filtered);
+			Route = MoveTemp(Filtered);
+			if (!bKeep)
+			{
+				Route.bMouth = false;
+				Route.Channels.Reset();
+			}
+		}
+		if (Route.IsEmpty())
+		{
+			++Stats.RelayNotSent;
+			continue;
+		}
+
+		if (!bWritten || Route != Written)
+		{
+			if (!WriteVoicePacket(Packet.Sequence, Route.bMouth ? PacketFlags::Mouth : 0, Route.Channels, RelayPacket.Payload, RelayBuffer, Talker.Id))
+			{
+				++Stats.Invalid;
+				return;
+			}
+			Written = Route;
+			bWritten = true;
+		}
+		if (Transport->SendVoice(Recipient, RelayBuffer.GetData(), RelayBuffer.Num()))
+		{
+			++Stats.RelayForwarded;
+			++Talker.RelayForwarded;
+			Stats.RelayBytesSent += static_cast<uint64>(RelayBuffer.Num());
+		}
+		else
+		{
+			++Stats.SendFailures;
+		}
+	}
+
+#if !UE_BUILD_SHIPPING
+	if (Snapshot->bRelayEcho)
+	{
+		SendRelayEcho(Talker, Packet, Allowed);
+	}
+#endif
+}
+
+void FSteamVoiceWorker::SendRelayEcho(const FTalker& Talker, const FPacketView& Packet, const FVoiceRoute& Route)
+{
+	// The client's own voice under another speaker id, so it decodes apart from their own (which they measure their level with).
+	const TConstArrayView<uint8> Payload(Packet.Payload, Packet.PayloadSize);
+	if (!HasValidPayloadCrc(Payload)
+		|| !WriteVoicePacket(Packet.Sequence, Route.bMouth ? PacketFlags::Mouth : 0, Route.Channels, Payload, EchoBuffer, RelayEchoTalkerId)
+		|| !RewritePayloadSpeaker(TArrayView<uint8>(EchoBuffer.GetData() + EchoBuffer.Num() - Packet.PayloadSize, Packet.PayloadSize), RelayEchoTalkerId))
+	{
+		++Stats.FakeRewriteFailed;
+		return;
+	}
+	if (Transport->SendVoice(Talker.Id, EchoBuffer.GetData(), EchoBuffer.Num()))
+	{
+		++Stats.RelayEchoSent;
+		Stats.RelayBytesSent += static_cast<uint64>(EchoBuffer.Num());
+	}
+	else
+	{
+		++Stats.SendFailures;
+	}
 }
 
 void FSteamVoiceWorker::DeliverFakePackets(double Now)
@@ -1009,6 +1221,11 @@ void FSteamVoiceWorker::UpdateActivity(double Now)
 			Talker.bActive = false;
 			PostEvent(EWorkerEvent::TalkerIdle, &Talker, Talker.Id);
 		}
+
+		if (!Talker.Relayed.IsEmpty() && Now - Talker.LastRelayed > TalkingHoldSeconds)
+		{
+			UpdateRelayed(Talker, false, TConstArrayView<int32>());
+		}
 	}
 
 	for (TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)
@@ -1058,8 +1275,16 @@ FSteamVoiceWorker::FTalker& FSteamVoiceWorker::FindOrAddTalker(uint64 Id, bool b
 	Added->bFake = bFake;
 	Added->Limiter.Configure(Config.PacketsPerSecond, Config.BytesPerSecond);
 	Added->Splitter = MakeShared<Audio::FPatchSplitter, ESPMode::ThreadSafe>();
-	PostEvent(EWorkerEvent::TalkerAdded, Added.Get(), Id);
 	return *Added;
+}
+
+void FSteamVoiceWorker::AnnounceTalker(FTalker& Talker)
+{
+	if (!Talker.bAnnounced)
+	{
+		Talker.bAnnounced = true;
+		PostEvent(EWorkerEvent::TalkerAdded, &Talker, Talker.Id);
+	}
 }
 
 void FSteamVoiceWorker::RemoveTalker(uint64 Id)
@@ -1082,6 +1307,11 @@ void FSteamVoiceWorker::RemoveTalker(uint64 Id)
 	}
 
 	UpdateTransmit(Removed->Transmit, Id, false, TConstArrayView<int32>());
+	UpdateRelayed(*Removed, false, TConstArrayView<int32>());
+	if (!Removed->bAnnounced)
+	{
+		return; // The game thread never knew it (forwarding only).
+	}
 	if (Removed->bTalking)
 	{
 		PostEvent(EWorkerEvent::TalkingStopped, Removed.Get(), Id);
@@ -1126,6 +1356,21 @@ void FSteamVoiceWorker::UpdateTransmit(FTransmitState& State, uint64 Id, bool bM
 	Event.Talker = Id;
 	Event.bMouth = State.bMouth;
 	Event.Channels.Append(State.Channels.GetData(), State.Channels.Num());
+	Events.Enqueue(MoveTemp(Event));
+}
+
+void FSteamVoiceWorker::UpdateRelayed(FTalker& Talker, bool bMouth, TConstArrayView<int32> InChannels)
+{
+	if (!Talker.Relayed.Set(bMouth, InChannels))
+	{
+		return;
+	}
+
+	FWorkerEvent Event;
+	Event.Type = EWorkerEvent::RelayChanged;
+	Event.Talker = Talker.Id;
+	Event.bMouth = Talker.Relayed.bMouth;
+	Event.Channels.Append(Talker.Relayed.Channels.GetData(), Talker.Relayed.Channels.Num());
 	Events.Enqueue(MoveTemp(Event));
 }
 
@@ -1227,7 +1472,16 @@ void FSteamVoiceWorker::PublishStats(double Now)
 		Out.Level = Talker.Level;
 		Out.Gain = Talker.Gain < 0.0f ? 1.0f : Talker.Gain;
 		Out.PipelineLatencyMs = Talker.LatencyMs;
+		Out.RelayForwarded = Talker.RelayForwarded;
+		Out.RelayDropped = Talker.RelayDropped;
 	}
+
+	if (LastRelayStatsTime >= 0.0 && Now > LastRelayStatsTime)
+	{
+		Stats.RelayUploadKBps = static_cast<float>(static_cast<double>(Stats.RelayBytesSent - LastRelayBytes) / 1024.0 / (Now - LastRelayStatsTime));
+	}
+	LastRelayBytes = Stats.RelayBytesSent;
+	LastRelayStatsTime = Now;
 
 	Stats.Channels.Reset();
 	for (const TPair<int32, TUniquePtr<FChannel>>& Pair : Channels)

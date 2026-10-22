@@ -25,7 +25,11 @@ class FSteamVoiceTransport;
  * or burst voice. Never touches a UObject.
  *
  * Each loop: routing snapshot -> session requests -> hello -> capture (GetVoice), level, voice activation and send -> receive -> validate, rate limit,
- * mute -> jitter (reorder) -> DecompressVoice -> player volume -> talker patch splitter (mouth) and channel mixes -> channel output splitters -> talking / activity events.
+ * (relay host: rules, filter, forward) -> mute -> jitter (reorder) -> DecompressVoice -> player volume -> talker patch splitter (mouth) and channel mixes
+ * -> channel output splitters -> talking / activity events.
+ *
+ * Server Relay: clients send to and accept from the relay host only; the host forwards each talker's packets per recipient with the talker's
+ * Steam ID stamped in (the Relayed flag), after the rate limit, the server rules and the game's relay filter.
  *
  * Game thread API: Start, Shutdown, Publish, PopEvent, GetStats, SetActivationThreshold, GetLocalLevel, GetTalkerLevel.
  */
@@ -98,6 +102,8 @@ private:
 	{
 		uint64 Id = 0;
 		bool bFake = false;
+		/** The game thread knows the talker (TalkerAdded posted). A relay host that only forwards never announces anybody. */
+		bool bAnnounced = false;
 		bool bActive = false;
 		bool bTalking = false;
 		bool bFlooded = false;
@@ -121,6 +127,11 @@ private:
 		SandwichSteam::Voice::FJitterBuffer Jitter;
 		SandwichSteam::Voice::FPatchSplitterPtr Splitter;
 		FTransmitState Transmit;
+		/** Relay host: where this talker's forwarded voice goes (after the rules and the filter), and when a packet was last forwarded. */
+		FTransmitState Relayed;
+		double LastRelayed = -1.0;
+		uint64 RelayForwarded = 0;
+		uint64 RelayDropped = 0;
 	};
 
 	/** One channel the game thread wants mixed, with its outputs (full mix, mixes minus a player) in the mixer's output order. */
@@ -151,6 +162,10 @@ private:
 	/** Decodes a captured packet of ours and returns its level (RMS), or -1 when it could not be decoded. */
 	float MeasureCaptured(const uint8* Data, int32 Size);
 	void HandleIncoming(uint64 Sender, const uint8* Data, int32 Size, double Now, bool bFake, double Stamp);
+	/** Relay host: forwards one validated talker packet to every other player, per recipient (rules, pair distance, filter). */
+	void Forward(FTalker& Talker, const SandwichSteam::Voice::FPacketView& Packet, double Now);
+	/** Steam.Voice.RelayEcho: sends the talker their own packet back as RelayEchoTalkerId. */
+	void SendRelayEcho(const FTalker& Talker, const SandwichSteam::Voice::FPacketView& Packet, const SandwichSteam::Voice::FVoiceRoute& Route);
 	void DeliverFakePackets(double Now);
 	void Playout(double Now);
 	/** Decodes one played packet and routes it to the mouth and the channels of Route (the packet's, after the server rules). */
@@ -165,13 +180,21 @@ private:
 	void CloseAll();
 
 	FTalker& FindOrAddTalker(uint64 Id, bool bFake);
+	/** Tells the game thread about the talker (TalkerAdded with its splitter) once, before its first audio. */
+	void AnnounceTalker(FTalker& Talker);
 	void RemoveTalker(uint64 Id);
 	void PostEvent(SandwichSteam::Voice::EWorkerEvent Type, const FTalker* Talker, uint64 Id);
 	void PostChannelEvent(SandwichSteam::Voice::EWorkerEvent Type, int32 Channel, uint64 Excluded, const SandwichSteam::Voice::FPatchSplitterPtr& Splitter);
 	/** Sets where Id's voice goes and posts TransmitChanged when that changed. */
 	void UpdateTransmit(FTransmitState& State, uint64 Id, bool bMouth, TConstArrayView<int32> INChannels);
+	/** Relay host: sets where a forwarded talker's voice goes and posts RelayChanged when that changed. */
+	void UpdateRelayed(FTalker& Talker, bool bMouth, TConstArrayView<int32> InChannels);
 
 	bool IsPeer(uint64 Id) const { return PeerSet.Contains(Id); }
+	/** Who we keep a Steam session with: the relay host only on a relay client, else every peer. */
+	bool IsSessionPeer(uint64 Id) const { return Snapshot->IsRelayClient() ? Id == Snapshot->RelayHost : IsPeer(Id); }
+	/** Relay client: a talker the host may forward (a player of the game other than us, or the echo in non-Shipping builds). */
+	bool IsRelayedTalker(uint64 Id) const;
 
 	const SandwichSteam::Voice::FWorkerConfig Config;
 	TSharedRef<FSteamVoiceTransport> Transport;
@@ -223,6 +246,9 @@ private:
 	bool bPreRollCrcMatches = false;
 	TArray<uint8> CaptureBuffer;
 	TArray<uint8> PacketBuffer;
+	/** Relay host: the forwarded packet being written, and the echo copy. */
+	TArray<uint8> RelayBuffer;
+	TArray<uint8> EchoBuffer;
 	TArray<uint8> HelloBuffer;
 	TArray<int16> PcmBuffer;
 	TArray<float> FloatBuffer;
@@ -240,6 +266,9 @@ private:
 	double LastCapture = -1.0;
 	double NextHello = 0.0;
 	double NextStats = 0.0;
+	/** Relay upload rate: bytes and time at the last stats publish. */
+	uint64 LastRelayBytes = 0;
+	double LastRelayStatsTime = -1.0;
 	double LoopTotalMs = 0.0;
 	uint64 LoopCount = 0;
 };

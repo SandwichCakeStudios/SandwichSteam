@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "DSP/MultithreadedPatching.h"
+#include "SteamVoiceRelayFilter.h"
 #include "SteamVoiceRules.h"
 
 /**
@@ -27,6 +28,11 @@ namespace SandwichSteam::Voice
 
 	/** Mic test: the local voice comes back as this talker (right after the fake talker range) and plays on its own 2D speaker. */
 	constexpr uint64 MicTestTalkerId = FakeTalkerIdBase + MaxFakeTalkers;
+
+	/** Steam.Voice.RelayEcho: the relay host sends a client's own voice back to them as this talker (non-Shipping). */
+	constexpr uint64 RelayEchoTalkerId = MicTestTalkerId + 1;
+
+	using FRelayFilterPtr = TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe>;
 
 	/** Steam.Voice.FakeTalker: the local capture re-injected as fake talkers at the receive step (non-Shipping). */
 	struct FFakeTalkerConfig
@@ -78,8 +84,18 @@ namespace SandwichSteam::Voice
 		bool bTransmitMouth = true;
 		/** The channels we transmit on: resolved ids, unique, sorted, at most MaxPacketChannels, filtered by our own server rules. */
 		TArray<int32> TransmitChannels;
-		/** The other players of the current game: the only peers we send to and accept. */
+		/** The other players of the current game: the only peers we send to and accept (Server Relay clients: only RelayHost; Peers are the talkers it may forward). */
 		TArray<uint64> Peers;
+		/** Server Relay: the host everybody sends to and accepts voice from. 0 = peer to peer. The relay host itself has its own id here. */
+		uint64 RelayHost = 0;
+		/** Captured and received voice plays here (speakers, talking events). False on a relay host whose player turned voice off: it only forwards. */
+		bool bLocalPlayback = true;
+		/** Relay host: per talker, the recipients out of range of the talker's mouth (sorted). */
+		TMap<uint64, TArray<uint64>> RelayMouthOutOfRange;
+		/** Relay host: the game's moderation filter (SetRelayFilter). */
+		FRelayFilterPtr RelayFilter;
+		/** Steam.Voice.RelayEcho (relay host, non-Shipping): every client also gets their own voice back as RelayEchoTalkerId. */
+		bool bRelayEcho = false;
 		/** Mute: their audio is dropped here, we still send to them. */
 		TSet<uint64> Muted;
 		/** Muted talkers still report talking and transmit channels (never audio or a level). */
@@ -99,6 +115,9 @@ namespace SandwichSteam::Voice
 		float SimLossPercent = 0.0f;
 		/** The channel mixes Channel speakers play, sorted by channel. Channels nobody plays are not decoded or mixed. */
 		TArray<FChannelOutput> ChannelOutputs;
+
+		bool IsRelayHost() const { return RelayHost != 0 && RelayHost == LocalId; }
+		bool IsRelayClient() const { return RelayHost != 0 && RelayHost != LocalId; }
 
 		const FPlayerRules& FindRules(uint64 Player) const
 		{
@@ -149,7 +168,9 @@ namespace SandwichSteam::Voice
 		 * Where a talker's voice goes changed (bMouth, Channels): what their played packets carry while they talk, nothing once they stopped
 		 * or left. Also for the local player (what we send).
 		 */
-		TransmitChanged
+		TransmitChanged,
+		/** Relay host: where a forwarded talker's voice goes changed (bMouth, Channels after the rules and the filter); empty once they stopped. */
+		RelayChanged
 	};
 
 	struct FWorkerEvent
@@ -159,7 +180,7 @@ namespace SandwichSteam::Voice
 		uint64 Talker = 0;
 		/** Channel events only. */
 		int32 Channel = INDEX_NONE;
-		/** TransmitChanged only: the voice plays on the talker's pawn, and the channel ids it carries. */
+		/** TransmitChanged and RelayChanged only: the voice plays on the talker's pawn, and the channel ids it carries. */
 		bool bMouth = false;
 		TArray<int32> Channels;
 		bool bFake = false;
@@ -195,6 +216,9 @@ namespace SandwichSteam::Voice
 		float Gain = 1.0f;
 		/** Capture to speaker buffer (fake talkers only, ms). -1 = unknown. */
 		float PipelineLatencyMs = -1.0f;
+		/** Relay host: this talker's packets forwarded (sends), and the ones nothing was left of after the rules or the filter. */
+		uint64 RelayForwarded = 0;
+		uint64 RelayDropped = 0;
 	};
 
 	/** Per channel output numbers for Steam.Voice.Dump. */
@@ -268,6 +292,18 @@ namespace SandwichSteam::Voice
 		float LoopAverageMs = 0.0f;
 		/** Received voice packets with neither mouth nor a channel anybody here plays: not decoded. */
 		uint64 NotPlayed = 0;
+		/** Relay host: talker packets that reached forwarding, sends to recipients, packets the talker's rules left nothing of, packets the filter dropped, recipients the rules or the filter left nothing for, echo sends. */
+		uint64 RelayIn = 0;
+		uint64 RelayForwarded = 0;
+		uint64 RelayRuleDrops = 0;
+		uint64 RelayFilterDrops = 0;
+		uint64 RelayNotSent = 0;
+		uint64 RelayEchoSent = 0;
+		uint64 RelayBytesSent = 0;
+		/** Relay host upload (forwarded voice only), KB/s over the last stats interval. */
+		float RelayUploadKBps = 0.0f;
+		/** Relay client: relayed packets for talkers that are not in the game. */
+		uint64 RelayUnknownTalker = 0;
 		TArray<FTalkerStats> Talkers;
 		TArray<FChannelOutputStats> Channels;
 	};
