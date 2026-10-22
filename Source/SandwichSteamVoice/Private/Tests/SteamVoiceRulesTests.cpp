@@ -213,6 +213,35 @@ bool FSteamVoiceRouteFilterTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceRouteIntersectTest, "SandwichSteam.Voice.Rules.RouteIntersect",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamVoiceRouteIntersectTest::RunTest(const FString& Parameters)
+{
+	// What the rules allow; a relay filter may only remove from it.
+	FVoiceRoute Allowed;
+	Allowed.bMouth = false;
+	Allowed.Channels = { 1, 3, 5 };
+
+	FVoiceRoute Route = Allowed;
+	Route.bMouth = true;
+	Route.Channels = { 9, 5, 1, 1 };
+	IntersectRoute(Allowed, Route);
+	TestFalse(TEXT("A mouth the rules removed stays removed"), Route.bMouth);
+	TestTrue(TEXT("Added channel dropped, duplicates removed, sorted"), Route.Channels.Num() == 2 && Route.Channels[0] == 1 && Route.Channels[1] == 5);
+
+	Allowed.bMouth = true;
+	Route.bMouth = true;
+	Route.Channels.Reset();
+	IntersectRoute(Allowed, Route);
+	TestTrue(TEXT("Removing every channel keeps the mouth"), Route.bMouth && Route.Channels.IsEmpty());
+
+	Route.bMouth = false;
+	IntersectRoute(Allowed, Route);
+	TestTrue(TEXT("Removed mouth: empty route"), Route.IsEmpty());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamVoiceOwnerDistanceTest, "SandwichSteam.Voice.Rules.OwnerDistance",
 	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
 

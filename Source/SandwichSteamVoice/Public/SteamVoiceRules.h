@@ -134,6 +134,9 @@ namespace SandwichSteam::Voice
 	/** What one listener may get of Route: nothing when refused, the mouth only when bMouthInRange, only the channels Listen allows. Out is overwritten. */
 	void FilterForListener(const FPlayerRules& Listener, bool bMouthInRange, const FVoiceRoute& Route, FVoiceRoute& Out);
 
+	/** Keeps only what Allowed has (a relay filter may remove, never add): the mouth when both have it, channels in both, sorted and unique. */
+	void IntersectRoute(const FVoiceRoute& Allowed, FVoiceRoute& InOut);
+
 	/** Sender hysteresis: a listener out of range comes back in at the distance, and an in-range one goes out beyond it plus this share. */
 	constexpr float OwnerVoiceHysteresis = 0.1f;
 

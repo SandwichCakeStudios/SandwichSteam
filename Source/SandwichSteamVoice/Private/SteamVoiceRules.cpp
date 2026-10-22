@@ -160,6 +160,20 @@ namespace SandwichSteam::Voice
 		}
 	}
 
+	void IntersectRoute(const FVoiceRoute& Allowed, FVoiceRoute& InOut)
+	{
+		InOut.bMouth = InOut.bMouth && Allowed.bMouth;
+		InOut.Channels.RemoveAll([&Allowed](int32 Id) { return !Allowed.Channels.Contains(Id); });
+		InOut.Channels.Sort();
+		for (int32 Index = InOut.Channels.Num() - 1; Index > 0; --Index)
+		{
+			if (InOut.Channels[Index] == InOut.Channels[Index - 1])
+			{
+				InOut.Channels.RemoveAt(Index, 1, EAllowShrinking::No);
+			}
+		}
+	}
+
 	float ResolveOwnerVoiceDistance(float Global, float TalkerOverride)
 	{
 		if (TalkerOverride > 0.0f)
