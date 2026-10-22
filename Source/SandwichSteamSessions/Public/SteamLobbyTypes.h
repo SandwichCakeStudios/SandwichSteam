@@ -9,6 +9,32 @@
 #include "SteamSessionTypes.h"
 #include "SteamLobbyTypes.generated.h"
 
+/** Which lobby a lobby function works on, or which lobby an event came from. */
+UENUM(BlueprintType)
+enum class ESteamLobbyTarget : uint8
+{
+	/** The party lobby when there is one, else the lobby of the session (the behaviour before party lobbies existed). */
+	Active,
+	/** The party lobby (Create / Join Steam Lobby). It outlives sessions. */
+	Party,
+	/** The lobby the Online Subsystem made for the current session. It ends with the session. */
+	Session
+};
+
+/** The lobby type of the party while a party match runs. */
+UENUM(BlueprintType)
+enum class ESteamPartyMatchVisibility : uint8
+{
+	/** Leave the lobby type as it is. */
+	KeepAsIs,
+	/** Only friends of members can find and join it. */
+	FriendsOnly,
+	/** Hidden from search and friends. Invites still work. */
+	Private,
+	/** Hidden, and Steam does not show it as the members' lobby. Invites still work. */
+	Invisible
+};
+
 /** What happened to a lobby member. */
 UENUM(BlueprintType)
 enum class ESteamLobbyMemberChange : uint8
@@ -66,7 +92,7 @@ struct SANDWICHSTEAMSESSIONS_API FSteamLobbyChatMessage
 	bool bIsLocal = false;
 };
 
-/** A lobby found by Find Steam Lobbies (lobby only mode). Join it with its Lobby Id. */
+/** A lobby found by Find Steam Lobbies (party lobbies). Join it with its Lobby Id. */
 USTRUCT(BlueprintType)
 struct SANDWICHSTEAMSESSIONS_API FSteamLobbyInfo
 {
@@ -94,12 +120,36 @@ struct SANDWICHSTEAMSESSIONS_API FSteamLobbyInfo
 	TMap<FString, FString> Data;
 };
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSteamLobbyChatReceived, const FSteamLobbyChatMessage&, Message);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSteamLobbyMemberChanged, const FSteamLobbyMember&, Member, ESteamLobbyMemberChange, Change);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSteamLobbyMemberDataChanged, const FSteamLobbyMember&, Member);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSteamLobbyDataChanged);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSteamLobbyOwnerChanged, FSteamId, NewOwner, FSteamId, PreviousOwner);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSteamLobbyKicked, const FString&, Reason);
+/**
+ * Where the members of a party go for a match (Begin Steam Party Match). At least one field is set; members follow the first
+ * one that is set, in this order: Session Lobby, Server Steam Id, Address.
+ */
+USTRUCT(BlueprintType)
+struct SANDWICHSTEAMSESSIONS_API FSteamPartyMatch
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "Lobby of the net session of the match; it names the match (rejoin). Members join it only when there is no Server Steam Id: the Steam Online Subsystem cannot look a lobby up by its ID. Host Steam Party Session fills in both."))
+	FSteamId SessionLobby;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "Steam ID of the listen host or game server. Members travel to steam.<id> (SteamSockets), no Online Subsystem session needed."))
+	FSteamId ServerSteamId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "ip:port of a dedicated server. Members travel to it. The plugin only publishes the address, it does not start a server."))
+	FString Address;
+
+	bool IsValid() const { return SessionLobby.IsValid() || ServerSteamId.IsValid() || !Address.IsEmpty(); }
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSteamLobbyChatReceived, const FSteamLobbyChatMessage&, Message, ESteamLobbyTarget, Source);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSteamLobbyMemberChanged, const FSteamLobbyMember&, Member, ESteamLobbyMemberChange, Change, ESteamLobbyTarget, Source);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSteamLobbyMemberDataChanged, const FSteamLobbyMember&, Member, ESteamLobbyTarget, Source);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSteamLobbyDataChanged, ESteamLobbyTarget, Source);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSteamLobbyOwnerChanged, FSteamId, NewOwner, FSteamId, PreviousOwner, ESteamLobbyTarget, Source);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSteamLobbyKicked, const FString&, Reason, ESteamLobbyTarget, Source);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSteamPartyMatchStarted, const FSteamPartyMatch&, Match);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSteamPartyMatchEnded);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSteamPartyJoinFinished, const FSteamResult&, Result, FSteamId, LobbyId);
 
 /** One-shot completion of a lobby request (game thread). Not called when the feature shuts down first. */
 DECLARE_DELEGATE_TwoParams(FSteamLobbyOpDelegate, const FSteamResult&, FSteamId /*LobbyId*/);
