@@ -246,7 +246,8 @@ FText SSandwichSteamVoiceTestPage::BuildTalkingText() const
 	const float Distance = Voice->GetOwnerVoiceMaxDistance();
 	const TCHAR* Topology = Voice->GetVoiceTopology() == ESteamVoiceTopology::PeerToPeer ? TEXT("peer to peer")
 		: Voice->IsVoiceRelayHost() ? TEXT("Server Relay (this host forwards)") : TEXT("Server Relay (through the host)");
-	FString Text = FString::Printf(TEXT("Players in the game: %d%s%s   %s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""),
+	FString Text = FString::Printf(TEXT("Players in the game: %d%s%s%s   %s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""),
+		Voice->IsLobbyVoiceActive() ? TEXT("   LOBBY VOICE (lobby members, 2D, no server rules)") : TEXT(""),
 		Distance > 0.0f ? *FString::Printf(TEXT("   owner voice distance %.0f cm"), Distance) : TEXT(""), Topology);
 	for (const FSteamId& Player : Voice->GetPlayersInGame())
 	{
