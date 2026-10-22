@@ -53,6 +53,7 @@ void ASteamVoiceAuthority::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(ASteamVoiceAuthority, PawnlessVoice);
 	DOREPLIFETIME(ASteamVoiceAuthority, OwnerVoiceMaxDistance);
 	DOREPLIFETIME(ASteamVoiceAuthority, ChannelMapHash);
+	DOREPLIFETIME(ASteamVoiceAuthority, RelayHost);
 }
 
 void ASteamVoiceAuthority::BeginPlay()

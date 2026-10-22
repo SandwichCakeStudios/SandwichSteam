@@ -39,6 +39,16 @@ enum class ESteamVoicePawnlessMode : uint8
 	Silent UMETA(DisplayName = "Silent")
 };
 
+/** How voice travels between the players (Server Authority). */
+UENUM(BlueprintType)
+enum class ESteamVoiceTopology : uint8
+{
+	/** Every player sends to every other player directly. Lowest latency; the rules hold against single cheaters only. */
+	PeerToPeer UMETA(DisplayName = "Peer To Peer"),
+	/** Players send to the host only; the host checks the rules and forwards. Private against cheaters working together; costs one extra hop and the host's upload. */
+	ServerRelay UMETA(DisplayName = "Server Relay")
+};
+
 /**
  * A voice channel: a Gameplay Tag (mapped to an id in the Voice settings) or an id. The tag wins when it is set.
  * One struct everywhere, so one Blueprint pin takes either.
@@ -150,6 +160,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamVoicePlayerFlood, FSteamId, Pl
 
 /** The server's voice rules arrived or changed (Server Authority). */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FSteamVoiceRulesChanged);
+
+/**
+ * Server, Server Relay: where a forwarded player's voice goes changed (after the rules and the relay filter). bTalking false once they stopped
+ * (Owner Voice false, Channels empty). Fires on changes only, never per packet.
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FSteamVoiceRelayChanged, FSteamId, Player, bool, bTalking, bool, bOwnerVoice, const TArray<FSteamVoiceChannel>&, Channels);
 
 /** Server: a player joined with a Steam ID another player already has (Server Authority). Joining is the newer player state. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSteamVoiceIdentityConflict, FSteamId, Player, APlayerState*, Joining);

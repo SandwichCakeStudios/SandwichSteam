@@ -64,6 +64,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Server Authority", meta = (EditCondition = "bServerAuthority", ClampMin = "0", Units = "cm", ToolTip = "How far a player's own voice (their pawn) carries when the server starts; 0 = no limit. Beyond it the voice is not sent at all, which keeps proximity private and saves bandwidth. Keep it at least the end of your voice attenuation, and pawns net relevant that far. Change it at runtime with Server Set Owner Voice Max Distance, per talker with Server Set Player Owner Voice Max Distance."))
 	float DefaultOwnerVoiceMaxDistance = 0.0f;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Server Authority", meta = (EditCondition = "bServerAuthority", ToolTip = "How voice travels when the server starts. Peer To Peer: every player sends to every other player (lowest latency); honest clients follow the rules, cheaters working together can get around them. Server Relay: players send to the host only and the host forwards what the rules allow, so channels and proximity stay private even then; one extra hop (about half the host's ping) and the host uploads every forwarded stream (8 players, 3 talking: about 63 KB/s). Listen servers only. Switch at runtime with Server Set Voice Topology; clients always follow the server."))
+	ESteamVoiceTopology Topology = ESteamVoiceTopology::PeerToPeer;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (ClampMin = "0", ClampMax = "255", ToolTip = "Steam networking messages channel used for voice. Change it only when your game uses SteamNetworkingMessages on channel 7 itself."))
 	int32 SteamMessageChannel = 7;
 

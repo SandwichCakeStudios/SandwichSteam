@@ -60,7 +60,7 @@ struct TStructOpsTypeTraits<FSteamVoicePlayerRulesArray> : public TStructOpsType
 /**
  * The server's voice rules for the current world (Server Authority in the Voice settings). The Steam Voice subsystem spawns it on the
  * server (listen host or standalone) when a world starts and fills it; it replicates to every client, whose subsystem applies it.
- * Holds the game rules (Voice Allowed, Pawnless Voice, Owner Voice Max Distance) and per player rules keyed by Steam ID, the server's
+ * Holds the game rules (Voice Allowed, Pawnless Voice, Owner Voice Max Distance, the relay host) and per player rules keyed by Steam ID, the server's
  * channel map hash, and a version the server raises on every change and on every new authority (after travel). Not placeable: use the Server Set functions of the subsystem.
  */
 UCLASS(NotBlueprintable, NotPlaceable, Transient)
@@ -83,10 +83,15 @@ public:
 	ESteamVoicePawnlessMode GetPawnlessVoice() const { return PawnlessVoice; }
 	float GetOwnerVoiceMaxDistance() const { return OwnerVoiceMaxDistance; }
 	uint32 GetChannelMapHash() const { return ChannelMapHash; }
+	/** Server Relay: the host every client sends to and accepts voice from. Invalid = peer to peer. */
+	FSteamId GetRelayHost() const { return RelayHost; }
 	const TArray<FSteamVoicePlayerRulesItem>& GetPlayerRules() const { return PlayerRules.Items; }
 
 	/** Server: the game rules. */
 	void SetGameRules(bool bAllowed, ESteamVoicePawnlessMode Pawnless, float MaxDistance);
+
+	/** Server: the relay host (the server's own Steam ID for Server Relay, invalid for peer to peer). */
+	void SetRelayHost(FSteamId Host) { RelayHost = Host; }
 
 	/** Server: the hash of the server's Channel Tag Map; clients compare it with their own. */
 	void SetChannelMapHash(uint32 Hash) { ChannelMapHash = Hash; }
@@ -124,4 +129,7 @@ private:
 
 	UPROPERTY(ReplicatedUsing = OnRep_Rules)
 	uint32 ChannelMapHash = 0;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Rules)
+	FSteamId RelayHost;
 };
