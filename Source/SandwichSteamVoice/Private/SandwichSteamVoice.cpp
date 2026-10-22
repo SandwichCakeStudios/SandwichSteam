@@ -3,6 +3,7 @@
 #include "SandwichSteamVoice.h"
 #include "Core/SteamLog.h"
 #include "Debug/SteamDebugSection.h"
+#include "SteamVoiceRelayFilter.h"
 #include "SteamVoiceRouting.h"
 #include "SteamVoiceSubsystem.h"
 
@@ -308,6 +309,90 @@ namespace
 		LogResult(Output, TEXT("Steam.Voice.SimLoss"), Voice->SetSimulatedLoss(FCString::Atof(*Args[0])), TEXT("simulated loss set"));
 	}
 
+	/** Steam.Voice.Topology <p2p|relay> (server) */
+	void Topology(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		const bool bRelay = !Args.IsEmpty() && Args[0].Equals(TEXT("relay"), ESearchCase::IgnoreCase);
+		if (Args.IsEmpty() || (!bRelay && !Args[0].Equals(TEXT("p2p"), ESearchCase::IgnoreCase)))
+		{
+			Output.Logf(TEXT("Steam.Voice.Topology: %s%s. Usage: Steam.Voice.Topology <p2p|relay> (server, Server Authority on)."),
+				Voice->GetVoiceTopology() == ESteamVoiceTopology::ServerRelay ? TEXT("relay") : TEXT("p2p"), Voice->IsVoiceRelayHost() ? TEXT(" (this host forwards)") : TEXT(""));
+			return;
+		}
+
+		LogResult(Output, TEXT("Steam.Voice.Topology"), Voice->ServerSetVoiceTopology(bRelay ? ESteamVoiceTopology::ServerRelay : ESteamVoiceTopology::PeerToPeer),
+			bRelay ? TEXT("Server Relay: clients send to this host, it forwards") : TEXT("peer to peer"));
+	}
+
+	/** Steam.Voice.RelayEcho <0|1> (relay host) */
+	void RelayEcho(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		if (Args.IsEmpty())
+		{
+			Output.Logf(TEXT("Steam.Voice.RelayEcho: %s. Usage: Steam.Voice.RelayEcho <0|1> (relay host): every client also hears their own voice back through the relay, as a test talker."),
+				Voice->IsRelayEchoOn() ? TEXT("on") : TEXT("off"));
+			return;
+		}
+
+		const bool bEcho = FCString::Atoi(*Args[0]) != 0;
+		LogResult(Output, TEXT("Steam.Voice.RelayEcho"), Voice->SetRelayEcho(bEcho), bEcho ? TEXT("relay echo on") : TEXT("relay echo off"));
+	}
+
+	/** Example relay filter (Steam.Voice.RelayFilterDrop): drops one talker's forwarded voice for everyone. Voice thread; holds only plain data. */
+	class FDropTalkerRelayFilter final : public ISteamVoiceRelayFilter
+	{
+	public:
+		explicit FDropTalkerRelayFilter(uint64 InTalker) : Talker(InTalker) {}
+
+		virtual bool FilterPacket(const FSteamVoiceRelayPacket& Packet, SandwichSteam::Voice::FVoiceRoute& InOutRoute) override
+		{
+			return Packet.Talker != Talker;
+		}
+
+	private:
+		const uint64 Talker;
+	};
+
+	/** Steam.Voice.RelayFilterDrop <SteamID64 | 0> (relay host) */
+	void RelayFilterDrop(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamVoiceSubsystem* Voice = FSteamDebugCommandSet::FindFeature<USteamVoiceSubsystem>(World, Output);
+		if (!Voice)
+		{
+			return;
+		}
+
+		FSteamId Player;
+		const bool bClear = !Args.IsEmpty() && Args[0] == TEXT("0");
+		if (Args.IsEmpty() || (!bClear && !FSteamId::FromString(Args[0], Player)))
+		{
+			Output.Logf(TEXT("Steam.Voice.RelayFilterDrop: filter %s. Usage: Steam.Voice.RelayFilterDrop <SteamID64 | 0>: the relay host forwards nothing of that player (0 removes the filter). Replaces the game's relay filter."),
+				Voice->GetRelayFilter().IsValid() ? TEXT("set") : TEXT("none"));
+			return;
+		}
+
+		TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe> Filter;
+		if (!bClear)
+		{
+			Filter = MakeShared<FDropTalkerRelayFilter, ESPMode::ThreadSafe>(static_cast<uint64>(Player.Value));
+		}
+		Voice->SetRelayFilter(MoveTemp(Filter));
+		Output.Logf(TEXT("Steam.Voice.RelayFilterDrop: %s%s"), bClear ? TEXT("filter removed") : *FString::Printf(TEXT("dropping %s"), *Player.ToString()),
+			Voice->IsVoiceRelayHost() ? TEXT("") : TEXT(" (used once this game instance is the relay host)"));
+	}
+
 	const FName DebugSectionId(TEXT("Voice"));
 
 	FString ReportVoice(UWorld* World)
@@ -376,6 +461,18 @@ void FSandwichSteamVoiceModule::StartupModule()
 	Commands.Add(TEXT("Steam.Voice.SimLoss"),
 		TEXT("Drops a percent of the voice packets received from real players: Steam.Voice.SimLoss <0..100>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SimLoss));
+
+	Commands.Add(TEXT("Steam.Voice.Topology"),
+		TEXT("Server: how voice travels: Steam.Voice.Topology <p2p|relay>. Needs Server Authority."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&Topology));
+
+	Commands.Add(TEXT("Steam.Voice.RelayEcho"),
+		TEXT("Relay host: every client also hears their own voice back through the relay as a test talker: Steam.Voice.RelayEcho <0|1>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&RelayEcho));
+
+	Commands.Add(TEXT("Steam.Voice.RelayFilterDrop"),
+		TEXT("Relay host: an example relay filter that forwards nothing of one player: Steam.Voice.RelayFilterDrop <SteamID64 | 0>. Replaces the game's filter."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&RelayFilterDrop));
 
 	Commands.Add(TEXT("Steam.Voice.Volume"),
 		TEXT("Sets (or reads) the master volume of the voice sound class: Steam.Voice.Volume [0..2]."),
