@@ -320,6 +320,24 @@ float USteamVoiceLibrary::GetSteamOwnerVoiceMaxDistance(const UObject* WorldCont
 	return Voice ? Voice->GetOwnerVoiceMaxDistance() : 0.0f;
 }
 
+FSteamResult USteamVoiceLibrary::ServerSetSteamVoiceTopology(const UObject* WorldContextObject, ESteamVoiceTopology Topology)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetVoiceTopology(Topology) : NotAvailable();
+}
+
+ESteamVoiceTopology USteamVoiceLibrary::GetSteamVoiceTopology(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetVoiceTopology() : ESteamVoiceTopology::PeerToPeer;
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceRelayHost(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsVoiceRelayHost();
+}
+
 FSteamVoicePlayerRules USteamVoiceLibrary::GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);

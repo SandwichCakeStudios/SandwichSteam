@@ -7,6 +7,7 @@
 #include "Core/SteamFeatureSubsystem.h"
 #include "Core/SteamId.h"
 #include "Core/SteamResult.h"
+#include "SteamVoiceRelayFilter.h"
 #include "SteamVoiceRules.h"
 #include "SteamVoiceTypes.h"
 #include "SteamVoiceSubsystem.generated.h"
@@ -47,9 +48,11 @@ namespace Audio
  * push to talk through Enhanced Input, mute by Steam ID with automatic muting of players you blocked on Steam, talking events and a master volume.
  *
  * With Server Authority (Voice settings) the server decides the voice rules: an ASteamVoiceAuthority replicates them to every client, which
- * follows them on both ends and sends and plays nothing until they arrived.
+ * follows them on both ends and sends and plays nothing until they arrived. With Server Relay (Topology) clients send to the host only and the
+ * host forwards what the rules allow.
  *
  * While voice is disabled (Set Voice Enabled false, or Enabled By Default off) nothing runs: no polling, no input binding, no microphone.
+ * A Server Relay host keeps forwarding for the others while its own player has voice off (nothing is captured or played there).
  * All methods run on the game thread.
  */
 UCLASS()
@@ -291,6 +294,31 @@ public:
 	/** The game's owner voice distance as applied here (0 = no limit). */
 	float GetOwnerVoiceMaxDistance() const { return OwnerVoiceMaxDistance; }
 
+	/**
+	 * How voice travels (Topology in the Voice settings is the start value). Peer To Peer: every player sends to every other player. Server Relay:
+	 * clients send to this host only and it forwards what the rules allow, so channels and proximity stay private even against cheaters working
+	 * together; one extra hop, and this host uploads every forwarded stream. Clients follow with the next rules. Needs this host's Steam ID
+	 * (listen server). Server only (clients: WrongScope); needs Server Authority.
+	 */
+	FSteamResult ServerSetVoiceTopology(ESteamVoiceTopology NewTopology);
+
+	/** How voice travels as applied here (the server's choice; Peer To Peer until the rules arrived). */
+	ESteamVoiceTopology GetVoiceTopology() const { return AppliedRelayHost != 0 ? ESteamVoiceTopology::ServerRelay : ESteamVoiceTopology::PeerToPeer; }
+
+	/** True when this game instance forwards everybody's voice (the Server Relay host). It keeps forwarding while its own player has voice off. */
+	bool IsVoiceRelayHost() const;
+
+	/**
+	 * Server Relay moderation, C++ only: a filter the relay host runs on the voice thread for every forwarded packet (ISteamVoiceRelayFilter:
+	 * drop packets, restrict channels, pair rules, copy packets for recording). nullptr removes it. Kept for the life of the game instance and
+	 * only used while this game instance is the relay host; safe to replace at any time.
+	 */
+	void SetRelayFilter(TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe> Filter);
+	const TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe>& GetRelayFilter() const { return RelayFilter; }
+
+	UPROPERTY(BlueprintAssignable, Category = "Steam|Voice", meta = (ToolTip = "Server only (Server Relay): where a player's forwarded voice goes changed: they started talking, switched owner voice or channels, or stopped (Talking false). After the server rules and the relay filter. Fires on changes only, never per packet; log it or drive an admin view of who talks on which channel. Per packet moderation is the C++ relay filter (Set Relay Filter)."))
+	FSteamVoiceRelayChanged OnServerVoiceRelayChanged;
+
 	/** The server's rules for the player (default rules when none are set or Server Authority is off). */
 	FSteamVoicePlayerRules GetPlayerVoiceRules(FSteamId Player) const;
 
@@ -318,6 +346,10 @@ public:
 
 	/** Steam.Voice.SimLoss: drop this percent of real received voice packets. Steam voice pipeline only. */
 	FSteamResult SetSimulatedLoss(float LossPercent);
+
+	/** Steam.Voice.RelayEcho: the relay host also sends every client their own voice back as a test talker (client -> host -> client with two accounts). Relay host only. */
+	FSteamResult SetRelayEcho(bool bEcho);
+	bool IsRelayEchoOn() const { return bRelayEcho; }
 #endif
 
 protected:
@@ -329,8 +361,14 @@ protected:
 private:
 	bool TickVoice(float DeltaTime);
 
-	/** Puts the runtime state in line with bEnabled: ticker, microphone, binding, volume. */
+	/** Puts the runtime state in line with bEnabled: ticker, microphone, binding, volume. A relay host keeps the pipeline for forwarding. */
 	void ApplyEnabledState();
+
+	/** Adds the voice ticker when it is not running. */
+	void EnsureTicker();
+
+	/** The pipeline and the ticker run: voice enabled, or the relay host forwards for the others. */
+	bool ShouldRunPipeline() const { return bEnabled || IsVoiceRelayHost(); }
 
 	/** Opens or closes the microphone so it matches ShouldTalk(). bForce sends the call even when the state did not change. */
 	void RefreshTalking(bool bForce);
@@ -447,6 +485,9 @@ private:
 	/** Server: the game rules changed; pushes them to the authority and applies them here. */
 	void PushServerGameRules();
 
+	/** Server: the relay host the authority carries (this host's Steam ID for Server Relay, invalid for peer to peer). */
+	FSteamId GetServerRelayHost() const;
+
 	/** Server: raises the version on the authority (clients see one version per change). */
 	void BumpServerRulesVersion();
 
@@ -517,6 +558,9 @@ private:
 	TArray<int32> PublishedTransmitChannels;
 	TArray<uint64> PublishedMouthNotSent;
 	TArray<uint64> PublishedMouthDropped;
+	TMap<uint64, TArray<uint64>> PublishedRelayMouthOutOfRange;
+	int64 PublishedRelayHost = 0;
+	bool bPublishedLocalPlayback = true;
 	int64 PublishedLocalId = 0;
 	bool bPublishedRecord = false;
 	bool bPublishedMicTest = false;
@@ -530,6 +574,8 @@ private:
 	float FakeTalkerLossPercent = 0.0f;
 	int32 FakeTalkerChannel = -1;
 	float SimulatedLossPercent = 0.0f;
+	/** Steam.Voice.RelayEcho (relay host, non-Shipping builds only reach it). */
+	bool bRelayEcho = false;
 	/** Another game instance (PIE) already runs the pipeline: warned once. */
 	bool bWarnedPipelineOwner = false;
 	TUniquePtr<SandwichSteam::Voice::FTalkingTracker> Tracker;
@@ -551,6 +597,7 @@ private:
 	ESteamVoicePawnlessMode ServerPawnlessVoice = ESteamVoicePawnlessMode::Play2D;
 	TMap<int64, FSteamVoicePlayerRules> ServerPlayerRules;
 	float ServerOwnerVoiceMaxDistance = 0.0f;
+	ESteamVoiceTopology ServerTopology = ESteamVoiceTopology::PeerToPeer;
 	/** Server: Steam IDs two players in the game have; their voice is refused. */
 	TSet<int64> IdentityConflicts;
 	int32 ServerRulesVersion = 0;
@@ -569,6 +616,13 @@ private:
 	TMap<int64, bool> MouthInRange;
 	TArray<uint64> MouthNotSent;
 	TArray<uint64> MouthDropped;
+	/** Server Relay as applied here: the relay host's Steam ID, 0 = peer to peer. */
+	int64 AppliedRelayHost = 0;
+	/** Relay host: talker -> recipient pairs in range of the talker's mouth (hysteresis), and per talker the recipients out of range for the worker. */
+	TMap<TPair<int64, int64>, bool> RelayMouthInRange;
+	TMap<uint64, TArray<uint64>> RelayMouthOutOfRange;
+	/** Relay host: the game's moderation filter (SetRelayFilter). */
+	TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe> RelayFilter;
 	FDelegateHandle ActorsInitializedHandle;
 	ESteamVoiceMode Mode = ESteamVoiceMode::PushToTalk;
 	/** Push to talk held, or Start Talking called. */

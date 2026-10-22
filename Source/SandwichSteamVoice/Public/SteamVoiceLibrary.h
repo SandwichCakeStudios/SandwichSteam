@@ -177,6 +177,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The game's owner voice distance in cm as applied here (0 = no limit). A player's own distance in their rules replaces it for their voice."))
 	static float GetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject);
 
+	UFUNCTION(BlueprintCallable, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How voice travels (Server Authority; Topology in the Voice settings is the start value). Peer To Peer: every player sends to every other player. Server Relay: clients send to this host only and it forwards what the rules allow, so channels and proximity stay private even against cheaters working together; one extra hop, and the host uploads every forwarded stream. Clients follow with the next rules. Call it on the server; clients are refused (Steam.Error.WrongScope)."))
+	static FSteamResult ServerSetSteamVoiceTopology(const UObject* WorldContextObject, ESteamVoiceTopology Topology);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "How voice travels as applied here: the server's choice (Peer To Peer until the server's rules arrived)."))
+	static ESteamVoiceTopology GetSteamVoiceTopology(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "True when this game forwards everybody's voice (the Server Relay host). It keeps forwarding while its own player has voice off."))
+	static bool IsSteamVoiceRelayHost(const UObject* WorldContextObject);
+
 	UFUNCTION(BlueprintPure, Category = "Steam|Voice|Server Rules", meta = (WorldContext = "WorldContextObject", ToolTip = "The server's voice rules for the player (Server Authority). Every client can read them: show a 'muted by the host' icon with Can Talk. Default rules (everything allowed) when none are set."))
 	static FSteamVoicePlayerRules GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player);
 

@@ -216,6 +216,7 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	bServerVoiceAllowed = bVoiceAllowed;
 	ServerPawnlessVoice = PawnlessVoice;
 	ServerOwnerVoiceMaxDistance = Settings ? FMath::Max(Settings->DefaultOwnerVoiceMaxDistance, 0.0f) : 0.0f;
+	ServerTopology = Settings ? Settings->Topology : ESteamVoiceTopology::PeerToPeer;
 	IdentityConflicts.Reset();
 	LocalChannelMapHash = Settings ? SandwichSteam::Voice::HashChannelMap(Settings->ChannelTagMap) : 0;
 	bRulesReceived = false;
@@ -227,6 +228,13 @@ bool USteamVoiceSubsystem::InitializeFeature()
 	MouthInRange.Reset();
 	MouthNotSent.Reset();
 	MouthDropped.Reset();
+	AppliedRelayHost = 0;
+	RelayMouthInRange.Reset();
+	RelayMouthOutOfRange.Reset();
+	if (Settings && Settings->Topology == ESteamVoiceTopology::ServerRelay && !bServerAuthority)
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: Topology is Server Relay, but Server Authority is off (or the Online Subsystem voice runs): voice runs peer to peer."));
+	}
 	if (bServerAuthority)
 	{
 		ActorsInitializedHandle = FWorldDelegates::OnWorldInitializedActors.AddWeakLambda(this, [this](const UWorld::FActorsInitializedParams& Params)
@@ -304,6 +312,10 @@ void USteamVoiceSubsystem::ShutdownFeature()
 	MouthInRange.Reset();
 	MouthNotSent.Reset();
 	MouthDropped.Reset();
+	AppliedRelayHost = 0;
+	RelayMouthInRange.Reset();
+	RelayMouthOutOfRange.Reset();
+	bRelayEcho = false;
 
 	if (OssFallback.IsValid() && bMicOpen && !bUseSteamPipeline)
 	{
@@ -857,15 +869,7 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 		{
 			StartPipeline();
 		}
-
-		if (!TickHandle.IsValid())
-		{
-			// The pipeline ticks every frame to handle the worker's events on time; its player poll runs every PipelinePlayerPollSeconds.
-			const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
-			const float Interval = bUseSteamPipeline ? 0.0f : (Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f);
-			PollAccumulator = TNumericLimits<float>::Max(); // Poll on the first tick.
-			TickHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USteamVoiceSubsystem::TickVoice), Interval);
-		}
+		EnsureTicker();
 
 		bPushToTalkUnavailable = false;
 		LastGameState.Reset(); // The next poll treats the current game as a new session: mutes are applied again.
@@ -874,7 +878,9 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 		return;
 	}
 
-	if (TickHandle.IsValid())
+	// A relay host keeps forwarding everybody else's voice: only this player's side stops (no microphone, nothing played or reported).
+	const bool bRelayOnly = IsVoiceRelayHost();
+	if (!bRelayOnly && TickHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
 		TickHandle.Reset();
@@ -885,7 +891,16 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 	UnbindPushToTalk();
 	RefreshTalking(true);
 	RemoveVolumeMix();
-	StopPipeline();
+	if (bRelayOnly)
+	{
+		StartPipeline(); // Publishes the routing without local playback; the worker lets go of every speaker.
+		EnsureTicker();
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: voice is off for this player; this host keeps relaying the other players' voice."));
+	}
+	else
+	{
+		StopPipeline();
+	}
 
 	if (Tracker.IsValid())
 	{
@@ -896,8 +911,25 @@ void USteamVoiceSubsystem::ApplyEnabledState()
 			BroadcastTalking(Change.Player, false);
 		}
 	}
-	Present.Reset();
-	Evaluated.Reset();
+	if (!bRelayOnly)
+	{
+		Present.Reset();
+		Evaluated.Reset();
+	}
+}
+
+void USteamVoiceSubsystem::EnsureTicker()
+{
+	if (TickHandle.IsValid())
+	{
+		return;
+	}
+
+	// The pipeline ticks every frame to handle the worker's events on time; its player poll runs every PipelinePlayerPollSeconds.
+	const USteamVoiceSettings* Settings = USteamVoiceSettings::Get();
+	const float Interval = bUseSteamPipeline ? 0.0f : (Settings ? FMath::Clamp(Settings->TalkingPollSeconds, 0.02f, 1.0f) : 0.1f);
+	PollAccumulator = TNumericLimits<float>::Max(); // Poll on the first tick.
+	TickHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USteamVoiceSubsystem::TickVoice), Interval);
 }
 
 bool USteamVoiceSubsystem::ShouldTalk() const
@@ -950,7 +982,7 @@ void USteamVoiceSubsystem::HandlePushToTalkReleased()
 
 bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 {
-	if (!OssFallback.IsValid() || !bEnabled)
+	if (!OssFallback.IsValid() || !ShouldRunPipeline())
 	{
 		TickHandle.Reset();
 		return false; // Removes the ticker.
@@ -982,6 +1014,10 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	if (!LocalId.IsValid())
 	{
 		LocalId = GetSignedInSteamId(GetGameInstance());
+		if (LocalId.IsValid() && HasVoiceAuthority() && ServerTopology == ESteamVoiceTopology::ServerRelay)
+		{
+			PushServerGameRules(); // Server Relay waited for this host's Steam ID.
+		}
 	}
 
 	// A new game state means a new session (or a new map): talkers register again, so what the Online Subsystem knew is void.
@@ -991,7 +1027,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 		LastGameState = GameState;
 		Evaluated.Reset();
 		Book->ForgetApplied();
-		if (GameState)
+		if (GameState && bEnabled) // A relay host with voice off has no volume mix.
 		{
 			ApplyMasterVolume();
 			if (bMicOpen && !bUseSteamPipeline)
@@ -1002,7 +1038,7 @@ bool USteamVoiceSubsystem::TickVoice(float DeltaTime)
 	}
 
 	// Push to talk binding: the controller and its input component appear some time after the map loaded.
-	if (Settings && Settings->bAutoBindPushToTalk && !bPushToTalkUnavailable && !Settings->PushToTalkAction.IsNull() && !IsPushToTalkBound())
+	if (bEnabled && Settings && Settings->bAutoBindPushToTalk && !bPushToTalkUnavailable && !Settings->PushToTalkAction.IsNull() && !IsPushToTalkBound())
 	{
 		if (APlayerController* Controller = GameInstance ? GameInstance->GetFirstLocalPlayerController(World) : nullptr)
 		{
@@ -1269,7 +1305,7 @@ void USteamVoiceSubsystem::PublishRouting()
 		Peers.Reserve(Present.Num());
 		for (const int64 Player : Present)
 		{
-			if (Player != LocalId.Value && !SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player)))
+			if (Player != LocalId.Value && !SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player)) && static_cast<uint64>(Player) != SandwichSteam::Voice::RelayEchoTalkerId)
 			{
 				Peers.Add(static_cast<uint64>(Player));
 			}
@@ -1307,7 +1343,8 @@ void USteamVoiceSubsystem::PublishRouting()
 
 	// Server rule changes force a publish (bRoutingPublished = false), so they need no comparison here.
 	if (bRoutingPublished && !bChannelOutputsChanged && !bPlayerVolumesChanged && bPublishedRecord == bMicOpen && bPublishedMicTest == bMicTest && PublishedLocalId == LocalId.Value && PublishedPeers == Peers && PublishedMuted == Muted && PublishedBlocked == Blocked
-		&& bPublishedTransmitMouth == bTransmitMouth && PublishedTransmitChannels == Transmit && PublishedMouthNotSent == MouthNotSent && PublishedMouthDropped == MouthDropped)
+		&& bPublishedTransmitMouth == bTransmitMouth && PublishedTransmitChannels == Transmit && PublishedMouthNotSent == MouthNotSent && PublishedMouthDropped == MouthDropped
+		&& PublishedRelayHost == AppliedRelayHost && bPublishedLocalPlayback == bEnabled && PublishedRelayMouthOutOfRange.OrderIndependentCompareEqual(RelayMouthOutOfRange))
 	{
 		return;
 	}
@@ -1333,6 +1370,14 @@ void USteamVoiceSubsystem::PublishRouting()
 	Snapshot->LocalRules = LocalRules;
 	Snapshot->MouthNotSent.Append(MouthNotSent);
 	Snapshot->MouthDropped.Append(MouthDropped);
+	Snapshot->RelayHost = static_cast<uint64>(AppliedRelayHost);
+	Snapshot->bLocalPlayback = bEnabled;
+	if (IsVoiceRelayHost())
+	{
+		Snapshot->RelayMouthOutOfRange = RelayMouthOutOfRange;
+		Snapshot->RelayFilter = RelayFilter;
+		Snapshot->bRelayEcho = bRelayEcho;
+	}
 	Snapshot->PlayerVolumes.Reserve(PlayerVolumes.Num());
 	for (const TPair<int64, float>& Pair : PlayerVolumes)
 	{
@@ -1366,6 +1411,9 @@ void USteamVoiceSubsystem::PublishRouting()
 	PublishedTransmitChannels = MoveTemp(Transmit);
 	PublishedMouthNotSent = MouthNotSent;
 	PublishedMouthDropped = MouthDropped;
+	PublishedRelayMouthOutOfRange = RelayMouthOutOfRange;
+	PublishedRelayHost = AppliedRelayHost;
+	bPublishedLocalPlayback = bEnabled;
 	bPublishedTransmitMouth = bTransmitMouth;
 	PublishedLocalId = LocalId.Value;
 	bPublishedRecord = bMicOpen;
@@ -1501,6 +1549,10 @@ void USteamVoiceSubsystem::DrainWorkerEvents()
 		case EWorkerEvent::Flood:
 			UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: %s sent too much voice data for 5 seconds and is muted for this session."), *FSteamId(Talker).ToString());
 			OnPlayerVoiceFlood.Broadcast(FSteamId(Talker));
+			break;
+
+		case EWorkerEvent::RelayChanged:
+			OnServerVoiceRelayChanged.Broadcast(FSteamId(Talker), Event.bMouth || !Event.Channels.IsEmpty(), Event.bMouth, MakeChannels(Event.Channels));
 			break;
 
 		case EWorkerEvent::TalkerRemoved:
@@ -2180,6 +2232,7 @@ void USteamVoiceSubsystem::HandleAuthorityChanged(ASteamVoiceAuthority* InAuthor
 				Effective.FindOrAdd(Player).bIdentityConflict = true;
 			}
 			InAuthority->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice, ServerOwnerVoiceMaxDistance);
+			InAuthority->SetRelayHost(GetServerRelayHost());
 			InAuthority->SetChannelMapHash(LocalChannelMapHash);
 			InAuthority->ResetPlayerRules(Effective);
 			BumpServerRulesVersion();
@@ -2304,6 +2357,53 @@ FSteamResult USteamVoiceSubsystem::ServerSetPlayerOwnerVoiceMaxDistance(FSteamId
 	return FSteamResult::Success();
 }
 
+FSteamResult USteamVoiceSubsystem::ServerSetVoiceTopology(ESteamVoiceTopology NewTopology)
+{
+	FSteamResult Result;
+	if (!CanSetServerRules(Result))
+	{
+		return Result;
+	}
+
+	if (NewTopology != ServerTopology)
+	{
+		ServerTopology = NewTopology;
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: the server switches voice to %s."),
+			NewTopology == ESteamVoiceTopology::ServerRelay ? TEXT("Server Relay (clients send to this host, it forwards)") : TEXT("peer to peer"));
+		PushServerGameRules();
+	}
+	if (NewTopology == ESteamVoiceTopology::ServerRelay && !LocalId.IsValid())
+	{
+		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam voice: Server Relay needs this host's Steam ID; voice stays peer to peer until Steam has signed in."));
+	}
+	return FSteamResult::Success();
+}
+
+FSteamId USteamVoiceSubsystem::GetServerRelayHost() const
+{
+	return ServerTopology == ESteamVoiceTopology::ServerRelay && LocalId.IsValid() ? LocalId : FSteamId();
+}
+
+bool USteamVoiceSubsystem::IsVoiceRelayHost() const
+{
+	return AppliedRelayHost != 0 && LocalId.IsValid() && AppliedRelayHost == LocalId.Value && HasVoiceAuthority();
+}
+
+void USteamVoiceSubsystem::SetRelayFilter(TSharedPtr<ISteamVoiceRelayFilter, ESPMode::ThreadSafe> Filter)
+{
+	check(IsInGameThread());
+	if (Filter == RelayFilter)
+	{
+		return;
+	}
+
+	// The worker gets it with the next snapshot and holds a reference while it calls it, so the old one stays alive until it is done.
+	RelayFilter = MoveTemp(Filter);
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: relay filter %s."), RelayFilter.IsValid() ? TEXT("set") : TEXT("removed"));
+	bRoutingPublished = false;
+	PublishRouting();
+}
+
 FSteamVoicePlayerRules USteamVoiceSubsystem::GetPlayerVoiceRules(FSteamId Player) const
 {
 	// The server's own map is current even between worlds, when no authority actor exists.
@@ -2382,15 +2482,20 @@ void USteamVoiceSubsystem::UpdateOwnerVoiceRange()
 {
 	MouthNotSent.Reset();
 	MouthDropped.Reset();
+	RelayMouthOutOfRange.Reset();
 
 	bool bAnyLimit = OwnerVoiceMaxDistance > 0.0f;
 	for (const TPair<int64, FSteamVoicePlayerRules>& Pair : AppliedPlayerRules)
 	{
 		bAnyLimit |= Pair.Value.OwnerVoiceMaxDistance > 0.0f;
 	}
-	if (!bAnyLimit)
+	// Server Relay clients send everything to the host, which decides every distance with the server's pawns (a pawn that is not net relevant
+	// here would wrongly drop voice).
+	const bool bRelayHost = IsVoiceRelayHost();
+	if (!bAnyLimit || (AppliedRelayHost != 0 && !bRelayHost))
 	{
 		MouthInRange.Reset();
+		RelayMouthInRange.Reset();
 		return;
 	}
 
@@ -2437,6 +2542,68 @@ void USteamVoiceSubsystem::UpdateOwnerVoiceRange()
 	}
 	MouthNotSent.Sort();
 	MouthDropped.Sort();
+
+	if (!bRelayHost)
+	{
+		RelayMouthInRange.Reset();
+		return;
+	}
+
+	// Relay host: every talker -> recipient pair between the other players, with the server's pawns.
+	const auto FindPawn = [this](int64 Player) -> const APawn*
+	{
+		const TWeakObjectPtr<APlayerState>* State = PlayerStates.Find(Player);
+		return State && State->IsValid() ? (*State)->GetPawn() : nullptr;
+	};
+	const auto IsRelayed = [this](int64 Player)
+	{
+		return Player != LocalId.Value && Present.Contains(Player) && !SandwichSteam::Voice::IsFakeTalkerId(static_cast<uint64>(Player));
+	};
+
+	for (auto It = RelayMouthInRange.CreateIterator(); It; ++It)
+	{
+		if (!IsRelayed(It.Key().Key) || !IsRelayed(It.Key().Value))
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	for (const int64 Talker : Present)
+	{
+		if (!IsRelayed(Talker))
+		{
+			continue;
+		}
+		const FSteamVoicePlayerRules* Rules = AppliedPlayerRules.Find(Talker);
+		const float TalkerDistance = SandwichSteam::Voice::ResolveOwnerVoiceDistance(OwnerVoiceMaxDistance, Rules ? Rules->OwnerVoiceMaxDistance : 0.0f);
+		if (TalkerDistance <= 0.0f)
+		{
+			continue; // Their mouth carries everywhere.
+		}
+
+		const APawn* TalkerPawn = FindPawn(Talker);
+		for (const int64 Recipient : Present)
+		{
+			if (Recipient == Talker || !IsRelayed(Recipient))
+			{
+				continue;
+			}
+
+			const APawn* RecipientPawn = FindPawn(Recipient);
+			const bool bKnown = IsValid(TalkerPawn) && IsValid(RecipientPawn);
+			const double DistanceSquared = bKnown ? FVector::DistSquared(TalkerPawn->GetActorLocation(), RecipientPawn->GetActorLocation()) : 0.0;
+			bool& bInRange = RelayMouthInRange.FindOrAdd(TPair<int64, int64>(Talker, Recipient), false);
+			bInRange = SandwichSteam::Voice::UpdateMouthInRange(bInRange, bKnown, DistanceSquared, TalkerDistance);
+			if (!bInRange)
+			{
+				RelayMouthOutOfRange.FindOrAdd(static_cast<uint64>(Talker)).Add(static_cast<uint64>(Recipient));
+			}
+		}
+	}
+	for (TPair<uint64, TArray<uint64>>& Pair : RelayMouthOutOfRange)
+	{
+		Pair.Value.Sort();
+	}
 }
 
 void USteamVoiceSubsystem::ResolveAppliedRules()
@@ -2499,6 +2666,7 @@ void USteamVoiceSubsystem::PushServerGameRules()
 	if (ASteamVoiceAuthority* Actor = Authority.Get(); Actor && Actor->HasAuthority())
 	{
 		Actor->SetGameRules(bServerVoiceAllowed, ServerPawnlessVoice, ServerOwnerVoiceMaxDistance);
+		Actor->SetRelayHost(GetServerRelayHost());
 		BumpServerRulesVersion();
 	}
 	ApplyAuthorityRules();
@@ -2543,9 +2711,10 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 		}
 	}
 	const int32 NewVersion = bReceived ? Actor->GetRulesVersion() : 0;
+	const int64 NewRelayHost = bReceived ? Actor->GetRelayHost().Value : 0;
 
 	if (bReceived == bRulesReceived && NewVersion == AppliedRulesVersion && bNewAllowed == bVoiceAllowed && NewPawnless == PawnlessVoice
-		&& NewDistance == OwnerVoiceMaxDistance && bNewMismatch == bChannelMapMismatch && NewRules.OrderIndependentCompareEqual(AppliedPlayerRules))
+		&& NewDistance == OwnerVoiceMaxDistance && bNewMismatch == bChannelMapMismatch && NewRelayHost == AppliedRelayHost && NewRules.OrderIndependentCompareEqual(AppliedPlayerRules))
 	{
 		return;
 	}
@@ -2562,6 +2731,13 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 	AppliedPlayerRules = MoveTemp(NewRules);
 	OwnerVoiceMaxDistance = NewDistance;
 	bVoiceAllowed = bNewAllowed;
+	const bool bWasRelayHost = IsVoiceRelayHost();
+	if (NewRelayHost != AppliedRelayHost)
+	{
+		AppliedRelayHost = NewRelayHost;
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam voice: voice runs %s."), AppliedRelayHost == 0 ? TEXT("peer to peer")
+			: IsVoiceRelayHost() ? TEXT("through this host (Server Relay)") : *FString::Printf(TEXT("through the host %s (Server Relay)"), *FSteamId(AppliedRelayHost).ToString()));
+	}
 	ResolveAppliedRules();
 	if (NewPawnless != PawnlessVoice)
 	{
@@ -2573,6 +2749,12 @@ void USteamVoiceSubsystem::ApplyAuthorityRules()
 	UpdateOwnerVoiceRange();
 	bRoutingPublished = false;
 	PublishRouting();
+
+	// A relay host whose player has voice off still runs the pipeline for the others; it stops once it no longer relays.
+	if (!bEnabled && bWasRelayHost != IsVoiceRelayHost())
+	{
+		ApplyEnabledState();
+	}
 
 	if (bReceivedChanged)
 	{
@@ -2792,6 +2974,24 @@ FSteamResult USteamVoiceSubsystem::SetSimulatedLoss(float LossPercent)
 	return FSteamResult::Success();
 }
 
+FSteamResult USteamVoiceSubsystem::SetRelayEcho(bool bEcho)
+{
+	FSteamResult Result;
+	if (!RequireActive(Result))
+	{
+		return Result;
+	}
+	if (bEcho && !IsVoiceRelayHost())
+	{
+		return FSteamResult::Failure(SteamGameplayTags::Error_WrongScope, NSLOCTEXT("SandwichSteam", "VoiceRelayEchoHostOnly", "Relay echo runs on the relay host: Server Authority on, Topology Server Relay, on the server."));
+	}
+
+	bRelayEcho = bEcho;
+	bRoutingPublished = false;
+	PublishRouting();
+	return FSteamResult::Success();
+}
+
 FString USteamVoiceSubsystem::BuildDebugString() const
 {
 	FString Report = FString::Printf(TEXT("Steam.Voice: feature %s\n"), IsFeatureActive() ? TEXT("active") : TEXT("inactive"));
@@ -2818,6 +3018,21 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		if (!MouthNotSent.IsEmpty() || !MouthDropped.IsEmpty())
 		{
 			Report += FString::Printf(TEXT("    owner voice out of range: %d player(s) not sent our voice, %d player(s) whose voice is dropped here\n"), MouthNotSent.Num(), MouthDropped.Num());
+		}
+		const FString Topology = AppliedRelayHost == 0 ? FString(TEXT("peer to peer"))
+			: IsVoiceRelayHost() ? FString::Printf(TEXT("Server Relay, this host forwards%s, relay filter %s, echo %s"), bEnabled ? TEXT("") : TEXT(" (its own voice is off: relay only)"),
+				RelayFilter.IsValid() ? TEXT("set") : TEXT("none"), bRelayEcho ? TEXT("on") : TEXT("off"))
+			: FString::Printf(TEXT("Server Relay through %s"), *FSteamId(AppliedRelayHost).ToString());
+		Report += FString::Printf(TEXT("    topology: %s (server start value %s)\n"), *Topology,
+			ServerTopology == ESteamVoiceTopology::ServerRelay ? TEXT("Server Relay") : TEXT("peer to peer"));
+		if (IsVoiceRelayHost())
+		{
+			int32 OutOfRangePairs = 0;
+			for (const TPair<uint64, TArray<uint64>>& Pair : RelayMouthOutOfRange)
+			{
+				OutOfRangePairs += Pair.Value.Num();
+			}
+			Report += FString::Printf(TEXT("    relay owner voice: %d talker -> listener pair(s) out of range\n"), OutOfRangePairs);
 		}
 	}
 	else
@@ -2911,6 +3126,15 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 		Report += FString::Printf(TEXT("    Receive: %llu packet(s), %llu invalid, %llu from non-players, %llu muted, %llu dropped by the server rules, %llu mouth removed and %llu with channels removed by the server rules, %llu simulated loss, %llu dropped: speaker id is not the sender\n"),
 			Stats.PacketsReceived, Stats.Invalid, Stats.FromUnknown, Stats.MutedDrops, Stats.RuleDrops, Stats.RuleMouthRemoved, Stats.RuleChannelsRemoved, Stats.SimLossDrops, Stats.SpeakerMismatch);
 		Report += FString::Printf(TEXT("    Sessions: %llu accepted, %llu rejected, %d pending\n"), Stats.SessionsAccepted, Stats.SessionsRejected, Stats.SessionsPending);
+		if (IsVoiceRelayHost())
+		{
+			Report += FString::Printf(TEXT("    Relay: %llu packet(s) in, %llu send(s) forwarded, %llu dropped by the talker's rules, %llu by the filter, %llu recipient(s) left nothing, %llu echo send(s), upload %.1f KB/s\n"),
+				Stats.RelayIn, Stats.RelayForwarded, Stats.RelayRuleDrops, Stats.RelayFilterDrops, Stats.RelayNotSent, Stats.RelayEchoSent, Stats.RelayUploadKBps);
+		}
+		else if (AppliedRelayHost != 0)
+		{
+			Report += FString::Printf(TEXT("    Relay: client, sending to %s only; %llu relayed packet(s) for talkers not in the game\n"), *FSteamId(AppliedRelayHost).ToString(), Stats.RelayUnknownTalker);
+		}
 		if (FakeTalkerCount > 0 || SimulatedLossPercent > 0.0f)
 		{
 			Report += FString::Printf(TEXT("    Test: %d fake talker(s), %d ms delay + %d ms per fake, %.0f%% loss; simulated loss %.0f%%\n"),
@@ -2985,13 +3209,18 @@ FString USteamVoiceSubsystem::BuildDebugString() const
 			}
 
 			Report += FString::Printf(TEXT("    talker %s%s: %s%s, level %.3f, volume %.2f, packets %llu, lost %llu, late %llu, dup %llu, resync %llu, flood drops %llu%s, decode errors %llu (last result %d, last %d samples, longest %.0f ms), pause silence dropped %.0f ms, queued %d\n"),
-				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.Talker == SandwichSteam::Voice::MicTestTalkerId ? TEXT(" (mic test)") : Talker.bFake ? TEXT(" (fake)") : TEXT(""),
+				*FSteamId(static_cast<int64>(Talker.Talker)).ToString(), Talker.Talker == SandwichSteam::Voice::MicTestTalkerId ? TEXT(" (mic test)")
+					: Talker.Talker == SandwichSteam::Voice::RelayEchoTalkerId ? TEXT(" (relay echo)") : Talker.bFake ? TEXT(" (fake)") : TEXT(""),
 				Talker.bTalking ? TEXT("TALKING") : TEXT("silent"), Talker.bActive ? TEXT(", speaker on") : TEXT(""),
 				Talker.Level, Talker.Gain, Talker.Packets, Talker.Lost, Talker.Late, Talker.Duplicate, Talker.Resyncs, Talker.FloodDrops,
 				Talker.bFlooded ? TEXT(" (MUTED: flood)") : TEXT(""), Talker.DecodeErrors, Talker.LastDecodeResult, Talker.LastDecodedSamples, Talker.MaxPacketMs, Talker.SilenceTrimmedMs, Talker.Queued);
 			Report += FString::Printf(TEXT("      speakers: %d (%s), first %s, buffered %.0f ms, underruns %u (incl. ends of speech), latency %s\n"),
 				NumSpeakers, *Placement, Component ? (Component->IsPlaying() ? TEXT("playing") : TEXT("stopped")) : TEXT("none"), BufferedMs,
 				Component ? Component->GetUnderruns() : 0u, *Latency);
+			if (IsVoiceRelayHost() && !Talker.bFake)
+			{
+				Report += FString::Printf(TEXT("      relay: %llu send(s) forwarded, %llu packet(s) dropped (rules, filter)\n"), Talker.RelayForwarded, Talker.RelayDropped);
+			}
 		}
 	}
 	return Report;
