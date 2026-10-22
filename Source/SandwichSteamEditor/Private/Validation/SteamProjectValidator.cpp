@@ -347,11 +347,17 @@ namespace
 
 		// The Voice module is optional, so its settings are read from the config instead of through its class.
 		bool bServerAuthority = false;
+		bool bLobbyVoice = false;
 		FString Topology;
 		if (GConfig)
 		{
 			GConfig->GetBool(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("bServerAuthority"), bServerAuthority, GGameIni);
+			GConfig->GetBool(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("bAllowVoiceInLobby"), bLobbyVoice, GGameIni);
 			GConfig->GetString(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("Topology"), Topology, GGameIni);
+		}
+		if (bLobbyVoice)
+		{
+			Out.Add(FSteamValidationCheck::Make(TEXT("VoiceLobbyPrivacy"), ESteamCheckSeverity::Info, LOCTEXT("VoiceLobbyPrivacyLabel", "Lobby voice (Voice)"), LOCTEXT("VoiceLobbyPrivacy", "Allow Voice In Lobby is on: members of a Steam lobby without a networked game hear each other in 2D, peer to peer and through Steam's relays (no IP addresses). Server Relay, the server's player rules and the owner voice distance start with the game; Voice Allowed, mutes and blocked players still apply.")));
 		}
 		const bool bServerRelay = Topology == TEXT("ServerRelay");
 
