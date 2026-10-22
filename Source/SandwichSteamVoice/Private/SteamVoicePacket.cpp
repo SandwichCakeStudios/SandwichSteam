@@ -20,6 +20,24 @@ namespace SandwichSteam::Voice
 		{
 			return static_cast<int32>(static_cast<uint32>(In[0]) | (static_cast<uint32>(In[1]) << 8) | (static_cast<uint32>(In[2]) << 16) | (static_cast<uint32>(In[3]) << 24));
 		}
+
+		FORCEINLINE void WriteUInt64(uint8* Out, uint64 Value)
+		{
+			for (int32 Index = 0; Index < 8; ++Index)
+			{
+				Out[Index] = static_cast<uint8>(Value >> (8 * Index));
+			}
+		}
+
+		FORCEINLINE uint64 ReadUInt64(const uint8* In)
+		{
+			uint64 Value = 0;
+			for (int32 Index = 7; Index >= 0; --Index)
+			{
+				Value = (Value << 8) | In[Index];
+			}
+			return Value;
+		}
 	}
 
 	EPacketReadResult ReadPacket(const uint8* Data, int32 Size, FPacketView& OutPacket)
@@ -28,14 +46,16 @@ namespace SandwichSteam::Voice
 		{
 			return EPacketReadResult::TooSmall;
 		}
-		if (Size > MaxPacketBytes)
-		{
-			return EPacketReadResult::TooLarge;
-		}
 
 		OutPacket.Sequence = static_cast<uint16>(Data[0] | (Data[1] << 8));
 		OutPacket.Flags = Data[2];
+		OutPacket.Talker = 0;
 		const int32 Count = Data[3];
+		const bool bRelayed = (OutPacket.Flags & PacketFlags::Relayed) != 0;
+		if (Size > (bRelayed ? MaxRelayedPacketBytes : MaxPacketBytes))
+		{
+			return EPacketReadResult::TooLarge;
+		}
 
 		if ((OutPacket.Flags & PacketFlags::Hello) != 0)
 		{
@@ -54,15 +74,25 @@ namespace SandwichSteam::Voice
 			return EPacketReadResult::TooManyChannels;
 		}
 
-		const int32 PayloadOffset = PacketHeaderBytes + 4 * Count;
+		const int32 ChannelOffset = PacketHeaderBytes + (bRelayed ? RelayTalkerBytes : 0);
+		const int32 PayloadOffset = ChannelOffset + 4 * Count;
 		if (PayloadOffset >= Size)
 		{
 			return EPacketReadResult::NoPayload;
 		}
 
+		if (bRelayed)
+		{
+			OutPacket.Talker = ReadUInt64(Data + PacketHeaderBytes);
+			if (OutPacket.Talker == 0)
+			{
+				return EPacketReadResult::InvalidTalker;
+			}
+		}
+
 		for (int32 Index = 0; Index < Count; ++Index)
 		{
-			const int32 Channel = ReadInt32(Data + PacketHeaderBytes + 4 * Index);
+			const int32 Channel = ReadInt32(Data + ChannelOffset + 4 * Index);
 			if (Channel < 0)
 			{
 				return EPacketReadResult::InvalidChannelId;
@@ -76,13 +106,15 @@ namespace SandwichSteam::Voice
 		return EPacketReadResult::Voice;
 	}
 
-	bool WriteVoicePacket(uint16 Sequence, uint8 Flags, TConstArrayView<int32> Channels, TConstArrayView<uint8> Payload, TArray<uint8>& Out)
+	bool WriteVoicePacket(uint16 Sequence, uint8 Flags, TConstArrayView<int32> Channels, TConstArrayView<uint8> Payload, TArray<uint8>& Out, uint64 Talker)
 	{
 		Out.Reset();
 
+		const bool bRelayed = Talker != 0;
 		const int32 Count = Channels.Num();
-		const int32 PayloadOffset = PacketHeaderBytes + 4 * Count;
-		if (Count > MaxPacketChannels || Payload.IsEmpty() || PayloadOffset + Payload.Num() > MaxPacketBytes)
+		const int32 ChannelOffset = PacketHeaderBytes + (bRelayed ? RelayTalkerBytes : 0);
+		const int32 PayloadOffset = ChannelOffset + 4 * Count;
+		if (Count > MaxPacketChannels || Payload.IsEmpty() || PayloadOffset + Payload.Num() > (bRelayed ? MaxRelayedPacketBytes : MaxPacketBytes))
 		{
 			return false;
 		}
@@ -98,11 +130,15 @@ namespace SandwichSteam::Voice
 		uint8* Data = Out.GetData();
 		Data[0] = static_cast<uint8>(Sequence);
 		Data[1] = static_cast<uint8>(Sequence >> 8);
-		Data[2] = static_cast<uint8>(Flags & ~PacketFlags::Hello);
+		Data[2] = static_cast<uint8>((Flags & ~(PacketFlags::Hello | PacketFlags::Relayed)) | (bRelayed ? PacketFlags::Relayed : 0));
 		Data[3] = static_cast<uint8>(Count);
+		if (bRelayed)
+		{
+			WriteUInt64(Data + PacketHeaderBytes, Talker);
+		}
 		for (int32 Index = 0; Index < Count; ++Index)
 		{
-			WriteInt32(Data + PacketHeaderBytes + 4 * Index, Channels[Index]);
+			WriteInt32(Data + ChannelOffset + 4 * Index, Channels[Index]);
 		}
 		FMemory::Memcpy(Data + PayloadOffset, Payload.GetData(), Payload.Num());
 		return true;
@@ -192,6 +228,7 @@ namespace SandwichSteam::Voice
 		case EPacketReadResult::InvalidChannelId:	return TEXT("negative channel id");
 		case EPacketReadResult::NoPayload:			return TEXT("no payload");
 		case EPacketReadResult::MalformedHello:		return TEXT("malformed hello");
+		case EPacketReadResult::InvalidTalker:		return TEXT("relayed without talker");
 		default:									return TEXT("unknown");
 		}
 	}

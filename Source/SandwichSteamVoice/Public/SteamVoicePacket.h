@@ -7,10 +7,11 @@
 /**
  * The voice wire format (pure, no engine or Steam access, so it can be unit and fuzz tested).
  *
- *   uint16 Sequence | uint8 Flags | uint8 ChannelCount | int32 ChannelIds[ChannelCount] | Payload (Steam compressed voice)
+ *   uint16 Sequence | uint8 Flags | uint8 ChannelCount | [uint64 Talker] | int32 ChannelIds[ChannelCount] | Payload (Steam compressed voice)
  *
  * Little endian. A hello is exactly 4 bytes (Hello flag, no channels, no payload) and only opens the Steam session.
- * The sender is never part of the packet: it is the transport's peer identity.
+ * The sender is never part of a talker's packet: it is the transport's peer identity. Only a packet the relay host forwards carries
+ * the talker (Relayed flag), stamped by the host; receivers accept that from the relay host only.
  */
 namespace SandwichSteam::Voice
 {
@@ -20,10 +21,16 @@ namespace SandwichSteam::Voice
 		constexpr uint8 Mouth = 1 << 0;
 		/** Session hello: no audio. */
 		constexpr uint8 Hello = 1 << 1;
+		/** Forwarded by the relay host: the talker's Steam ID follows the header. */
+		constexpr uint8 Relayed = 1 << 2;
 	}
 
-	/** Largest packet that is sent or accepted (fits one unfragmented Steam datagram). */
+	/** Largest packet a talker sends or a relay host accepts (fits one unfragmented Steam datagram). */
 	constexpr int32 MaxPacketBytes = 1200;
+	/** The talker id of a relayed packet. */
+	constexpr int32 RelayTalkerBytes = 8;
+	/** Largest relayed packet: a talker's packet plus the talker id. */
+	constexpr int32 MaxRelayedPacketBytes = MaxPacketBytes + RelayTalkerBytes;
 	constexpr int32 MaxPacketChannels = 8;
 	constexpr int32 PacketHeaderBytes = 4;
 	constexpr int32 HelloPacketBytes = 4;
@@ -37,7 +44,9 @@ namespace SandwichSteam::Voice
 		TooManyChannels,
 		InvalidChannelId,
 		NoPayload,
-		MalformedHello
+		MalformedHello,
+		/** Relayed flag with a talker id of 0. */
+		InvalidTalker
 	};
 
 	/** A parsed packet. Payload points into the buffer that was read; it is only valid while that buffer lives. */
@@ -45,12 +54,15 @@ namespace SandwichSteam::Voice
 	{
 		uint16 Sequence = 0;
 		uint8 Flags = 0;
+		/** Relayed packets only: the talker the relay host stamped. 0 otherwise. */
+		uint64 Talker = 0;
 		int32 NumChannels = 0;
 		int32 Channels[MaxPacketChannels] = {};
 		const uint8* Payload = nullptr;
 		int32 PayloadSize = 0;
 
 		bool HasMouth() const { return (Flags & PacketFlags::Mouth) != 0; }
+		bool IsRelayed() const { return (Flags & PacketFlags::Relayed) != 0; }
 		TConstArrayView<int32> GetChannels() const { return TConstArrayView<int32>(Channels, NumChannels); }
 	};
 
@@ -58,10 +70,12 @@ namespace SandwichSteam::Voice
 	EPacketReadResult ReadPacket(const uint8* Data, int32 Size, FPacketView& OutPacket);
 
 	/**
-	 * Writes a voice packet into Out (reset first, its allocation is reused).
-	 * Returns false (Out empty) when the packet would be invalid: too many channels, a negative channel id, no payload, or larger than MaxPacketBytes.
+	 * Writes a voice packet into Out (reset first, its allocation is reused). Talker other than 0 writes a relayed packet (relay host only):
+	 * the Relayed flag comes from Talker, never from Flags.
+	 * Returns false (Out empty) when the packet would be invalid: too many channels, a negative channel id, no payload, or larger than
+	 * MaxPacketBytes (MaxRelayedPacketBytes when relayed).
 	 */
-	bool WriteVoicePacket(uint16 Sequence, uint8 Flags, TConstArrayView<int32> Channels, TConstArrayView<uint8> Payload, TArray<uint8>& Out);
+	bool WriteVoicePacket(uint16 Sequence, uint8 Flags, TConstArrayView<int32> Channels, TConstArrayView<uint8> Payload, TArray<uint8>& Out, uint64 Talker = 0);
 
 	/** Writes the 4-byte hello into Out. */
 	void WriteHelloPacket(TArray<uint8>& Out);

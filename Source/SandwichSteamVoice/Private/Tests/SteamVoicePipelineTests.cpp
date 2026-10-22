@@ -84,6 +84,30 @@ bool FSteamVoicePacketRoundTripTest::RunTest(const FString& Parameters)
 	// A voice packet never carries the hello flag.
 	TestTrue(TEXT("Hello flag is stripped"), WriteVoicePacket(1, PacketFlags::Hello | PacketFlags::Mouth, TConstArrayView<int32>(), Payload, Bytes)
 		&& ReadPacket(Bytes.GetData(), Bytes.Num(), View) == EPacketReadResult::Voice);
+
+	// The Relayed flag comes from the talker id only.
+	TestTrue(TEXT("Relayed flag is stripped without a talker"), WriteVoicePacket(1, PacketFlags::Relayed, TConstArrayView<int32>(), Payload, Bytes)
+		&& ReadPacket(Bytes.GetData(), Bytes.Num(), View) == EPacketReadResult::Voice && !View.IsRelayed() && View.Talker == 0);
+
+	// Relayed: the talker id sits between the header and the channels.
+	const uint64 Talker = 0x0110000100ABCDEFull;
+	TestTrue(TEXT("Relayed packet written"), WriteVoicePacket(42, PacketFlags::Mouth, Channels, Payload, Bytes, Talker));
+	TestEqual(TEXT("Relayed size = header + talker + channels + payload"), Bytes.Num(), PacketHeaderBytes + RelayTalkerBytes + 3 * 4 + 200);
+	TestTrue(TEXT("Relayed read as voice"), ReadPacket(Bytes.GetData(), Bytes.Num(), View) == EPacketReadResult::Voice);
+	TestTrue(TEXT("Relayed flag and talker"), View.IsRelayed() && View.Talker == Talker);
+	TestTrue(TEXT("Relayed sequence and mouth"), View.Sequence == 42 && View.HasMouth());
+	TestTrue(TEXT("Relayed channels"), View.NumChannels == 3 && View.Channels[0] == 0 && View.Channels[1] == 3 && View.Channels[2] == 2147483647);
+	TestTrue(TEXT("Relayed payload"), View.PayloadSize == 200 && FMemory::Memcmp(View.Payload, Payload.GetData(), 200) == 0);
+
+	// A read packet forwarded as relayed keeps everything.
+	TArray<uint8> Original;
+	TArray<uint8> Forwarded;
+	WriteVoicePacket(7, 0, Channels, Payload, Original);
+	FPacketView Read;
+	ReadPacket(Original.GetData(), Original.Num(), Read);
+	TestTrue(TEXT("Forwarded"), WriteVoicePacket(Read.Sequence, Read.Flags, Read.GetChannels(), TConstArrayView<uint8>(Read.Payload, Read.PayloadSize), Forwarded, Talker));
+	TestTrue(TEXT("Forwarded reads back"), ReadPacket(Forwarded.GetData(), Forwarded.Num(), View) == EPacketReadResult::Voice
+		&& View.Talker == Talker && View.Sequence == 7 && !View.HasMouth() && View.NumChannels == 3 && View.PayloadSize == 200);
 	return true;
 }
 
@@ -103,6 +127,11 @@ bool FSteamVoicePacketValidationTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Empty payload refused"), WriteVoicePacket(0, 0, TConstArrayView<int32>(), TConstArrayView<uint8>(), Bytes));
 	TestFalse(TEXT("Oversized refused"), WriteVoicePacket(0, 0, TConstArrayView<int32>(), MakePayload(MaxPacketBytes, 0), Bytes));
 	TestTrue(TEXT("Largest allowed"), WriteVoicePacket(0, 0, TConstArrayView<int32>(), MakePayload(MaxPacketBytes - PacketHeaderBytes, 0), Bytes));
+
+	// The largest talker packet still fits once relayed; one byte more does not.
+	TestTrue(TEXT("Largest packet relayed"), WriteVoicePacket(0, 0, TConstArrayView<int32>(), MakePayload(MaxPacketBytes - PacketHeaderBytes, 0), Bytes, 1));
+	TestEqual(TEXT("Largest relayed size"), Bytes.Num(), MaxRelayedPacketBytes);
+	TestFalse(TEXT("Oversized relayed refused"), WriteVoicePacket(0, 0, TConstArrayView<int32>(), MakePayload(MaxPacketBytes - PacketHeaderBytes + 1, 0), Bytes, 1));
 
 	// Reader refuses invalid packets.
 	FPacketView View;
@@ -132,6 +161,24 @@ bool FSteamVoicePacketValidationTest::RunTest(const FString& Parameters)
 
 	const uint8 LongHello[] = { 0, 0, PacketFlags::Hello, 0, 1 };
 	TestTrue(TEXT("Hello with data"), ReadPacket(LongHello, sizeof(LongHello), View) == EPacketReadResult::MalformedHello);
+
+	// Relayed packets: the talker id must be there and not 0, and only relayed packets may use the extra bytes.
+	const uint8 RelayedCut[] = { 0, 0, PacketFlags::Relayed, 0, 1, 2, 3, 4, 5, 6, 7 };
+	TestTrue(TEXT("Relayed without the full talker id"), ReadPacket(RelayedCut, sizeof(RelayedCut), View) == EPacketReadResult::NoPayload);
+	const uint8 RelayedNoPayload[] = { 0, 0, PacketFlags::Relayed, 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+	TestTrue(TEXT("Relayed without payload"), ReadPacket(RelayedNoPayload, sizeof(RelayedNoPayload), View) == EPacketReadResult::NoPayload);
+	const uint8 RelayedZero[] = { 0, 0, PacketFlags::Relayed, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42 };
+	TestTrue(TEXT("Relayed with talker 0"), ReadPacket(RelayedZero, sizeof(RelayedZero), View) == EPacketReadResult::InvalidTalker);
+
+	TArray<uint8> RelayedLarge = MakePayload(MaxRelayedPacketBytes, 0);
+	RelayedLarge[2] = PacketFlags::Relayed;
+	RelayedLarge[3] = 0;
+	TestTrue(TEXT("Largest relayed accepted"), ReadPacket(RelayedLarge.GetData(), RelayedLarge.Num(), View) == EPacketReadResult::Voice);
+	RelayedLarge.Add(0);
+	TestTrue(TEXT("Relayed too large"), ReadPacket(RelayedLarge.GetData(), RelayedLarge.Num(), View) == EPacketReadResult::TooLarge);
+	RelayedLarge.SetNum(MaxRelayedPacketBytes);
+	RelayedLarge[2] = 0;
+	TestTrue(TEXT("Not relayed: the relay size is too large"), ReadPacket(RelayedLarge.GetData(), RelayedLarge.Num(), View) == EPacketReadResult::TooLarge);
 	return true;
 }
 
@@ -147,7 +194,7 @@ bool FSteamVoicePacketFuzzTest::RunTest(const FString& Parameters)
 	int32 Accepted = 0;
 	for (int32 Iteration = 0; Iteration < 20000; ++Iteration)
 	{
-		const int32 Size = Random.RandRange(0, MaxPacketBytes + 16);
+		const int32 Size = Random.RandRange(0, MaxRelayedPacketBytes + 16);
 		Bytes.SetNumUninitialized(Size);
 		for (uint8& Byte : Bytes)
 		{
@@ -156,7 +203,7 @@ bool FSteamVoicePacketFuzzTest::RunTest(const FString& Parameters)
 		// Bias toward plausible headers so the deeper checks run too.
 		if (Size >= 4 && Random.FRand() < 0.5f)
 		{
-			Bytes[2] &= PacketFlags::Mouth;
+			Bytes[2] &= PacketFlags::Mouth | PacketFlags::Relayed;
 			Bytes[3] = static_cast<uint8>(Random.RandRange(0, 9));
 		}
 
@@ -166,8 +213,11 @@ bool FSteamVoicePacketFuzzTest::RunTest(const FString& Parameters)
 		{
 			++Accepted;
 			const bool bInside = View.Payload >= Bytes.GetData() && View.Payload + View.PayloadSize == Bytes.GetData() + Size;
+			const int32 TalkerBytes = View.IsRelayed() ? RelayTalkerBytes : 0;
 			const bool bConsistent = View.PayloadSize > 0 && View.NumChannels <= MaxPacketChannels
-				&& PacketHeaderBytes + 4 * View.NumChannels + View.PayloadSize == Size;
+				&& PacketHeaderBytes + TalkerBytes + 4 * View.NumChannels + View.PayloadSize == Size
+				&& Size <= (View.IsRelayed() ? MaxRelayedPacketBytes : MaxPacketBytes)
+				&& (View.IsRelayed() ? View.Talker != 0 : View.Talker == 0);
 			bool bChannelsValid = true;
 			for (const int32 Channel : View.GetChannels())
 			{
