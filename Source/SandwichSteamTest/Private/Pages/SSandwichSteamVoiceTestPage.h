@@ -65,6 +65,10 @@ private:
 	FReply OnServerCycleDistance();
 	/** Megaphone on the first other player: no distance limit for their voice (or the game's again). */
 	FReply OnServerMegaphoneFirst();
+	FReply OnServerToggleTopology();
+#if SANDWICHSTEAM_WITH_DEBUG
+	FReply OnToggleRelayEcho();
+#endif
 	FReply OnVolumeDown();
 	FReply OnVolumeUp();
 

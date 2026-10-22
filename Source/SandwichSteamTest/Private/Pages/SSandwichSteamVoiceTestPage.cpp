@@ -121,6 +121,10 @@ void SSandwichSteamVoiceTestPage::Construct(const FArguments& InArgs)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerListenNone", "Server: I hear no channel / any channel"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerListenNone)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerDistance", "Server: owner voice distance off / 500 / 2000"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerCycleDistance)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerMegaphone", "Server: megaphone on / off first other player"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerMegaphoneFirst)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ServerTopology", "Server: peer to peer / Server Relay"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnServerToggleTopology)) ]
+#if SANDWICHSTEAM_WITH_DEBUG
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("RelayEcho", "Relay host: echo clients on / off"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnToggleRelayEcho)) ]
+#endif
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeDown", "Volume -0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeDown)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("VolumeUp", "Volume +0.25"), FOnClicked::CreateSP(this, &SSandwichSteamVoiceTestPage::OnVolumeUp)) ]
 		]
@@ -240,8 +244,10 @@ FText SSandwichSteamVoiceTestPage::BuildTalkingText() const
 	}
 
 	const float Distance = Voice->GetOwnerVoiceMaxDistance();
-	FString Text = FString::Printf(TEXT("Players in the game: %d%s%s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""),
-		Distance > 0.0f ? *FString::Printf(TEXT("   owner voice distance %.0f cm"), Distance) : TEXT(""));
+	const TCHAR* Topology = Voice->GetVoiceTopology() == ESteamVoiceTopology::PeerToPeer ? TEXT("peer to peer")
+		: Voice->IsVoiceRelayHost() ? TEXT("Server Relay (this host forwards)") : TEXT("Server Relay (through the host)");
+	FString Text = FString::Printf(TEXT("Players in the game: %d%s%s   %s\n"), Voice->GetPlayersInGame().Num(), Voice->IsWaitingForVoiceRules() ? TEXT("   (waiting for the server's voice rules)") : TEXT(""),
+		Distance > 0.0f ? *FString::Printf(TEXT("   owner voice distance %.0f cm"), Distance) : TEXT(""), Topology);
 	for (const FSteamId& Player : Voice->GetPlayersInGame())
 	{
 		const FSteamVoicePlayerRules Rules = Voice->GetPlayerVoiceRules(Player);
@@ -558,6 +564,40 @@ FReply SSandwichSteamVoiceTestPage::OnServerMegaphoneFirst()
 	Status = LOCTEXT("NoOtherMegaphone", "No other player in the game yet. Join with a second account.");
 	return FReply::Handled();
 }
+
+FReply SSandwichSteamVoiceTestPage::OnServerToggleTopology()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureTopology", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const bool bRelay = Voice->GetVoiceTopology() == ESteamVoiceTopology::PeerToPeer;
+	ReportResult(Voice->ServerSetVoiceTopology(bRelay ? ESteamVoiceTopology::ServerRelay : ESteamVoiceTopology::PeerToPeer), bRelay
+		? LOCTEXT("TopologyRelay", "Server: Server Relay. Clients send to this host, it forwards (Steam.Voice.Dump shows the relay counters).")
+		: LOCTEXT("TopologyP2P", "Server: peer to peer."));
+	return FReply::Handled();
+}
+
+#if SANDWICHSTEAM_WITH_DEBUG
+FReply SSandwichSteamVoiceTestPage::OnToggleRelayEcho()
+{
+	USteamVoiceSubsystem* Voice = GetVoice();
+	if (!Voice)
+	{
+		Status = LOCTEXT("NoFeatureEcho", "The Voice feature is not available in this world.");
+		return FReply::Handled();
+	}
+
+	const bool bEcho = !Voice->IsRelayEchoOn();
+	ReportResult(Voice->SetRelayEcho(bEcho), bEcho
+		? LOCTEXT("EchoOn", "Relay echo on: every client hears their own voice back through this host (a test talker in 2D).")
+		: LOCTEXT("EchoOff", "Relay echo off."));
+	return FReply::Handled();
+}
+#endif
 
 FReply SSandwichSteamVoiceTestPage::OnVolumeDown()
 {
