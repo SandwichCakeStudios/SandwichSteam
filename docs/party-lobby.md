@@ -1,6 +1,7 @@
 ---
 title: Party Lobby
-nav_order: 4.6
+parent: Multiplayer
+nav_order: 2
 ---
 
 # Party Lobby

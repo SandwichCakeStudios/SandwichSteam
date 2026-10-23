@@ -1,6 +1,6 @@
 ---
 title: Publishing
-nav_order: 4
+nav_order: 20
 ---
 
 # Publishing to Steam
