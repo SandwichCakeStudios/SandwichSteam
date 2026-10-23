@@ -125,7 +125,7 @@ Steam knows which achievements Spacewar has. You can pull them into your App Def
 
 - **Something went wrong?** [Troubleshooting](troubleshooting.html).
 - **Learn the basics once:** [Core Concepts](core-concepts.html) explains the App Definition, tags, results and async nodes that every feature uses.
-- **Feature guides:** [Stats](stats.html), [Achievements](achievements.html), [Sessions](sessions.html), [Party Lobby](party-lobby.html) and [Friends](friends.html). Leaderboards, voice and more are coming.
+- **Feature guides:** [Progression](progression.html) (stats, achievements, leaderboards), [Multiplayer](multiplayer.html) (sessions, party, authentication), [Social](social.html) (friends, rich presence, overlay) and [Content & Saves](content.html) (cloud saves, DLC, screenshots). Voice chat and Steam Input guides are coming.
 - **Ready for your own game?** Get an App ID in the [Steamworks partner site](https://partner.steamgames.com/), put it in the settings instead of `480`, and repeat steps 3 to 5.
 - **Ready to upload a build?** [Publishing to Steam](publishing.html) packages and uploads from the dashboard.
 
