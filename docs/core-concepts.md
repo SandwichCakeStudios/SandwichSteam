@@ -105,7 +105,7 @@ The error tags you will meet most:
 | `Steam.Error.Cancelled` | The feature stopped while the request was running |
 | `Steam.Error.Failed` | Steam refused the call |
 
-Some features add their own, for example `Steam.Error.Lobby.Full` or `Steam.Error.Session.HostLeft`. Their guides list them.
+Some features add their own, for example `Steam.Error.Lobby.Full` or `Steam.Error.Session.HostLeft`. Their guides list them. The full list is in [Troubleshooting](troubleshooting.html#steamerror-codes).
 
 ## Async nodes
 
