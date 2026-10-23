@@ -55,6 +55,7 @@ namespace
 		{
 		case ESteamJoinSource::Invite: return TEXT("invite");
 		case ESteamJoinSource::Overlay: return TEXT("Join Game");
+		case ESteamJoinSource::Party: return TEXT("party match");
 		default: return TEXT("launch");
 		}
 	}
@@ -103,9 +104,9 @@ bool USteamSessionsSubsystem::InitializeFeature()
 	}
 
 	LobbyBackend = MakeShared<FSteamLobbyBackend>(this, Dispatcher.ToSharedRef());
-	LobbyOnlyId = FSteamId();
-	TrackedLobby = FSteamId();
-	TrackedOwner = FSteamId();
+	PartyLobbyId = FSteamId();
+	TrackedParty = FTrackedLobby();
+	TrackedSession = FTrackedLobby();
 
 	Busy = EBusyOp::None;
 	bFinding = false;
@@ -143,16 +144,22 @@ void USteamSessionsSubsystem::ShutdownFeature()
 		LaunchIntentHandle.Reset();
 	}
 
+	if (PartyLookupTimeoutHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(PartyLookupTimeoutHandle);
+		PartyLookupTimeoutHandle.Reset();
+	}
+
 	// Do not leave a lobby behind when the feature stops (offline, PIE end, quit).
 	if (Backend.IsValid() && Backend->IsInSession())
 	{
 		Backend->DestroySession();
 	}
 
-	// Same for a lobby only lobby.
-	if (LobbyBackend.IsValid() && LobbyOnlyId.IsValid())
+	// Same for the party lobby (no events: the game is shutting the feature down).
+	if (LobbyBackend.IsValid() && PartyLobbyId.IsValid())
 	{
-		LobbyBackend->LeaveLobby(LobbyOnlyId);
+		LobbyBackend->LeaveLobby(PartyLobbyId);
 	}
 
 	PendingCreate.Unbind();
@@ -165,14 +172,22 @@ void USteamSessionsSubsystem::ShutdownFeature()
 	PendingLobbyFind.Unbind();
 	PendingRequest.Reset();
 	LookupRequest.Reset();
+	PartyLookup.Reset();
 	Busy = EBusyOp::None;
 	bFinding = false;
 	bFindingLobbies = false;
 	ActiveProfile = FGameplayTag();
 	HostedSettings = FSteamSessionSettings();
-	LobbyOnlyId = FSteamId();
-	TrackedLobby = FSteamId();
-	TrackedOwner = FSteamId();
+	PartyLobbyId = FSteamId();
+	PartyProfile = FGameplayTag();
+	PartySettings = FSteamSessionSettings();
+	bPartyJoinable = true;
+	bPartyMatchActive = false;
+	bPartyMatchFromCallback = false;
+	PartyMatchCode.Reset();
+	PartyMatch = FSteamPartyMatch();
+	TrackedParty = FTrackedLobby();
+	TrackedSession = FTrackedLobby();
 
 	LobbyBackend.Reset();
 	Backend.Reset();
@@ -289,12 +304,6 @@ FSteamResult USteamSessionsSubsystem::StartCreateSession(const FGameplayTag& Pro
 			NSLOCTEXT("SandwichSteam", "SessionsAlreadyIn", "Already in a session. Destroy it first."));
 	}
 
-	if (LobbyOnlyId.IsValid())
-	{
-		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument,
-			NSLOCTEXT("SandwichSteam", "SessionsInLobbyOnly", "Already in a lobby only lobby. Leave it first."));
-	}
-
 	Busy = EBusyOp::Creating;
 	PendingCreate = OnComplete;
 	ActiveProfile = ProfileTag;
@@ -319,12 +328,17 @@ FSteamResult USteamSessionsSubsystem::UpdateSession(const FSteamSessionSettings&
 		return Result;
 	}
 
-	if (!IsInSession() && !LobbyOnlyId.IsValid())
+	if (!IsInSession())
 	{
-		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "SessionsUpdateNoSession", "There is no session or lobby to update."));
+		// No session: the party lobby, as before party lobbies could live next to a session.
+		if (!PartyLobbyId.IsValid())
+		{
+			return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "SessionsUpdateNoSession", "There is no session or lobby to update."));
+		}
+		return UpdateLobby(Settings, MoveTemp(OnComplete));
 	}
 
-	if ((IsInSession() && !Backend->IsHost()) || (LobbyOnlyId.IsValid() && !IsLobbyOwner()))
+	if (!Backend->IsHost())
 	{
 		return FSteamResult::Failure(SteamGameplayTags::Error_NotOwner, NSLOCTEXT("SandwichSteam", "SessionsUpdateNotHost", "Only the host / lobby owner can update it."));
 	}
@@ -335,10 +349,9 @@ FSteamResult USteamSessionsSubsystem::UpdateSession(const FSteamSessionSettings&
 		return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsUpdateProfileGone", "The session profile it was created from is no longer in the Steam App Definition."));
 	}
 
-	const int32 CurrentPlayers = IsInSession() ? Backend->GetCurrentPlayerCount() : GetLobbyMembers().Num();
 	FSteamSessionSettings Applied;
 	FText Error;
-	if (!SandwichSteam::Sessions::ValidateSessionUpdate(Profile, HostedSettings, Settings, CurrentPlayers, Applied, Error))
+	if (!SandwichSteam::Sessions::ValidateSessionUpdate(Profile, HostedSettings, Settings, Backend->GetCurrentPlayerCount(), Applied, Error))
 	{
 		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, Error);
 	}
@@ -348,35 +361,16 @@ FSteamResult USteamSessionsSubsystem::UpdateSession(const FSteamSessionSettings&
 		return MakeBusyResult();
 	}
 
-	if (IsInSession())
-	{
-		Busy = EBusyOp::Updating;
-		PendingUpdate = MoveTemp(OnComplete);
-		HostedSettings = Applied;
-		if (!Backend->UpdateSession(Applied))
-		{
-			Busy = EBusyOp::None;
-			PendingUpdate.Unbind();
-			return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsUpdateRefused", "Steam refused to start updating the session."));
-		}
-		return FSteamResult::Success();
-	}
-
-	// Lobby only mode: raw ISteamMatchmaking calls, all synchronous (no call result to wait for).
+	Busy = EBusyOp::Updating;
+	PendingUpdate = MoveTemp(OnComplete);
 	HostedSettings = Applied;
-	bool bOk = LobbyBackend->SetLobbyMemberLimit(LobbyOnlyId, Applied.MaxPlayers);
-	bOk &= LobbyBackend->SetLobbyType(LobbyOnlyId, Applied.Visibility);
-	bOk &= LobbyBackend->SetLobbyData(LobbyOnlyId, SandwichSteam::Sessions::NameKey(), Applied.DisplayName);
-	for (const TPair<FName, FString>& Pair : Applied.Settings)
+	if (!Backend->UpdateSession(Applied))
 	{
-		bOk &= LobbyBackend->SetLobbyData(LobbyOnlyId, Pair.Key.ToString(), Pair.Value);
+		Busy = EBusyOp::None;
+		PendingUpdate.Unbind();
+		return FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsUpdateRefused", "Steam refused to start updating the session."));
 	}
-
-	const FSteamResult UpdateOutcome = bOk
-		? FSteamResult::Success()
-		: FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsUpdateLobbyFailed", "Steam refused one of the lobby update calls."));
-	OnComplete.ExecuteIfBound(UpdateOutcome, Applied);
-	return UpdateOutcome;
+	return FSteamResult::Success();
 }
 
 FSteamResult USteamSessionsSubsystem::GetCurrentSettings(FSteamSessionSettings& OutSettings, FGameplayTag& OutProfileTag) const
@@ -406,35 +400,9 @@ FSteamResult USteamSessionsSubsystem::GetCurrentSettings(FSteamSessionSettings& 
 		return FSteamResult::Success();
 	}
 
-	if (LobbyOnlyId.IsValid())
+	if (PartyLobbyId.IsValid())
 	{
-		if (IsLobbyOwner())
-		{
-			OutSettings = HostedSettings;
-			OutProfileTag = ActiveProfile;
-			return FSteamResult::Success();
-		}
-
-		// A member of somebody else's lobby only lobby: reconstruct what Steam can tell (Visibility is not readable back, known limit).
-		OutSettings.MaxPlayers = GetLobbyMemberLimit();
-		OutSettings.bUsesPresence = true;
-		const TMap<FString, FString> Data = GetAllLobbyData();
-		for (const TPair<FString, FString>& Pair : Data)
-		{
-			if (Pair.Key.Equals(SandwichSteam::Sessions::NameKey(), ESearchCase::IgnoreCase))
-			{
-				OutSettings.DisplayName = Pair.Value;
-			}
-			else if (Pair.Key.Equals(SandwichSteam::Sessions::ProfileKey(), ESearchCase::IgnoreCase))
-			{
-				OutProfileTag = UGameplayTagsManager::Get().RequestGameplayTag(FName(*Pair.Value), /*ErrorIfNotFound*/ false);
-			}
-			else if (!SandwichSteam::Sessions::IsReservedLobbyKey(Pair.Key))
-			{
-				OutSettings.Settings.Add(FName(*Pair.Key), Pair.Value);
-			}
-		}
-		return FSteamResult::Success();
+		return GetCurrentLobbySettings(OutSettings, OutProfileTag);
 	}
 
 	return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "SessionsNoCurrent", "There is no current session or lobby."));
@@ -547,12 +515,6 @@ FSteamResult USteamSessionsSubsystem::StartJoin(int32 ResultHandle, FSteamSessio
 			NSLOCTEXT("SandwichSteam", "SessionsJoinWhileIn", "Already in a session. Destroy it first."));
 	}
 
-	if (LobbyOnlyId.IsValid())
-	{
-		return FSteamResult::Failure(SteamGameplayTags::Error_Failed,
-			NSLOCTEXT("SandwichSteam", "SessionsJoinWhileLobbyOnly", "Already in a lobby only lobby. Leave it first."));
-	}
-
 	Busy = EBusyOp::Joining;
 	PendingJoin = OnComplete;
 	if (!Backend->JoinSession(ResultHandle))
@@ -596,7 +558,7 @@ FSteamResult USteamSessionsSubsystem::DestroySession(FSteamSessionOpDelegate OnC
 	return FSteamResult::Success();
 }
 
-FSteamResult USteamSessionsSubsystem::SendInvite(FSteamId Friend)
+FSteamResult USteamSessionsSubsystem::SendInvite(FSteamId Friend, ESteamLobbyTarget Target)
 {
 	FSteamResult Result;
 	if (!RequireActive(Result))
@@ -610,18 +572,21 @@ FSteamResult USteamSessionsSubsystem::SendInvite(FSteamId Friend)
 		return Result;
 	}
 
-	if (!Friend.IsValid() || !IsInSession())
+	const FSteamId Lobby = GetLobbyIdFor(Target);
+	const bool bParty = Lobby.IsValid() && Lobby == PartyLobbyId;
+	if (!Friend.IsValid() || (!bParty && !IsInSession()))
 	{
 		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument,
-			NSLOCTEXT("SandwichSteam", "SessionsInviteArgs", "Inviting needs a valid friend and a current session."));
+			NSLOCTEXT("SandwichSteam", "SessionsInviteArgs", "Inviting needs a valid friend and a current party lobby or session."));
 	}
 
-	return Backend->SendInvite(Friend)
+	const bool bSent = bParty ? (LobbyBackend.IsValid() && LobbyBackend->InviteToLobby(Lobby, Friend)) : Backend->SendInvite(Friend);
+	return bSent
 		? FSteamResult::Success()
 		: FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsInviteFailed", "Steam could not send the invite."));
 }
 
-FSteamResult USteamSessionsSubsystem::ShowInviteOverlay()
+FSteamResult USteamSessionsSubsystem::ShowInviteOverlay(ESteamLobbyTarget Target)
 {
 	FSteamResult Result;
 	if (!RequireActive(Result))
@@ -635,12 +600,15 @@ FSteamResult USteamSessionsSubsystem::ShowInviteOverlay()
 		return Result;
 	}
 
-	if (!IsInSession())
+	const FSteamId Lobby = GetLobbyIdFor(Target);
+	const bool bParty = Lobby.IsValid() && Lobby == PartyLobbyId;
+	if (!bParty && !IsInSession())
 	{
-		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "SessionsOverlayNoSession", "Create or join a session before inviting."));
+		return FSteamResult::Failure(SteamGameplayTags::Error_InvalidArgument, NSLOCTEXT("SandwichSteam", "SessionsOverlayNoSession", "Create or join a party lobby or a session before inviting."));
 	}
 
-	return Backend->ShowInviteOverlay()
+	const bool bOpened = bParty ? (LobbyBackend.IsValid() && LobbyBackend->ShowLobbyInviteOverlay(Lobby)) : Backend->ShowInviteOverlay();
+	return bOpened
 		? FSteamResult::Success()
 		: FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsOverlayFailed", "Steam could not open the invite dialog. Is the overlay enabled?"));
 }
@@ -742,9 +710,16 @@ FSteamResult USteamSessionsSubsystem::AcceptJoinRequest()
 	}
 
 	FSteamJoinRequest Request = *PendingRequest;
-	Request.bInMatch = IsInSession();
+	Request.bInMatch = Request.bParty ? IsInParty() : IsInSession();
 	Request.Action = Request.bInMatch ? ESteamJoinAction::LeaveAndJoin : ESteamJoinAction::JoinNow;
-	ExecuteRequest(Request);
+	if (Request.bParty)
+	{
+		ExecutePartyRequest(Request);
+	}
+	else
+	{
+		ExecuteRequest(Request);
+	}
 	return FSteamResult::Success();
 }
 
@@ -769,7 +744,7 @@ void USteamSessionsSubsystem::HandleCreateComplete(bool bSuccess)
 	UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: create %s"), bSuccess ? TEXT("succeeded") : TEXT("failed"));
 	if (bSuccess)
 	{
-		RefreshLobbyOwner();
+		RefreshLobbyOwners();
 		ApplyMaxPlayersToGameSession();
 	}
 
@@ -819,7 +794,15 @@ void USteamSessionsSubsystem::HandleDestroyComplete(bool bSuccess)
 		: FSteamResult::Failure(SteamGameplayTags::Error_Failed, NSLOCTEXT("SandwichSteam", "SessionsDestroyFailed", "Steam could not close the session."));
 
 	UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: destroy %s"), bSuccess ? TEXT("succeeded") : TEXT("failed"));
-	RefreshLobbyOwner(); // Clears the tracked lobby when the session is gone.
+	RefreshLobbyOwners(); // Clears the tracked session lobby when the session is gone.
+
+	// The host's session of a party match is gone (Destroy Session or a lost session): open the party again.
+	const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
+	FSteamPartyMatch Match;
+	if (Settings && Settings->bAutoEndPartyMatch && !IsInSession() && GetPartyMatch(Match) && Match.SessionLobby.IsValid() && IsLobbyOwner(ESteamLobbyTarget::Party))
+	{
+		EndPartyMatchInternal();
+	}
 
 	const FSteamSessionOpDelegate Done = PendingDestroy;
 	PendingDestroy.Unbind();
@@ -850,8 +833,8 @@ void USteamSessionsSubsystem::HandleJoinComplete(const FSteamResult& Result, con
 
 	if (Result.IsSuccess())
 	{
-		RefreshLobbyOwner();
-		const bool bKicked = CheckKicked(); // Joining a lobby whose owner kicked this player before: leave again.
+		RefreshLobbyOwners();
+		const bool bKicked = CheckKicked(GetSessionLobbyId()); // Joining a lobby whose owner kicked this player before: leave again.
 
 		const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
 		if (!bKicked && Settings && Settings->bAutoTravelAfterJoin)
@@ -874,6 +857,15 @@ void USteamSessionsSubsystem::HandleInviteAccepted(bool bSuccess, const FSteamSe
 {
 	if (!bSuccess)
 	{
+		// The Online Subsystem cannot read a party lobby as a session: the raw lobby invite path handles that one.
+		const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
+		const double Window = FMath::Max(Settings ? static_cast<double>(Settings->DuplicateRequestSeconds) : 0.0, 5.0);
+		if (PartyLookup.IsSet() || FPlatformTime::Seconds() - LastPartyRequestTime <= Window)
+		{
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: the Online Subsystem could not resolve an invite to a party lobby (expected, the party join handles it)."));
+			return;
+		}
+
 		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam sessions: an invite was accepted but Steam could not resolve the session."));
 		OnSessionJoinFinished.Broadcast(FSteamResult::Failure(SteamGameplayTags::Error_Lobby_NotFound,
 			NSLOCTEXT("SandwichSteam", "SessionsInviteUnresolved", "The invite could not be resolved. The session may have closed.")), FString());
@@ -931,7 +923,7 @@ void USteamSessionsSubsystem::HandleFindByIdComplete(bool bSuccess, const FSteam
 	ProcessRequest(Request);
 }
 
-void USteamSessionsSubsystem::BeginLobbyLookup(FSteamJoinRequest Request)
+void USteamSessionsSubsystem::BeginSessionLookup(FSteamJoinRequest Request)
 {
 	const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
 	if (!Backend.IsValid() || SandwichSteam::Sessions::IsDuplicateRequest(FPlatformTime::Seconds(), LastRequestTime, LastRequestLobby, Request.LobbyId, Settings ? Settings->DuplicateRequestSeconds : 0.0f))
@@ -949,6 +941,23 @@ void USteamSessionsSubsystem::BeginLobbyLookup(FSteamJoinRequest Request)
 	}
 }
 
+bool USteamSessionsSubsystem::IsRepeatedRequest(const FSteamJoinRequest& Request)
+{
+	const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
+	const double Now = FPlatformTime::Seconds();
+	if (SandwichSteam::Sessions::IsDuplicateRequest(Now, LastRequestTime, LastRequestLobby, Request.LobbyId, Settings ? Settings->DuplicateRequestSeconds : 0.0f))
+	{
+		++DuplicateCount;
+		UE_LOG(LogSandwichSteam, Verbose, TEXT("Steam sessions: dropped a second request for lobby %s."), *Request.LobbyId.ToString());
+		return true;
+	}
+
+	LastRequestLobby = Request.LobbyId;
+	LastRequestTime = Now;
+	++RequestCount;
+	return false;
+}
+
 void USteamSessionsSubsystem::ProcessRequest(FSteamJoinRequest Request)
 {
 	if (!Backend.IsValid())
@@ -956,26 +965,36 @@ void USteamSessionsSubsystem::ProcessRequest(FSteamJoinRequest Request)
 		return;
 	}
 
-	const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
-	const double Now = FPlatformTime::Seconds();
-	if (SandwichSteam::Sessions::IsDuplicateRequest(Now, LastRequestTime, LastRequestLobby, Request.LobbyId, Settings ? Settings->DuplicateRequestSeconds : 0.0f))
+	// The Online Subsystem resolved a party lobby after all: it is joined as the party, not as a session.
+	FString PartyValue;
+	if (Request.Source != ESteamJoinSource::Party && Request.LobbyId.IsValid() && LobbyBackend.IsValid()
+		&& LobbyBackend->GetLobbyData(Request.LobbyId, SandwichSteam::Sessions::PartyKey(), PartyValue) && SandwichSteam::Sessions::ParseFlag(PartyValue))
 	{
-		++DuplicateCount;
-		UE_LOG(LogSandwichSteam, Verbose, TEXT("Steam sessions: dropped a second request for lobby %s."), *Request.LobbyId.ToString());
+		ProcessPartyRequest(Request);
 		return;
 	}
 
-	LastRequestLobby = Request.LobbyId;
-	LastRequestTime = Now;
-	++RequestCount;
+	if (IsRepeatedRequest(Request))
+	{
+		return;
+	}
 
+	const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
 	Request.bInMatch = Backend->IsInSession();
 	const bool bAlreadyThere = Request.LobbyId.IsValid() && Backend->IsInLobby(Request.LobbyId);
-	Request.Action = SandwichSteam::Sessions::DecideJoin(
-		Settings ? Settings->JoinWhileInMatch : ESteamJoinInMatchPolicy::AskGame,
-		Request.bInMatch,
-		Settings ? Settings->bAutoJoinRequests : true,
-		bAlreadyThere);
+	if (Request.Source == ESteamJoinSource::Party)
+	{
+		// Following the party: the party owner already decided, so no policy and no question.
+		Request.Action = bAlreadyThere ? ESteamJoinAction::Ignore : (Request.bInMatch ? ESteamJoinAction::LeaveAndJoin : ESteamJoinAction::JoinNow);
+	}
+	else
+	{
+		Request.Action = SandwichSteam::Sessions::DecideJoin(
+			Settings ? Settings->JoinWhileInMatch : ESteamJoinInMatchPolicy::AskGame,
+			Request.bInMatch,
+			Settings ? Settings->bAutoJoinRequests : true,
+			bAlreadyThere);
+	}
 
 	// Something else is in flight: joining now would fail. Let the game know and drop it.
 	if ((Request.Action == ESteamJoinAction::JoinNow || Request.Action == ESteamJoinAction::LeaveAndJoin) && Busy != EBusyOp::None)
@@ -1275,24 +1294,57 @@ FString USteamSessionsSubsystem::BuildDebugString() const
 	}
 
 	const FSteamId ActiveLobby = GetActiveLobbyId();
-	Report += FString::Printf(TEXT("  Lobby: %s (%s), searching lobbies: %s, chat messages received: %d\n"),
+	Report += FString::Printf(TEXT("  Active lobby: %s (%s), searching lobbies: %s, chat messages received: %d\n"),
 		ActiveLobby.IsValid() ? *ActiveLobby.ToString() : TEXT("-"),
-		LobbyOnlyId.IsValid() ? TEXT("lobby only") : (ActiveLobby.IsValid() ? TEXT("session lobby") : TEXT("none")),
+		PartyLobbyId.IsValid() ? (IsInSession() ? TEXT("party, a session runs too") : TEXT("party, lobby only mode")) : (ActiveLobby.IsValid() ? TEXT("session lobby") : TEXT("none")),
 		bFindingLobbies ? TEXT("yes") : TEXT("no"), ChatReceivedCount);
-	if (ActiveLobby.IsValid() && LobbyBackend.IsValid())
+
+	for (const ESteamLobbyTarget Target : { ESteamLobbyTarget::Party, ESteamLobbyTarget::Session })
 	{
-		const TArray<FSteamLobbyMember> Members = GetLobbyMembers();
-		Report += FString::Printf(TEXT("    Owner: %s%s, members: %d / %d, all ready: %s\n"), *GetLobbyOwnerId().ToString(), IsLobbyOwner() ? TEXT(" (local)") : TEXT(""),
-			Members.Num(), GetLobbyMemberLimit(), AreAllMembersReady() ? TEXT("yes") : TEXT("no"));
+		const FSteamId Lobby = GetLobbyIdFor(Target);
+		const TCHAR* Name = Target == ESteamLobbyTarget::Party ? TEXT("Party lobby") : TEXT("Session lobby");
+		if (!Lobby.IsValid() || !LobbyBackend.IsValid())
+		{
+			Report += FString::Printf(TEXT("  %s: -\n"), Name);
+			continue;
+		}
+
+		const TArray<FSteamLobbyMember> Members = GetLobbyMembers(Target);
+		Report += FString::Printf(TEXT("  %s: %s, owner %s%s, members: %d / %d, all ready: %s\n"), Name, *Lobby.ToString(),
+			*GetLobbyOwnerId(Target).ToString(), IsLobbyOwner(Target) ? TEXT(" (you)") : TEXT(""),
+			Members.Num(), GetLobbyMemberLimit(Target), AreAllMembersReady(Target) ? TEXT("yes") : TEXT("no"));
 		for (const FSteamLobbyMember& Member : Members)
 		{
 			Report += FString::Printf(TEXT("    - %s %s%s%s, ready: %s\n"), *Member.Id.ToString(), *Member.Name, Member.bIsOwner ? TEXT(" [owner]") : TEXT(""), Member.bIsLocal ? TEXT(" [you]") : TEXT(""), Member.bReady ? TEXT("yes") : TEXT("no"));
 		}
 
-		for (const TPair<FString, FString>& Pair : GetAllLobbyData())
+		for (const TPair<FString, FString>& Pair : GetAllLobbyData(Target))
 		{
 			Report += FString::Printf(TEXT("    data %s = %s\n"), *Pair.Key, *Pair.Value.Left(80));
 		}
+	}
+
+	if (PartyLobbyId.IsValid())
+	{
+		FSteamPartyMatch Match;
+		const bool bInMatch = GetPartyMatch(Match);
+		FString Saved;
+		GetLobbyData(SandwichSteam::Sessions::VisibilityKey(), Saved, ESteamLobbyTarget::Party);
+		uint32 Ip = 0;
+		uint16 Port = 0;
+		FSteamId Server;
+		const bool bServer = LobbyBackend.IsValid() && LobbyBackend->GetLobbyGameServer(PartyLobbyId, Ip, Port, Server);
+		Report += FString::Printf(TEXT("  Party match: %s%s, seen locally: %s, saved lobby state: %s, joinable (as set here): %s, game server: %s\n"),
+			bInMatch ? TEXT("running ") : TEXT("none"), bInMatch ? *SandwichSteam::Sessions::EncodePartyMatch(Match) : TEXT(""),
+			bPartyMatchActive ? (bPartyMatchFromCallback ? TEXT("yes (from LobbyGameCreated_t)") : TEXT("yes")) : TEXT("no"),
+			Saved.IsEmpty() ? TEXT("-") : *Saved, bPartyJoinable ? TEXT("yes") : TEXT("no"),
+			bServer ? *FString::Printf(TEXT("%s, %s"), *Server.ToString(), *SandwichSteam::Sessions::FormatIPv4Address(Ip, Port)) : TEXT("-"));
+		Report += FString::Printf(TEXT("  Party profile: %s, joinable lobby for presence: %s\n"), PartyProfile.IsValid() ? *PartyProfile.ToString() : TEXT("-"), *GetJoinableLobbyId().ToString());
+	}
+
+	if (PartyLookup.IsSet())
+	{
+		Report += FString::Printf(TEXT("  Waiting for the lobby data of %s (party or session?)\n"), *PartyLookup->LobbyId.ToString());
 	}
 
 	if (PendingRequest.IsSet())
@@ -1304,7 +1356,38 @@ FString USteamSessionsSubsystem::BuildDebugString() const
 	const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
 	Report += FString::Printf(TEXT("  Join requests: %d handled, %d duplicates dropped. Auto join: %s, auto travel: %s\n"), RequestCount, DuplicateCount,
 		(Settings && Settings->bAutoJoinRequests) ? TEXT("yes") : TEXT("no"), (Settings && Settings->bAutoTravelAfterJoin) ? TEXT("yes") : TEXT("no"));
+	if (Settings)
+	{
+		const UEnum* VisibilityEnum = StaticEnum<ESteamPartyMatchVisibility>();
+		Report += FString::Printf(TEXT("  Party settings: match visibility %s, close during match: %s, auto follow: %s, auto end: %s\n"),
+			VisibilityEnum ? *VisibilityEnum->GetNameStringByValue(static_cast<int64>(Settings->PartyMatchVisibility)) : TEXT("?"),
+			Settings->bClosePartyDuringMatch ? TEXT("yes") : TEXT("no"), Settings->bAutoFollowPartyMatch ? TEXT("yes") : TEXT("no"), Settings->bAutoEndPartyMatch ? TEXT("yes") : TEXT("no"));
+	}
 	Report += FString::Printf(TEXT("  Last connect string: %s"), LastConnectString.IsEmpty() ? TEXT("-") : *LastConnectString);
+	return Report;
+}
+
+FString USteamSessionsSubsystem::DebugProbeLobby(FSteamId Lobby)
+{
+	if (!LobbyBackend.IsValid() || !LobbyBackend->IsUsable())
+	{
+		return TEXT("Steam.Sessions.ProbeLobby: the Steam matchmaking interface is not available.");
+	}
+
+	TMap<FString, FString> Data;
+	LobbyBackend->GetAllLobbyData(Lobby, Data);
+	FString PartyValue;
+	const bool bParty = LobbyBackend->GetLobbyData(Lobby, SandwichSteam::Sessions::PartyKey(), PartyValue) && SandwichSteam::Sessions::ParseFlag(PartyValue);
+
+	FString Report = FString::Printf(TEXT("Steam.Sessions.ProbeLobby %s: %d cached key(s), party lobby: %s, owner: %s, member of it: %s\n"), *Lobby.ToString(), Data.Num(),
+		bParty ? TEXT("yes") : TEXT("no"), *LobbyBackend->GetOwner(Lobby).ToString(), IsKnownLobby(Lobby) ? TEXT("yes") : TEXT("no"));
+	for (const TPair<FString, FString>& Pair : Data)
+	{
+		Report += FString::Printf(TEXT("  %s = %s\n"), *Pair.Key, *Pair.Value.Left(80));
+	}
+
+	const bool bRequested = LobbyBackend->RequestLobbyData(Lobby);
+	Report += bRequested ? TEXT("Fresh data requested: run the command again in a second.") : TEXT("Steam refused RequestLobbyData (unknown lobby, or one you are in).");
 	return Report;
 }
 #endif // SANDWICHSTEAM_WITH_DEBUG

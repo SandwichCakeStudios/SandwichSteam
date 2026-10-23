@@ -555,3 +555,138 @@ void USteamFindLobbiesAsyncAction::BroadcastSuccess()
 	OnLobbiesFound.Broadcast(Found);
 	Super::BroadcastSuccess();
 }
+
+USteamHostPartySessionAsyncAction* USteamHostPartySessionAsyncAction::HostSteamPartySession(const UObject* WorldContextObject, FGameplayTag InProfileTag)
+{
+	USteamHostPartySessionAsyncAction* Action = NewObject<USteamHostPartySessionAsyncAction>();
+	Action->SetWorldContext(WorldContextObject);
+	Action->ProfileTag = InProfileTag;
+	return Action;
+}
+
+TSubclassOf<USteamFeatureSubsystem> USteamHostPartySessionAsyncAction::GetFeatureClass() const
+{
+	return USteamSessionsSubsystem::StaticClass();
+}
+
+void USteamHostPartySessionAsyncAction::StartRequest()
+{
+	USteamSessionsSubsystem* Sessions = Cast<USteamSessionsSubsystem>(GetFeature());
+	if (!Sessions)
+	{
+		return;
+	}
+
+	const FSteamResult Started = Sessions->HostPartySession(ProfileTag,
+		FSteamSessionOpDelegate::CreateWeakLambda(this, [this](const FSteamResult& Result)
+		{
+			if (Result.IsSuccess())
+			{
+				FinishSuccess();
+			}
+			else
+			{
+				FinishFailure(Result);
+			}
+		}));
+
+	if (!Started.IsSuccess())
+	{
+		FinishFailure(Started);
+	}
+}
+
+USteamHostPartySessionWithSettingsAsyncAction* USteamHostPartySessionWithSettingsAsyncAction::HostSteamPartySessionWithSettings(const UObject* WorldContextObject, const FSteamSessionSettings& InSettings)
+{
+	USteamHostPartySessionWithSettingsAsyncAction* Action = NewObject<USteamHostPartySessionWithSettingsAsyncAction>();
+	Action->SetWorldContext(WorldContextObject);
+	Action->Settings = InSettings;
+	return Action;
+}
+
+TSubclassOf<USteamFeatureSubsystem> USteamHostPartySessionWithSettingsAsyncAction::GetFeatureClass() const
+{
+	return USteamSessionsSubsystem::StaticClass();
+}
+
+void USteamHostPartySessionWithSettingsAsyncAction::StartRequest()
+{
+	USteamSessionsSubsystem* Sessions = Cast<USteamSessionsSubsystem>(GetFeature());
+	if (!Sessions)
+	{
+		return;
+	}
+
+	const FSteamResult Started = Sessions->HostPartySession(Settings,
+		FSteamSessionSettingsOpDelegate::CreateWeakLambda(this, [this](const FSteamResult& Result, const FSteamSessionSettings& InApplied)
+		{
+			if (Result.IsSuccess())
+			{
+				Applied = InApplied;
+				FinishSuccess();
+			}
+			else
+			{
+				FinishFailure(Result);
+			}
+		}));
+
+	if (!Started.IsSuccess())
+	{
+		FinishFailure(Started);
+	}
+}
+
+void USteamHostPartySessionWithSettingsAsyncAction::BroadcastSuccess()
+{
+	OnCreated.Broadcast(Applied);
+	Super::BroadcastSuccess();
+}
+
+USteamHostPartySessionFromProfileAsyncAction* USteamHostPartySessionFromProfileAsyncAction::HostSteamPartySessionFromProfile(const UObject* WorldContextObject, FGameplayTag InProfileTag, const FSteamSessionSettings& InSettings)
+{
+	USteamHostPartySessionFromProfileAsyncAction* Action = NewObject<USteamHostPartySessionFromProfileAsyncAction>();
+	Action->SetWorldContext(WorldContextObject);
+	Action->ProfileTag = InProfileTag;
+	Action->Settings = InSettings;
+	return Action;
+}
+
+TSubclassOf<USteamFeatureSubsystem> USteamHostPartySessionFromProfileAsyncAction::GetFeatureClass() const
+{
+	return USteamSessionsSubsystem::StaticClass();
+}
+
+void USteamHostPartySessionFromProfileAsyncAction::StartRequest()
+{
+	USteamSessionsSubsystem* Sessions = Cast<USteamSessionsSubsystem>(GetFeature());
+	if (!Sessions)
+	{
+		return;
+	}
+
+	const FSteamResult Started = Sessions->HostPartySession(ProfileTag, Settings,
+		FSteamSessionSettingsOpDelegate::CreateWeakLambda(this, [this](const FSteamResult& Result, const FSteamSessionSettings& InApplied)
+		{
+			if (Result.IsSuccess())
+			{
+				Applied = InApplied;
+				FinishSuccess();
+			}
+			else
+			{
+				FinishFailure(Result);
+			}
+		}));
+
+	if (!Started.IsSuccess())
+	{
+		FinishFailure(Started);
+	}
+}
+
+void USteamHostPartySessionFromProfileAsyncAction::BroadcastSuccess()
+{
+	OnCreated.Broadcast(Applied);
+	Super::BroadcastSuccess();
+}

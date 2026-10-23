@@ -12,8 +12,9 @@ class USteamSessionsSubsystem;
 /**
  * Test page for the Sessions feature (needs two machines and two Steam accounts): create a session of the first profile of the
  * App Definition, find sessions, join the first one, destroy, open the overlay invite dialog, answer a waiting join request and
- * host-travel to a map. The lobby buttons (9b) cover lobby only mode, the ready state, chat, lobby data and kick. The state block is
- * the Steam.Sessions.Dump report.
+ * host-travel to a map. The lobby buttons (9b) cover the party lobby, the ready state, chat, lobby data and kick, on the lobby the
+ * Target button picks. The Party box (17) hosts a party session, begins / ends / follows a party match. The state block is the
+ * Steam.Sessions.Dump report.
  */
 class SSandwichSteamSessionsTestPage : public SCompoundWidget
 {
@@ -56,6 +57,15 @@ private:
 
 	FText BuildLobbiesText() const;
 
+	// Party lobby (Phase 17)
+	FText BuildPartyText() const;
+	FReply OnCycleTarget();
+	FReply OnHostPartySession();
+	FReply OnBeginListenMatch();
+	FReply OnEndMatch();
+	FReply OnFollowMatch();
+	FReply OnPartyInviteOverlay();
+
 	TWeakObjectPtr<UObject> WorldContext;
 	FText Status;
 
@@ -66,5 +76,7 @@ private:
 	int32 ChatCounter = 0;
 	/** Alternates between Public and Friends Only each time "Update: toggle visibility" is pressed. */
 	bool bToggleToFriendsOnly = true;
+	/** Which lobby the lobby buttons work on (switched with the Target button of the Party box). */
+	ESteamLobbyTarget LobbyTarget = ESteamLobbyTarget::Active;
 	TSharedRef<FText> AsyncStatus = MakeShared<FText>();
 };

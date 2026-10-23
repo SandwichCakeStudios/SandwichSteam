@@ -367,13 +367,17 @@ namespace
 	constexpr int32 MaxSessionKeyBytes = 255;
 
 	/**
-	 * Keys the Sessions feature owns (profile tag, session name, kick markers). Duplicated here as literals because the
+	 * Keys the Sessions feature owns (profile tag, session name, party keys, kick markers). Duplicated here as literals because the
 	 * core module cannot depend on the Sessions module (SandwichSteam::Sessions::IsReservedLobbyKey / NameKey / ProfileKey).
 	 */
 	bool IsReservedSessionKey(const FString& Key)
 	{
 		return Key.Equals(TEXT("OSTPROFILE"), ESearchCase::IgnoreCase)
 			|| Key.Equals(TEXT("OSTNAME"), ESearchCase::IgnoreCase)
+			|| Key.Equals(TEXT("OSTINGAME"), ESearchCase::IgnoreCase)
+			|| Key.Equals(TEXT("OSTMATCH"), ESearchCase::IgnoreCase)
+			|| Key.Equals(TEXT("OSTVISIBILITY"), ESearchCase::IgnoreCase)
+			|| Key.Equals(TEXT("OSTPARTY"), ESearchCase::IgnoreCase)
 			|| Key.StartsWith(TEXT("kick_"), ESearchCase::IgnoreCase);
 	}
 
@@ -395,7 +399,7 @@ namespace
 			}
 			else if (IsReservedSessionKey(Key))
 			{
-				Context.AddError(FText::Format(NSLOCTEXT("SandwichSteam", "DefSessionReservedKey", "Session profile '{0}' uses the key '{1}' in {2}, which is reserved by the plugin (OSTPROFILE, OSTNAME, kick_*)."), TagText, FText::FromString(Key), FText::FromString(MapName)));
+				Context.AddError(FText::Format(NSLOCTEXT("SandwichSteam", "DefSessionReservedKey", "Session profile '{0}' uses the key '{1}' in {2}, which is reserved by the plugin (OSTPROFILE, OSTNAME, OSTINGAME, OSTMATCH, OSTVISIBILITY, OSTPARTY, kick_*)."), TagText, FText::FromString(Key), FText::FromString(MapName)));
 				Result = EDataValidationResult::Invalid;
 			}
 		}

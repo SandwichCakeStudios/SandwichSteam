@@ -1,6 +1,7 @@
 ---
 title: Steam Authentication
-nav_order: 4.5
+parent: Multiplayer
+nav_order: 3
 ---
 
 # Steam Authentication

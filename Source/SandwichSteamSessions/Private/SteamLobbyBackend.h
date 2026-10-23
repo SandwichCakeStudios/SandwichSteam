@@ -8,6 +8,7 @@
 #include "Core/SteamResult.h"
 #include "GameplayTagContainer.h"
 #include "SteamLobbyTypes.h"
+#include "SteamSessionRules.h"
 #include "SteamSessionTypes.h"
 #include "UObject/WeakObjectPtr.h"
 
@@ -16,8 +17,8 @@ class FSteamLobbyRaw;
 struct FSteamSessionProfileDef;
 
 /**
- * Raw ISteamMatchmaking for the lobby extras of the Sessions feature: lobby data, member data, chat, members, and lobby only mode
- * (a lobby without a net session: create, search, join, leave).
+ * Raw ISteamMatchmaking for the lobby extras of the Sessions feature: lobby data, member data, chat, members, and the party lobby
+ * (a lobby without a net session: create, search, join, leave, invites, the published game server of a party match).
  *
  * The lobby of a net session is created by the Online Subsystem; every method here works on any lobby the local user is in,
  * so the same calls serve both. The header is SDK-free: callbacks and pending call results live in FSteamLobbyRaw (cpp).
@@ -87,6 +88,29 @@ public:
 
 	/** Members, limit and lobby data of a lobby as a search result entry. */
 	FSteamLobbyInfo DescribeLobby(FSteamId LobbyId) const;
+
+	// ---- Party lobby (Phase 17) ----
+
+	/** Owner only. Any lobby type, including Invisible (Set Lobby Type above only knows the session visibilities). */
+	bool SetPartyLobbyType(FSteamId LobbyId, SandwichSteam::Sessions::EPartyLobbyType Type);
+
+	/**
+	 * Owner only. Publishes the game server of the lobby: Steam sends LobbyGameCreated_t to every member. Ip / Port may be 0
+	 * when Server is valid (a listen host or game server reached by Steam ID), and Server may be invalid when Ip / Port are set.
+	 */
+	bool SetLobbyGameServer(FSteamId LobbyId, uint32 Ip, uint16 Port, FSteamId Server);
+
+	/** The game server last published with SetLobbyGameServer. False when none was set. */
+	bool GetLobbyGameServer(FSteamId LobbyId, uint32& OutIp, uint16& OutPort, FSteamId& OutServer) const;
+
+	/** Asks Steam for the data of a lobby the user is not in. The answer is a lobby data update (Member = Lobby) through the dispatcher. */
+	bool RequestLobbyData(FSteamId LobbyId);
+
+	/** Steam invite to a lobby (works for lobbies made without the Online Subsystem). */
+	bool InviteToLobby(FSteamId LobbyId, FSteamId Friend);
+
+	/** Steam overlay invite dialog for a lobby. */
+	bool ShowLobbyInviteOverlay(FSteamId LobbyId);
 
 private:
 	TWeakObjectPtr<USteamSessionsSubsystem> Owner;

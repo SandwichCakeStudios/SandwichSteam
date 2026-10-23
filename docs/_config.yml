@@ -19,3 +19,8 @@ footer_content: "Copyright &copy; 2026 Sandwich Cake Studios. MIT License. Not a
 # Working files that must not appear on the site
 exclude:
   - README.md
+  # Local preview (bundle exec jekyll serve)
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+  - .jekyll-cache/
