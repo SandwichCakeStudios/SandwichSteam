@@ -32,7 +32,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 | **Blueprint first** | Every feature has Blueprint nodes with tooltips. No C++ needed to *use* the plugin. |
 | **Setup dashboard** | One editor window shows what is missing (App ID, config, data asset) and fixes it with a button. |
 | **No Steamworks SDK download** | It uses the Steamworks that ships with Unreal Engine ([see versions](#supported-engine-versions)). |
-| **Pick only what you need** | Each feature is its own module. Delete the folder of a feature you do not use. |
+| **Pick only what you need** | Each feature is its own module. Turn it off in Project Settings, or delete its folder and its entry in `SandwichSteam.uplugin` to leave it out completely. |
 | **Tags, not magic strings** | Achievements, stats and leaderboards are chosen from a Gameplay Tag dropdown. Raw Steam names work too. |
 | **Built-in test panel** | Press one console command in a running game to see live Steam data and try every feature. |
 

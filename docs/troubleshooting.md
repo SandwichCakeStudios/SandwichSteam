@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-nav_order: 5
+nav_order: 30
 ---
 
 # Troubleshooting & FAQ
@@ -78,6 +78,16 @@ If you need the file anyway, the dashboard's **Advanced** page creates it next t
 ## Sessions: searching finds nothing
 
 On the shared test app **Spacewar (480)**, Steam returns other developers' lobbies and the plugin correctly rejects them, so the list is empty. Test with two accounts on your own App ID, or narrow the search with a *Profile Tag*.
+
+Both machines must run **the same build**: Steam only finds sessions of the same build.
+
+## Sessions: the join works but the client never arrives
+
+The client joined the session but travel fails or times out.
+
+- Search the client's log for `Mounting Engine plugin SteamSockets`. If it is missing, the game fell back to normal IP networking, which cannot reach a Steam host (`steam.<id>`). Make sure the **SteamSockets** plugin is enabled, then package again.
+- Run **Configure Steam...** on the dashboard once more and restart the editor. It writes the SteamSockets net driver lines into `DefaultEngine.ini`.
+- The host must travel to the match map with **Listen** before the client joins.
 
 ## Steam.Error.* codes
 

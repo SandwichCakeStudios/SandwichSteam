@@ -88,8 +88,8 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Features", meta = (Categories = "Steam.Feature", ToolTip = "Features listed here are turned off and cost nothing at runtime. Leave empty to enable all features."))
 	FGameplayTagContainer DisabledFeatures;
 
-	/** Describes the stats, achievements and leaderboards of the game. Read by the Stats, Achievements and Leaderboards modules. */
-	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (AllowedClasses = "/Script/SandwichSteam.SteamAppDefinition", ToolTip = "Data asset that lists the stats, achievements and leaderboards of the game. Used by the Stats, Achievements and Leaderboards modules. The editor makes sure it is cooked."))
+	/** Describes what the game has on Steam: stats, achievements, leaderboards, rich presence, DLC, session profiles and Steam Input action sets. Read by the matching feature modules. */
+	UPROPERTY(Config, EditAnywhere, Category = "Steam", meta = (AllowedClasses = "/Script/SandwichSteam.SteamAppDefinition", ToolTip = "Data asset that lists what the game has on Steam: stats, achievements, leaderboards, rich presence, DLC, session profiles and Steam Input action sets. Each feature reads its own list. The editor makes sure it is cooked."))
 	TSoftObjectPtr<USteamAppDefinition> AppDefinition;
 
 	/** Maximum number of avatar textures kept in memory (least recently used are dropped). */
