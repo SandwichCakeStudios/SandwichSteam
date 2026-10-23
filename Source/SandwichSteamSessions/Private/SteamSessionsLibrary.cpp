@@ -24,16 +24,16 @@ FSteamId USteamSessionsLibrary::GetSteamSessionLobbyId(const UObject* WorldConte
 	return Sessions ? Sessions->GetLobbyId() : FSteamId();
 }
 
-FSteamResult USteamSessionsLibrary::SendSteamSessionInvite(const UObject* WorldContextObject, FSteamId Friend)
+FSteamResult USteamSessionsLibrary::SendSteamSessionInvite(const UObject* WorldContextObject, FSteamId Friend, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->SendInvite(Friend) : NotAvailable();
+	return Sessions ? Sessions->SendInvite(Friend, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::ShowSteamInviteOverlay(const UObject* WorldContextObject)
+FSteamResult USteamSessionsLibrary::ShowSteamInviteOverlay(const UObject* WorldContextObject, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->ShowInviteOverlay() : NotAvailable();
+	return Sessions ? Sessions->ShowInviteOverlay(Target) : NotAvailable();
 }
 
 FSteamResult USteamSessionsLibrary::TravelToSteamSession(const UObject* WorldContextObject)
@@ -91,6 +91,28 @@ bool USteamSessionsLibrary::GetCurrentSteamSessionSettings(const UObject* WorldC
 	return Sessions && Sessions->GetCurrentSettings(OutSettings, OutProfileTag).IsSuccess();
 }
 
+bool USteamSessionsLibrary::GetCurrentSteamLobbySettings(const UObject* WorldContextObject, FSteamSessionSettings& OutSettings, FGameplayTag& OutProfileTag)
+{
+	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions && Sessions->GetCurrentLobbySettings(OutSettings, OutProfileTag).IsSuccess();
+}
+
+FSteamResult USteamSessionsLibrary::UpdateSteamLobby(const UObject* WorldContextObject, const FSteamSessionSettings& Settings, FSteamSessionSettings& OutAppliedSettings)
+{
+	OutAppliedSettings = FSteamSessionSettings();
+	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	if (!Sessions)
+	{
+		return NotAvailable();
+	}
+
+	// UpdateLobby is synchronous: the delegate runs before it returns.
+	return Sessions->UpdateLobby(Settings, FSteamSessionSettingsOpDelegate::CreateLambda([&OutAppliedSettings](const FSteamResult&, const FSteamSessionSettings& Applied)
+	{
+		OutAppliedSettings = Applied;
+	}));
+}
+
 // ---- Lobby extras ----
 
 FSteamId USteamSessionsLibrary::GetActiveSteamLobbyId(const UObject* WorldContextObject)
@@ -105,99 +127,160 @@ bool USteamSessionsLibrary::IsInSteamLobbyOnlyMode(const UObject* WorldContextOb
 	return Sessions && Sessions->IsInLobbyOnlyMode();
 }
 
-bool USteamSessionsLibrary::IsSteamLobbyOwner(const UObject* WorldContextObject)
+bool USteamSessionsLibrary::IsSteamLobbyOwner(const UObject* WorldContextObject, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions && Sessions->IsLobbyOwner();
+	return Sessions && Sessions->IsLobbyOwner(Target);
 }
 
-FSteamId USteamSessionsLibrary::GetSteamLobbyOwner(const UObject* WorldContextObject)
+FSteamId USteamSessionsLibrary::GetSteamLobbyOwner(const UObject* WorldContextObject, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->GetLobbyOwnerId() : FSteamId();
+	return Sessions ? Sessions->GetLobbyOwnerId(Target) : FSteamId();
 }
 
-TArray<FSteamLobbyMember> USteamSessionsLibrary::GetSteamLobbyMembers(const UObject* WorldContextObject)
+TArray<FSteamLobbyMember> USteamSessionsLibrary::GetSteamLobbyMembers(const UObject* WorldContextObject, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->GetLobbyMembers() : TArray<FSteamLobbyMember>();
+	return Sessions ? Sessions->GetLobbyMembers(Target) : TArray<FSteamLobbyMember>();
 }
 
-bool USteamSessionsLibrary::AreAllSteamLobbyMembersReady(const UObject* WorldContextObject)
+bool USteamSessionsLibrary::AreAllSteamLobbyMembersReady(const UObject* WorldContextObject, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions && Sessions->AreAllMembersReady();
+	return Sessions && Sessions->AreAllMembersReady(Target);
 }
 
-FString USteamSessionsLibrary::GetSteamLobbyData(const UObject* WorldContextObject, const FString& Key, bool& bFound)
+FString USteamSessionsLibrary::GetSteamLobbyData(const UObject* WorldContextObject, const FString& Key, bool& bFound, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
 	FString Value;
-	bFound = Sessions && Sessions->GetLobbyData(Key, Value);
+	bFound = Sessions && Sessions->GetLobbyData(Key, Value, Target);
 	return Value;
 }
 
-TMap<FString, FString> USteamSessionsLibrary::GetAllSteamLobbyData(const UObject* WorldContextObject)
+TMap<FString, FString> USteamSessionsLibrary::GetAllSteamLobbyData(const UObject* WorldContextObject, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->GetAllLobbyData() : TMap<FString, FString>();
+	return Sessions ? Sessions->GetAllLobbyData(Target) : TMap<FString, FString>();
 }
 
-FSteamResult USteamSessionsLibrary::SetSteamLobbyData(const UObject* WorldContextObject, const FString& Key, const FString& Value)
+FSteamResult USteamSessionsLibrary::SetSteamLobbyData(const UObject* WorldContextObject, const FString& Key, const FString& Value, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->SetLobbyData(Key, Value) : NotAvailable();
+	return Sessions ? Sessions->SetLobbyData(Key, Value, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::RemoveSteamLobbyData(const UObject* WorldContextObject, const FString& Key)
+FSteamResult USteamSessionsLibrary::RemoveSteamLobbyData(const UObject* WorldContextObject, const FString& Key, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->RemoveLobbyData(Key) : NotAvailable();
+	return Sessions ? Sessions->RemoveLobbyData(Key, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::SetSteamLobbyJoinable(const UObject* WorldContextObject, bool bJoinable)
+FSteamResult USteamSessionsLibrary::SetSteamLobbyJoinable(const UObject* WorldContextObject, bool bJoinable, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->SetLobbyJoinable(bJoinable) : NotAvailable();
+	return Sessions ? Sessions->SetLobbyJoinable(bJoinable, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::SetSteamLobbyMemberData(const UObject* WorldContextObject, const FString& Key, const FString& Value)
+FSteamResult USteamSessionsLibrary::SetSteamLobbyMemberData(const UObject* WorldContextObject, const FString& Key, const FString& Value, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->SetMemberData(Key, Value) : NotAvailable();
+	return Sessions ? Sessions->SetMemberData(Key, Value, Target) : NotAvailable();
 }
 
-FString USteamSessionsLibrary::GetSteamLobbyMemberData(const UObject* WorldContextObject, FSteamId Member, const FString& Key)
+FString USteamSessionsLibrary::GetSteamLobbyMemberData(const UObject* WorldContextObject, FSteamId Member, const FString& Key, ESteamLobbyTarget Target)
 {
 	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->GetMemberData(Member, Key) : FString();
+	return Sessions ? Sessions->GetMemberData(Member, Key, Target) : FString();
 }
 
-FSteamResult USteamSessionsLibrary::SetSteamLobbyReady(const UObject* WorldContextObject, bool bReady)
+FSteamResult USteamSessionsLibrary::SetSteamLobbyReady(const UObject* WorldContextObject, bool bReady, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->SetReady(bReady) : NotAvailable();
+	return Sessions ? Sessions->SetReady(bReady, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::SendSteamLobbyChatMessage(const UObject* WorldContextObject, const FString& Text)
+FSteamResult USteamSessionsLibrary::SendSteamLobbyChatMessage(const UObject* WorldContextObject, const FString& Text, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->SendChatMessage(Text) : NotAvailable();
+	return Sessions ? Sessions->SendChatMessage(Text, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::KickSteamLobbyMember(const UObject* WorldContextObject, FSteamId Member, const FString& Reason)
+FSteamResult USteamSessionsLibrary::KickSteamLobbyMember(const UObject* WorldContextObject, FSteamId Member, const FString& Reason, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->KickMember(Member, Reason) : NotAvailable();
+	return Sessions ? Sessions->KickMember(Member, Reason, Target) : NotAvailable();
 }
 
-FSteamResult USteamSessionsLibrary::ForgiveSteamLobbyMember(const UObject* WorldContextObject, FSteamId Member)
+FSteamResult USteamSessionsLibrary::ForgiveSteamLobbyMember(const UObject* WorldContextObject, FSteamId Member, ESteamLobbyTarget Target)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
-	return Sessions ? Sessions->ForgiveMember(Member) : NotAvailable();
+	return Sessions ? Sessions->ForgiveMember(Member, Target) : NotAvailable();
 }
 
 FSteamResult USteamSessionsLibrary::LeaveSteamLobby(const UObject* WorldContextObject)
+{
+	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions ? Sessions->LeaveLobby() : NotAvailable();
+}
+
+// ---- Party lobby ----
+
+bool USteamSessionsLibrary::IsInSteamParty(const UObject* WorldContextObject)
+{
+	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions && Sessions->IsInParty();
+}
+
+FSteamId USteamSessionsLibrary::GetSteamPartyLobbyId(const UObject* WorldContextObject)
+{
+	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions ? Sessions->GetPartyLobbyId() : FSteamId();
+}
+
+FSteamId USteamSessionsLibrary::GetJoinableSteamLobbyId(const UObject* WorldContextObject)
+{
+	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions ? Sessions->GetJoinableLobbyId() : FSteamId();
+}
+
+bool USteamSessionsLibrary::IsSteamPartyInMatch(const UObject* WorldContextObject)
+{
+	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions && Sessions->IsPartyInMatch();
+}
+
+bool USteamSessionsLibrary::GetSteamPartyMatch(const UObject* WorldContextObject, FSteamPartyMatch& OutMatch)
+{
+	const USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	if (!Sessions)
+	{
+		OutMatch = FSteamPartyMatch();
+		return false;
+	}
+	return Sessions->GetPartyMatch(OutMatch);
+}
+
+FSteamResult USteamSessionsLibrary::BeginSteamPartyMatch(const UObject* WorldContextObject, const FSteamPartyMatch& Match)
+{
+	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions ? Sessions->BeginPartyMatch(Match) : NotAvailable();
+}
+
+FSteamResult USteamSessionsLibrary::EndSteamPartyMatch(const UObject* WorldContextObject)
+{
+	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions ? Sessions->EndPartyMatch() : NotAvailable();
+}
+
+FSteamResult USteamSessionsLibrary::FollowSteamPartyMatch(const UObject* WorldContextObject)
+{
+	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
+	return Sessions ? Sessions->FollowPartyMatch() : NotAvailable();
+}
+
+FSteamResult USteamSessionsLibrary::LeaveSteamParty(const UObject* WorldContextObject)
 {
 	USteamSessionsSubsystem* Sessions = USteamSessionsSubsystem::Get(WorldContextObject);
 	return Sessions ? Sessions->LeaveLobby() : NotAvailable();

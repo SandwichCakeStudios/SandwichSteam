@@ -54,7 +54,7 @@ void SSandwichSteamSessionsTestPage::Construct(const FArguments& InArgs)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Accept", "Accept request"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnAccept)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Decline", "Decline request"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnDecline)) ]
 		]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 6.f)[ SandwichSteamTest::MakeSectionTitle(LOCTEXT("Lobby", "Lobby (works on the session lobby or a lobby only lobby)")) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 6.f)[ SandwichSteamTest::MakeSectionTitle(LOCTEXT("Lobby", "Lobby (party lobby and session lobby; the Target button of the Party box picks one)")) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
 		[
 			SNew(STextBlock).AutoWrapText(true).Text_Lambda([this] { return BuildLobbiesText(); })
@@ -62,15 +62,39 @@ void SSandwichSteamSessionsTestPage::Construct(const FArguments& InArgs)
 		+ SVerticalBox::Slot().AutoHeight()
 		[
 			SNew(SWrapBox).UseAllottedSize(true)
-			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyCreate", "Create lobby only (first profile)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyCreate)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyCreate", "Create party lobby (first profile)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyCreate)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyFind", "Find lobbies"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyFind)) ]
-			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyJoin", "Join first lobby"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyJoinFirst)) ]
-			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyLeave", "Leave lobby only lobby"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyLeave)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyJoin", "Join first lobby as party"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyJoinFirst)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyLeave", "Leave party lobby"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnLobbyLeave)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Ready", "Toggle ready"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnToggleReady)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Chat", "Send chat"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnSendChat)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("LobbyData", "Set lobby data (owner)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnSetLobbyData)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Kick", "Kick first other member (owner)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnKickOther)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Forgive", "Forgive all (owner)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnForgiveAll)) ]
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 6.f)[ SandwichSteamTest::MakeSectionTitle(LOCTEXT("Party", "Party (a party lobby that stays while a session runs)")) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+		[
+			SNew(STextBlock).AutoWrapText(true).Text_Lambda([this] { return BuildPartyText(); })
+		]
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			SNew(SWrapBox).UseAllottedSize(true)
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)
+			[
+				SNew(SButton)
+				.OnClicked(FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnCycleTarget))
+				.Text_Lambda([this]
+				{
+					const UEnum* TargetEnum = StaticEnum<ESteamLobbyTarget>();
+					return FText::Format(LOCTEXT("TargetButton", "Lobby buttons target: {0} (click to switch)"), TargetEnum ? TargetEnum->GetDisplayNameTextByValue(static_cast<int64>(LobbyTarget)) : FText::GetEmpty());
+				})
+			]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("HostParty", "Host party session (first profile, owner)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnHostPartySession)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("BeginListen", "Begin match: listen host by my Steam ID (owner)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnBeginListenMatch)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("EndMatch", "End match (owner)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnEndMatch)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("FollowMatch", "Follow match"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnFollowMatch)) ]
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("PartyInvite", "Invite to party (overlay)"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnPartyInviteOverlay)) ]
 		]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 14.f, 0.f, 0.f)
 		[
@@ -472,7 +496,7 @@ FReply SSandwichSteamSessionsTestPage::OnLobbyLeave()
 {
 	USteamSessionsSubsystem* Sessions = GetSessions();
 	*AsyncStatus = FText::GetEmpty();
-	Status = Sessions ? ResultText(Sessions->LeaveLobby(), LOCTEXT("LobbyLeft", "Left the lobby only lobby (a session lobby is left with Destroy).")) : NoFeatureText();
+	Status = Sessions ? ResultText(Sessions->LeaveLobby(), LOCTEXT("LobbyLeft", "Left the party lobby (a session lobby is left with Destroy).")) : NoFeatureText();
 	return FReply::Handled();
 }
 
@@ -487,7 +511,7 @@ FReply SSandwichSteamSessionsTestPage::OnToggleReady()
 	}
 
 	bReadyState = !bReadyState;
-	Status = ResultText(Sessions->SetReady(bReadyState), bReadyState ? LOCTEXT("NowReady", "You are ready.") : LOCTEXT("NowNotReady", "You are not ready."));
+	Status = ResultText(Sessions->SetReady(bReadyState, LobbyTarget), bReadyState ? LOCTEXT("NowReady", "You are ready.") : LOCTEXT("NowNotReady", "You are not ready."));
 	return FReply::Handled();
 }
 
@@ -495,7 +519,7 @@ FReply SSandwichSteamSessionsTestPage::OnSendChat()
 {
 	USteamSessionsSubsystem* Sessions = GetSessions();
 	*AsyncStatus = FText::GetEmpty();
-	Status = Sessions ? ResultText(Sessions->SendChatMessage(FString::Printf(TEXT("test message %d"), ++ChatCounter)), LOCTEXT("ChatSent", "Chat sent. The message shows in the log of every member (LogSandwichSteam: lobby chat from ...).")) : NoFeatureText();
+	Status = Sessions ? ResultText(Sessions->SendChatMessage(FString::Printf(TEXT("test message %d"), ++ChatCounter), LobbyTarget), LOCTEXT("ChatSent", "Chat sent. The message shows in the log of every member (LogSandwichSteam: lobby chat from ...).")) : NoFeatureText();
 	return FReply::Handled();
 }
 
@@ -503,7 +527,7 @@ FReply SSandwichSteamSessionsTestPage::OnSetLobbyData()
 {
 	USteamSessionsSubsystem* Sessions = GetSessions();
 	*AsyncStatus = FText::GetEmpty();
-	Status = Sessions ? ResultText(Sessions->SetLobbyData(TEXT("testkey"), FDateTime::Now().ToString()), LOCTEXT("DataSet", "Lobby data 'testkey' set. Other members read it with Steam.Sessions.LobbyData testkey.")) : NoFeatureText();
+	Status = Sessions ? ResultText(Sessions->SetLobbyData(TEXT("testkey"), FDateTime::Now().ToString(), LobbyTarget), LOCTEXT("DataSet", "Lobby data 'testkey' set. Other members read it with Steam.Sessions.LobbyData testkey.")) : NoFeatureText();
 	return FReply::Handled();
 }
 
@@ -517,11 +541,11 @@ FReply SSandwichSteamSessionsTestPage::OnKickOther()
 		return FReply::Handled();
 	}
 
-	for (const FSteamLobbyMember& Member : Sessions->GetLobbyMembers())
+	for (const FSteamLobbyMember& Member : Sessions->GetLobbyMembers(LobbyTarget))
 	{
 		if (!Member.bIsLocal)
 		{
-			Status = ResultText(Sessions->KickMember(Member.Id, TEXT("test kick")), FText::Format(LOCTEXT("Kicked", "Kick marker written for {0}. That player leaves the lobby."), FText::FromString(Member.Name)));
+			Status = ResultText(Sessions->KickMember(Member.Id, TEXT("test kick"), LobbyTarget), FText::Format(LOCTEXT("Kicked", "Kick marker written for {0}. That player leaves the lobby."), FText::FromString(Member.Name)));
 			return FReply::Handled();
 		}
 	}
@@ -543,12 +567,12 @@ FReply SSandwichSteamSessionsTestPage::OnForgiveAll()
 	// A kicked player is no longer a member, so the markers are found by their keys.
 	int32 Removed = 0;
 	FSteamResult Last = FSteamResult::Success();
-	for (const TPair<FString, FString>& Pair : Sessions->GetAllLobbyData())
+	for (const TPair<FString, FString>& Pair : Sessions->GetAllLobbyData(LobbyTarget))
 	{
 		FSteamId Member;
 		if (Pair.Key.StartsWith(TEXT("kick_")) && FSteamId::FromString(Pair.Key.RightChop(5), Member))
 		{
-			Last = Sessions->ForgiveMember(Member);
+			Last = Sessions->ForgiveMember(Member, LobbyTarget);
 			if (!Last.IsSuccess())
 			{
 				break;
@@ -558,6 +582,105 @@ FReply SSandwichSteamSessionsTestPage::OnForgiveAll()
 	}
 
 	Status = ResultText(Last, FText::Format(LOCTEXT("Forgiven", "{0} kick marker(s) removed."), FText::AsNumber(Removed)));
+	return FReply::Handled();
+}
+
+// ---- Party lobby (17) ----
+
+FText SSandwichSteamSessionsTestPage::BuildPartyText() const
+{
+	const USteamSessionsSubsystem* Sessions = GetSessions();
+	if (!Sessions)
+	{
+		return NoFeatureText();
+	}
+
+	if (!Sessions->IsInParty())
+	{
+		return LOCTEXT("NoParty", "Not in a party. Create party lobby (owner) or Join first lobby as party / accept an invite (member).");
+	}
+
+	FSteamPartyMatch Match;
+	const bool bInMatch = Sessions->GetPartyMatch(Match);
+	return FText::Format(LOCTEXT("PartyState", "Party {0} ({1}), {2} member(s). Match: {3}. Session: {4}."),
+		FText::FromString(Sessions->GetPartyLobbyId().ToString()),
+		Sessions->IsLobbyOwner(ESteamLobbyTarget::Party) ? LOCTEXT("PartyOwner", "you own it") : LOCTEXT("PartyMember", "member"),
+		FText::AsNumber(Sessions->GetLobbyMembers(ESteamLobbyTarget::Party).Num()),
+		bInMatch ? FText::FromString(FString::Printf(TEXT("running (lobby %s, server %s, address %s)"), *Match.SessionLobby.ToString(), *Match.ServerSteamId.ToString(), Match.Address.IsEmpty() ? TEXT("-") : *Match.Address)) : LOCTEXT("PartyNoMatch", "none"),
+		Sessions->IsInSession() ? FText::FromString(Sessions->GetSessionLobbyId().ToString()) : LOCTEXT("PartyNoSession", "none"));
+}
+
+FReply SSandwichSteamSessionsTestPage::OnCycleTarget()
+{
+	LobbyTarget = static_cast<ESteamLobbyTarget>((static_cast<uint8>(LobbyTarget) + 1) % 3);
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamSessionsTestPage::OnHostPartySession()
+{
+	USteamSessionsSubsystem* Sessions = GetSessions();
+	const USteamAppDefinition* Definition = Sessions ? Sessions->GetDefinition() : nullptr;
+	if (!Definition || Definition->Sessions.IsEmpty())
+	{
+		Status = LOCTEXT("NoPartyProfile", "Needs the Sessions feature and a session profile with a tag in the Steam App Definition (Sessions array).");
+		return FReply::Handled();
+	}
+
+	const TSharedRef<FText> Async = AsyncStatus;
+	const FSteamResult Result = Sessions->HostPartySession(Definition->Sessions[0].Tag, FSteamSessionOpDelegate::CreateLambda([Async](const FSteamResult& Done)
+	{
+		*Async = Done.IsSuccess() ? LOCTEXT("PartyHosted", "Party session created and party match begun. Members follow by themselves (Auto Follow Party Match).") : FText::Format(LOCTEXT("PartyHostFailed", "Host party session failed: {0}"), Done.Message);
+	}));
+
+	*AsyncStatus = FText::GetEmpty();
+	Status = ResultText(Result, LOCTEXT("PartyHosting", "Creating the party session... (host travel to this map first, so members can connect)"));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamSessionsTestPage::OnBeginListenMatch()
+{
+	USteamSessionsSubsystem* Sessions = GetSessions();
+	*AsyncStatus = FText::GetEmpty();
+	if (!Sessions)
+	{
+		Status = NoFeatureText();
+		return FReply::Handled();
+	}
+
+	FSteamPartyMatch Match;
+	for (const FSteamLobbyMember& Member : Sessions->GetLobbyMembers(ESteamLobbyTarget::Party))
+	{
+		if (Member.bIsLocal)
+		{
+			Match.ServerSteamId = Member.Id;
+		}
+	}
+
+	Status = ResultText(Sessions->BeginPartyMatch(Match), LOCTEXT("ListenMatchBegun", "Party match begun with your Steam ID: members travel to steam.<your id>. This game must listen (Host travel to this map first)."));
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamSessionsTestPage::OnEndMatch()
+{
+	USteamSessionsSubsystem* Sessions = GetSessions();
+	*AsyncStatus = FText::GetEmpty();
+	Status = Sessions ? ResultText(Sessions->EndPartyMatch(), LOCTEXT("MatchEnded", "Party match ended. The party's lobby type and joinable flag are restored.")) : NoFeatureText();
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamSessionsTestPage::OnFollowMatch()
+{
+	USteamSessionsSubsystem* Sessions = GetSessions();
+	*AsyncStatus = FText::GetEmpty();
+	Status = Sessions ? ResultText(Sessions->FollowPartyMatch(), LOCTEXT("Following", "Following the party match...")) : NoFeatureText();
+	return FReply::Handled();
+}
+
+FReply SSandwichSteamSessionsTestPage::OnPartyInviteOverlay()
+{
+	USteamSessionsSubsystem* Sessions = GetSessions();
+	*AsyncStatus = FText::GetEmpty();
+	Status = Sessions ? ResultText(Sessions->ShowInviteOverlay(ESteamLobbyTarget::Party), LOCTEXT("PartyInviteOpened", "Invite dialog opened for the party. Accept on the other machine: it joins the party, not a session.")) : NoFeatureText();
 	return FReply::Handled();
 }
 

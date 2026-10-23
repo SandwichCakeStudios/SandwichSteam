@@ -20,6 +20,7 @@ Steam for Unreal Engine 5, made friendly. Achievements, stats, leaderboards, lob
 | **A C++ developer.** I want the API | [Installation, path 2](installation.html#path-2-c-project), then the feature guides *(coming soon)* |
 | **Ready to upload a build** | [Publishing to Steam](publishing.html) |
 | **Hosting multiplayer** and want Steam to check who joins | [Steam Authentication](steam-authentication.html) |
+| **Keeping friends together** between matches (a party) | [Party Lobby](party-lobby.html) |
 | **Stuck** | [Troubleshooting](troubleshooting.html) |
 
 ## What you need to know first

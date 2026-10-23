@@ -3,6 +3,7 @@
 #include "SteamLobbyBackend.h"
 #include "Core/SteamCallResult.h"
 #include "Core/SteamGameplayTags.h"
+#include "Core/SteamLog.h"
 #include "Core/SteamSDK.h"
 #include "Data/SteamAppDefinition.h"
 #include "GameplayTagsManager.h"
@@ -26,6 +27,8 @@ public:
 		DataUpdateCallback.Register(this, &FSteamLobbyRaw::OnLobbyDataUpdate);
 		ChatUpdateCallback.Register(this, &FSteamLobbyRaw::OnLobbyChatUpdate);
 		ChatMessageCallback.Register(this, &FSteamLobbyRaw::OnLobbyChatMessage);
+		GameCreatedCallback.Register(this, &FSteamLobbyRaw::OnLobbyGameCreated);
+		JoinRequestedCallback.Register(this, &FSteamLobbyRaw::OnGameLobbyJoinRequested);
 	}
 
 	FSteamLobbyRaw(const FSteamLobbyRaw&) = delete;
@@ -39,6 +42,10 @@ private:
 	STEAM_CALLBACK_MANUAL(FSteamLobbyRaw, OnLobbyDataUpdate, LobbyDataUpdate_t, DataUpdateCallback);
 	STEAM_CALLBACK_MANUAL(FSteamLobbyRaw, OnLobbyChatUpdate, LobbyChatUpdate_t, ChatUpdateCallback);
 	STEAM_CALLBACK_MANUAL(FSteamLobbyRaw, OnLobbyChatMessage, LobbyChatMsg_t, ChatMessageCallback);
+	/** The lobby owner published a game server (SetLobbyGameServer): sent to every member. */
+	STEAM_CALLBACK_MANUAL(FSteamLobbyRaw, OnLobbyGameCreated, LobbyGameCreated_t, GameCreatedCallback);
+	/** The player accepted a lobby invite (or Join Game on a friend in a lobby) while the game runs. The Online Subsystem gets it too. */
+	STEAM_CALLBACK_MANUAL(FSteamLobbyRaw, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t, JoinRequestedCallback);
 
 	TWeakObjectPtr<USteamSessionsSubsystem> Owner;
 	TSharedRef<FSteamCallbackDispatcher, ESPMode::ThreadSafe> Dispatcher;
@@ -94,6 +101,31 @@ void FSteamLobbyRaw::OnLobbyChatMessage(LobbyChatMsg_t* Payload)
 	});
 }
 
+void FSteamLobbyRaw::OnLobbyGameCreated(LobbyGameCreated_t* Payload)
+{
+	const FSteamId Lobby(static_cast<int64>(Payload->m_ulSteamIDLobby));
+	const FSteamId Server(static_cast<int64>(Payload->m_ulSteamIDGameServer));
+	const uint32 Ip = Payload->m_unIP;
+	const uint16 Port = Payload->m_usPort;
+	// [verify] which thread Steam uses for this callback (logged once per callback, the 17a checkpoint reads it).
+	UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: LobbyGameCreated_t for lobby %s (server %s, %s) on the %s thread"), *Lobby.ToString(), *Server.ToString(),
+		*SandwichSteam::Sessions::FormatIPv4Address(Ip, Port), IsInGameThread() ? TEXT("game") : TEXT("Steam callback"));
+	SANDWICHSTEAM_DISPATCH(Dispatcher, Owner, [Lobby, Server, Ip, Port](USteamSessionsSubsystem& Sessions)
+	{
+		Sessions.HandleLobbyGameCreated(Lobby, Server, Ip, Port);
+	});
+}
+
+void FSteamLobbyRaw::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t* Payload)
+{
+	const FSteamId Lobby(static_cast<int64>(Payload->m_steamIDLobby.ConvertToUint64()));
+	const FSteamId Friend(static_cast<int64>(Payload->m_steamIDFriend.ConvertToUint64()));
+	SANDWICHSTEAM_DISPATCH(Dispatcher, Owner, [Lobby, Friend](USteamSessionsSubsystem& Sessions)
+	{
+		Sessions.HandleLobbyJoinRequested(Lobby, Friend);
+	});
+}
+
 namespace
 {
 	CSteamID ToSteam(FSteamId Id)
@@ -112,6 +144,18 @@ namespace
 		{
 		case ESteamSessionVisibility::FriendsOnly: return k_ELobbyTypeFriendsOnly;
 		case ESteamSessionVisibility::Private: return k_ELobbyTypePrivate;
+		default: return k_ELobbyTypePublic;
+		}
+	}
+
+	ELobbyType ToSteamLobbyType(SandwichSteam::Sessions::EPartyLobbyType Type)
+	{
+		using SandwichSteam::Sessions::EPartyLobbyType;
+		switch (Type)
+		{
+		case EPartyLobbyType::FriendsOnly: return k_ELobbyTypeFriendsOnly;
+		case EPartyLobbyType::Private: return k_ELobbyTypePrivate;
+		case EPartyLobbyType::Invisible: return k_ELobbyTypeInvisible;
 		default: return k_ELobbyTypePublic;
 		}
 	}
@@ -189,6 +233,7 @@ bool FSteamLobbyBackend::CreateLobby(const FGameplayTag& ProfileTag, const FStea
 		InitialData.Add(SandwichSteam::Sessions::ProfileKey(), ProfileTag.ToString());
 	}
 	InitialData.Add(SandwichSteam::Sessions::NameKey(), Settings.DisplayName);
+	InitialData.Add(SandwichSteam::Sessions::PartyKey(), TEXT("1")); // Join requests for this lobby join the party, not a net session.
 	for (const TPair<FName, FString>& Pair : Settings.Settings)
 	{
 		if (!Pair.Key.IsNone())
@@ -475,6 +520,69 @@ FSteamLobbyInfo FSteamLobbyBackend::DescribeLobby(FSteamId LobbyId) const
 	return Info;
 }
 
+bool FSteamLobbyBackend::SetPartyLobbyType(FSteamId LobbyId, SandwichSteam::Sessions::EPartyLobbyType Type)
+{
+	ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+	return Matchmaking && LobbyId.IsValid() && Matchmaking->SetLobbyType(ToSteam(LobbyId), ToSteamLobbyType(Type));
+}
+
+bool FSteamLobbyBackend::SetLobbyGameServer(FSteamId LobbyId, uint32 Ip, uint16 Port, FSteamId Server)
+{
+	ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+	if (!Matchmaking || !LobbyId.IsValid() || (!Server.IsValid() && (Ip == 0 || Port == 0)))
+	{
+		return false;
+	}
+
+	// The call has no return value: Steam ignores it when the local user is not the owner.
+	Matchmaking->SetLobbyGameServer(ToSteam(LobbyId), Ip, Port, Server.IsValid() ? ToSteam(Server) : k_steamIDNil);
+	return true;
+}
+
+bool FSteamLobbyBackend::GetLobbyGameServer(FSteamId LobbyId, uint32& OutIp, uint16& OutPort, FSteamId& OutServer) const
+{
+	OutIp = 0;
+	OutPort = 0;
+	OutServer = FSteamId();
+	ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+	CSteamID Server;
+	if (!Matchmaking || !LobbyId.IsValid() || !Matchmaking->GetLobbyGameServer(ToSteam(LobbyId), &OutIp, &OutPort, &Server))
+	{
+		return false;
+	}
+
+	if (Server.IsValid())
+	{
+		OutServer = FromSteam(Server);
+	}
+	return true;
+}
+
+bool FSteamLobbyBackend::RequestLobbyData(FSteamId LobbyId)
+{
+	ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+	return Matchmaking && LobbyId.IsValid() && Matchmaking->RequestLobbyData(ToSteam(LobbyId));
+}
+
+bool FSteamLobbyBackend::InviteToLobby(FSteamId LobbyId, FSteamId Friend)
+{
+	ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+	return Matchmaking && LobbyId.IsValid() && Friend.IsValid() && Matchmaking->InviteUserToLobby(ToSteam(LobbyId), ToSteam(Friend));
+}
+
+bool FSteamLobbyBackend::ShowLobbyInviteOverlay(FSteamId LobbyId)
+{
+	ISteamFriends* Friends = SteamFriends();
+	ISteamUtils* Utils = SteamUtils();
+	if (!Friends || !LobbyId.IsValid() || (Utils && !Utils->IsOverlayEnabled()))
+	{
+		return false;
+	}
+
+	Friends->ActivateGameOverlayInviteDialog(ToSteam(LobbyId));
+	return true;
+}
+
 #else // !SANDWICHSTEAM_WITH_STEAMWORKS
 
 // Without the Steamworks SDK there are no lobbies: the backend is never usable and every call refuses.
@@ -511,5 +619,11 @@ bool FSteamLobbyBackend::SetJoinable(FSteamId, bool) { return false; }
 bool FSteamLobbyBackend::SetLobbyType(FSteamId, ESteamSessionVisibility) { return false; }
 bool FSteamLobbyBackend::SetLobbyMemberLimit(FSteamId, int32) { return false; }
 FSteamLobbyInfo FSteamLobbyBackend::DescribeLobby(FSteamId) const { return FSteamLobbyInfo(); }
+bool FSteamLobbyBackend::SetPartyLobbyType(FSteamId, SandwichSteam::Sessions::EPartyLobbyType) { return false; }
+bool FSteamLobbyBackend::SetLobbyGameServer(FSteamId, uint32, uint16, FSteamId) { return false; }
+bool FSteamLobbyBackend::GetLobbyGameServer(FSteamId, uint32& OutIp, uint16& OutPort, FSteamId& OutServer) const { OutIp = 0; OutPort = 0; OutServer = FSteamId(); return false; }
+bool FSteamLobbyBackend::RequestLobbyData(FSteamId) { return false; }
+bool FSteamLobbyBackend::InviteToLobby(FSteamId, FSteamId) { return false; }
+bool FSteamLobbyBackend::ShowLobbyInviteOverlay(FSteamId) { return false; }
 
 #endif // SANDWICHSTEAM_WITH_STEAMWORKS

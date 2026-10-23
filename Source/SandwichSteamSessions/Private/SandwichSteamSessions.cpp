@@ -202,8 +202,10 @@ namespace
 		LogResult(Output, TEXT("Steam.Sessions.Destroy"), Result, TEXT("request sent"));
 	}
 
-	/** Steam.Sessions.Invite <SteamId>: invites a friend to the current session. */
-	void InviteFriend(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	ESteamLobbyTarget TakeTarget(TArray<FString>& Args);
+
+	/** Steam.Sessions.Invite [party|session] <SteamId>: invites a friend to the party, else the current session. */
+	void InviteFriend(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -211,21 +213,24 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		FSteamId Friend;
 		if (Args.IsEmpty() || !FSteamId::FromString(Args[0], Friend))
 		{
-			Output.Log(TEXT("Usage: Steam.Sessions.Invite <SteamID64>"));
+			Output.Log(TEXT("Usage: Steam.Sessions.Invite [party|session] <SteamID64>"));
 			return;
 		}
 
-		LogResult(Output, TEXT("Steam.Sessions.Invite"), Sessions->SendInvite(Friend), TEXT("invite sent"));
+		LogResult(Output, TEXT("Steam.Sessions.Invite"), Sessions->SendInvite(Friend, Target), TEXT("invite sent"));
 	}
 
-	void ShowInviteOverlay(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Output)
+	void ShowInviteOverlay(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		if (USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output))
 		{
-			LogResult(Output, TEXT("Steam.Sessions.InviteOverlay"), Sessions->ShowInviteOverlay(), TEXT("overlay opened"));
+			TArray<FString> Args = InArgs;
+			LogResult(Output, TEXT("Steam.Sessions.InviteOverlay"), Sessions->ShowInviteOverlay(TakeTarget(Args)), TEXT("overlay opened"));
 		}
 	}
 
@@ -280,7 +285,29 @@ namespace
 		return Text;
 	}
 
-	/** Steam.Sessions.LobbyCreate <ProfileTag>: a lobby without a net session. */
+	/**
+	 * Optional first argument "party" or "session" of the lobby commands: removes it from Args and returns the target.
+	 * Without it the command works on the active lobby (the party when there is one, else the session lobby).
+	 */
+	ESteamLobbyTarget TakeTarget(TArray<FString>& Args)
+	{
+		if (!Args.IsEmpty())
+		{
+			if (Args[0].Equals(TEXT("party"), ESearchCase::IgnoreCase))
+			{
+				Args.RemoveAt(0);
+				return ESteamLobbyTarget::Party;
+			}
+			if (Args[0].Equals(TEXT("session"), ESearchCase::IgnoreCase))
+			{
+				Args.RemoveAt(0);
+				return ESteamLobbyTarget::Session;
+			}
+		}
+		return ESteamLobbyTarget::Active;
+	}
+
+	/** Steam.Sessions.LobbyCreate <ProfileTag>: the party lobby (a lobby without a net session). */
 	void CreateLobby(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
@@ -303,7 +330,7 @@ namespace
 		LogResult(Output, TEXT("Steam.Sessions.LobbyCreate"), Result, TEXT("request sent, the result is logged when Steam answers"));
 	}
 
-	/** Steam.Sessions.LobbyFind [ProfileTag]: searches lobby only lobbies. */
+	/** Steam.Sessions.LobbyFind [ProfileTag]: searches lobbies (party lobbies). */
 	void FindLobbies(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
@@ -378,12 +405,12 @@ namespace
 	{
 		if (USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output))
 		{
-			LogResult(Output, TEXT("Steam.Sessions.LobbyLeave"), Sessions->LeaveLobby(), TEXT("left the lobby only lobby"));
+			LogResult(Output, TEXT("Steam.Sessions.LobbyLeave"), Sessions->LeaveLobby(), TEXT("left the party lobby"));
 		}
 	}
 
-	/** Steam.Sessions.Chat <text>: sends a chat message to the active lobby. */
-	void SendChat(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	/** Steam.Sessions.Chat [party|session] <text>: sends a chat message to the lobby. */
+	void SendChat(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -391,27 +418,31 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		if (Args.IsEmpty())
 		{
-			Output.Log(TEXT("Usage: Steam.Sessions.Chat <text>"));
+			Output.Log(TEXT("Usage: Steam.Sessions.Chat [party|session] <text>"));
 			return;
 		}
 
-		LogResult(Output, TEXT("Steam.Sessions.Chat"), Sessions->SendChatMessage(FString::Join(Args, TEXT(" "))), TEXT("sent, it comes back through the chat event"));
+		LogResult(Output, TEXT("Steam.Sessions.Chat"), Sessions->SendChatMessage(FString::Join(Args, TEXT(" ")), Target), TEXT("sent, it comes back through the chat event"));
 	}
 
-	/** Steam.Sessions.Ready [0|1]: the local ready state (default 1). */
-	void SetReady(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	/** Steam.Sessions.Ready [party|session] [0|1]: the local ready state (default 1). */
+	void SetReady(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		if (USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output))
 		{
+			TArray<FString> Args = InArgs;
+			const ESteamLobbyTarget Target = TakeTarget(Args);
 			const bool bReady = Args.IsEmpty() || FCString::Atoi(*Args[0]) != 0;
-			LogResult(Output, TEXT("Steam.Sessions.Ready"), Sessions->SetReady(bReady), bReady ? TEXT("ready") : TEXT("not ready"));
+			LogResult(Output, TEXT("Steam.Sessions.Ready"), Sessions->SetReady(bReady, Target), bReady ? TEXT("ready") : TEXT("not ready"));
 		}
 	}
 
-	/** Steam.Sessions.LobbyData [key [value]]: no argument lists, a key reads, a key and a value (owner only) writes. */
-	void LobbyData(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	/** Steam.Sessions.LobbyData [party|session] [key [value]]: no argument lists, a key reads, a key and a value (owner only) writes. */
+	void LobbyData(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -419,20 +450,22 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		if (Args.Num() >= 2)
 		{
-			LogResult(Output, TEXT("Steam.Sessions.LobbyData"), Sessions->SetLobbyData(Args[0], JoinFrom(Args, 1)), TEXT("set"));
+			LogResult(Output, TEXT("Steam.Sessions.LobbyData"), Sessions->SetLobbyData(Args[0], JoinFrom(Args, 1), Target), TEXT("set"));
 			return;
 		}
 
 		if (Args.Num() == 1)
 		{
 			FString Value;
-			Output.Logf(TEXT("Steam.Sessions.LobbyData: %s = %s"), *Args[0], Sessions->GetLobbyData(Args[0], Value) ? *Value : TEXT("(not set)"));
+			Output.Logf(TEXT("Steam.Sessions.LobbyData: %s = %s"), *Args[0], Sessions->GetLobbyData(Args[0], Value, Target) ? *Value : TEXT("(not set)"));
 			return;
 		}
 
-		const TMap<FString, FString> Data = Sessions->GetAllLobbyData();
+		const TMap<FString, FString> Data = Sessions->GetAllLobbyData(Target);
 		Output.Logf(TEXT("Steam.Sessions.LobbyData: %d key(s)"), Data.Num());
 		for (const TPair<FString, FString>& Pair : Data)
 		{
@@ -440,8 +473,8 @@ namespace
 		}
 	}
 
-	/** Steam.Sessions.MemberData <key> [value]: with a value sets the local member data, without reads it for every member. */
-	void MemberData(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	/** Steam.Sessions.MemberData [party|session] <key> [value]: with a value sets the local member data, without reads it for every member. */
+	void MemberData(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -449,26 +482,28 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		if (Args.IsEmpty())
 		{
-			Output.Log(TEXT("Usage: Steam.Sessions.MemberData <key> [value]"));
+			Output.Log(TEXT("Usage: Steam.Sessions.MemberData [party|session] <key> [value]"));
 			return;
 		}
 
 		if (Args.Num() >= 2)
 		{
-			LogResult(Output, TEXT("Steam.Sessions.MemberData"), Sessions->SetMemberData(Args[0], JoinFrom(Args, 1)), TEXT("set"));
+			LogResult(Output, TEXT("Steam.Sessions.MemberData"), Sessions->SetMemberData(Args[0], JoinFrom(Args, 1), Target), TEXT("set"));
 			return;
 		}
 
-		for (const FSteamLobbyMember& Member : Sessions->GetLobbyMembers())
+		for (const FSteamLobbyMember& Member : Sessions->GetLobbyMembers(Target))
 		{
-			Output.Logf(TEXT("  %s %s: %s = %s"), *Member.Id.ToString(), *Member.Name, *Args[0], *Sessions->GetMemberData(Member.Id, Args[0]));
+			Output.Logf(TEXT("  %s %s: %s = %s"), *Member.Id.ToString(), *Member.Name, *Args[0], *Sessions->GetMemberData(Member.Id, Args[0], Target));
 		}
 	}
 
-	/** Steam.Sessions.Joinable <0|1>: owner only, closes or opens the lobby for new members. */
-	void SetJoinable(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	/** Steam.Sessions.Joinable [party|session] <0|1>: owner only, closes or opens the lobby for new members. */
+	void SetJoinable(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -476,17 +511,19 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		if (Args.IsEmpty())
 		{
-			Output.Log(TEXT("Usage: Steam.Sessions.Joinable <0|1>"));
+			Output.Log(TEXT("Usage: Steam.Sessions.Joinable [party|session] <0|1>"));
 			return;
 		}
 
-		LogResult(Output, TEXT("Steam.Sessions.Joinable"), Sessions->SetLobbyJoinable(FCString::Atoi(*Args[0]) != 0), TEXT("changed"));
+		LogResult(Output, TEXT("Steam.Sessions.Joinable"), Sessions->SetLobbyJoinable(FCString::Atoi(*Args[0]) != 0, Target), TEXT("changed"));
 	}
 
-	/** Steam.Sessions.Kick <SteamID64> [reason] and Steam.Sessions.Forgive <SteamID64>. Owner only. */
-	void KickMember(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	/** Steam.Sessions.Kick [party|session] <SteamID64> [reason] and Steam.Sessions.Forgive [party|session] <SteamID64>. Owner only. */
+	void KickMember(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -494,18 +531,20 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		FSteamId Member;
 		if (Args.IsEmpty() || !FSteamId::FromString(Args[0], Member))
 		{
-			Output.Log(TEXT("Usage: Steam.Sessions.Kick <SteamID64> [reason]"));
+			Output.Log(TEXT("Usage: Steam.Sessions.Kick [party|session] <SteamID64> [reason]"));
 			return;
 		}
 
 		const FString Reason = Args.Num() > 1 ? JoinFrom(Args, 1) : FString();
-		LogResult(Output, TEXT("Steam.Sessions.Kick"), Sessions->KickMember(Member, Reason), TEXT("kick marker written"));
+		LogResult(Output, TEXT("Steam.Sessions.Kick"), Sessions->KickMember(Member, Reason, Target), TEXT("kick marker written"));
 	}
 
-	void ForgiveMember(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	void ForgiveMember(const TArray<FString>& InArgs, UWorld* World, FOutputDevice& Output)
 	{
 		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
 		if (!Sessions)
@@ -513,14 +552,109 @@ namespace
 			return;
 		}
 
+		TArray<FString> Args = InArgs;
+		const ESteamLobbyTarget Target = TakeTarget(Args);
 		FSteamId Member;
 		if (Args.IsEmpty() || !FSteamId::FromString(Args[0], Member))
 		{
-			Output.Log(TEXT("Usage: Steam.Sessions.Forgive <SteamID64>"));
+			Output.Log(TEXT("Usage: Steam.Sessions.Forgive [party|session] <SteamID64>"));
 			return;
 		}
 
-		LogResult(Output, TEXT("Steam.Sessions.Forgive"), Sessions->ForgiveMember(Member), TEXT("kick marker removed"));
+		LogResult(Output, TEXT("Steam.Sessions.Forgive"), Sessions->ForgiveMember(Member, Target), TEXT("kick marker removed"));
+	}
+
+	// ---- Party lobby (Phase 17) ----
+
+	/** Steam.Sessions.PartyMatchBegin [session | steam <SteamID64> | addr <ip:port>]: owner only. No argument = the current session's lobby. */
+	void PartyMatchBegin(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
+		if (!Sessions)
+		{
+			return;
+		}
+
+		FSteamPartyMatch Match;
+		const FString Kind = Args.IsEmpty() ? FString(TEXT("session")) : Args[0];
+		if (Kind.Equals(TEXT("session"), ESearchCase::IgnoreCase))
+		{
+			Match.SessionLobby = Sessions->GetSessionLobbyId();
+		}
+		else if (Kind.Equals(TEXT("steam"), ESearchCase::IgnoreCase) && Args.Num() >= 2)
+		{
+			FSteamId::FromString(Args[1], Match.ServerSteamId);
+		}
+		else if (Kind.Equals(TEXT("addr"), ESearchCase::IgnoreCase) && Args.Num() >= 2)
+		{
+			Match.Address = Args[1];
+		}
+
+		if (!Match.IsValid())
+		{
+			Output.Log(TEXT("Usage: Steam.Sessions.PartyMatchBegin [session | steam <SteamID64> | addr <ip:port>]. 'session' needs a current session with a lobby."));
+			return;
+		}
+
+		LogResult(Output, TEXT("Steam.Sessions.PartyMatchBegin"), Sessions->BeginPartyMatch(Match), TEXT("party match begun, members get On Party Match Started"));
+	}
+
+	void PartyMatchEnd(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Output)
+	{
+		if (USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output))
+		{
+			LogResult(Output, TEXT("Steam.Sessions.PartyMatchEnd"), Sessions->EndPartyMatch(), TEXT("party match ended, lobby state restored"));
+		}
+	}
+
+	void PartyFollow(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Output)
+	{
+		if (USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output))
+		{
+			LogResult(Output, TEXT("Steam.Sessions.PartyFollow"), Sessions->FollowPartyMatch(), TEXT("following the party match"));
+		}
+	}
+
+	/** Steam.Sessions.PartyHost <ProfileTag>: owner only, Host Party Session (create a session and begin the party match with it). */
+	void PartyHost(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
+		if (!Sessions)
+		{
+			return;
+		}
+
+		const FGameplayTag Tag = Args.IsEmpty() ? FGameplayTag() : UGameplayTagsManager::Get().RequestGameplayTag(FName(*Args[0]), /*ErrorIfNotFound*/ false);
+		if (!Tag.IsValid())
+		{
+			Output.Log(TEXT("Usage: Steam.Sessions.PartyHost <ProfileTag>. Run it after Steam.Sessions.Travel <Map> so the members can connect at once."));
+			return;
+		}
+
+		const FSteamResult Result = Sessions->HostPartySession(Tag, FSteamSessionOpDelegate::CreateLambda([](const FSteamResult& Done)
+		{
+			UE_LOG(LogSandwichSteam, Display, TEXT("Steam.Sessions.PartyHost: %s"), Done.IsSuccess() ? TEXT("session created and party match begun") : *Done.Message.ToString());
+		}));
+		LogResult(Output, TEXT("Steam.Sessions.PartyHost"), Result, TEXT("request sent, the result is logged when Steam answers"));
+	}
+
+	/** Steam.Sessions.ProbeLobby <SteamID64>: prints what Steam knows about any lobby and asks for fresh data (run it again to see it). */
+	void ProbeLobby(const TArray<FString>& Args, UWorld* World, FOutputDevice& Output)
+	{
+		USteamSessionsSubsystem* Sessions = FSteamDebugCommandSet::FindFeature<USteamSessionsSubsystem>(World, Output);
+		if (!Sessions)
+		{
+			return;
+		}
+
+		FSteamId Lobby;
+		if (Args.IsEmpty() || !FSteamId::FromString(Args[0], Lobby))
+		{
+			Output.Log(TEXT("Usage: Steam.Sessions.ProbeLobby <lobby SteamID64>"));
+			return;
+		}
+
+		Output.Log(*Sessions->DebugProbeLobby(Lobby));
 	}
 
 	const FName DebugSectionId(TEXT("Sessions"));
@@ -573,11 +707,11 @@ void FSandwichSteamSessionsModule::StartupModule()
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&DestroySession));
 
 	Commands.Add(TEXT("Steam.Sessions.Invite"),
-		TEXT("Invites a friend to the current session: Steam.Sessions.Invite <SteamID64>."),
+		TEXT("Invites a friend to the party, else the current session: Steam.Sessions.Invite [party|session] <SteamID64>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&InviteFriend));
 
 	Commands.Add(TEXT("Steam.Sessions.InviteOverlay"),
-		TEXT("Opens the Steam overlay invite dialog for the current session."),
+		TEXT("Opens the Steam overlay invite dialog for the party, else the current session: Steam.Sessions.InviteOverlay [party|session]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&ShowInviteOverlay));
 
 	Commands.Add(TEXT("Steam.Sessions.Accept"),
@@ -593,48 +727,68 @@ void FSandwichSteamSessionsModule::StartupModule()
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HostTravel));
 
 	Commands.Add(TEXT("Steam.Sessions.LobbyCreate"),
-		TEXT("Creates a lobby without a net session (lobby only mode): Steam.Sessions.LobbyCreate <ProfileTag>."),
+		TEXT("Creates the party lobby (a lobby without a net session): Steam.Sessions.LobbyCreate <ProfileTag>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&CreateLobby));
 
 	Commands.Add(TEXT("Steam.Sessions.LobbyFind"),
-		TEXT("Searches lobby only lobbies and lists them: Steam.Sessions.LobbyFind [ProfileTag]."),
+		TEXT("Searches lobbies (party lobbies) and lists them: Steam.Sessions.LobbyFind [ProfileTag]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&FindLobbies));
 
 	Commands.Add(TEXT("Steam.Sessions.LobbyJoin"),
-		TEXT("Joins a lobby by index of the last LobbyFind or by SteamID64: Steam.Sessions.LobbyJoin <index|id>."),
+		TEXT("Joins a lobby as the party, by index of the last LobbyFind or by SteamID64: Steam.Sessions.LobbyJoin <index|id>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&JoinLobby));
 
 	Commands.Add(TEXT("Steam.Sessions.LobbyLeave"),
-		TEXT("Leaves the lobby only lobby (a session lobby is left with Steam.Sessions.Destroy)."),
+		TEXT("Leaves the party lobby, also during a session (a session lobby is left with Steam.Sessions.Destroy)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&LeaveLobby));
 
 	Commands.Add(TEXT("Steam.Sessions.Chat"),
-		TEXT("Sends a chat message to the active lobby: Steam.Sessions.Chat <text>."),
+		TEXT("Sends a chat message: Steam.Sessions.Chat [party|session] <text>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SendChat));
 
 	Commands.Add(TEXT("Steam.Sessions.Ready"),
-		TEXT("Sets the local ready state of the lobby: Steam.Sessions.Ready [0|1]."),
+		TEXT("Sets the local ready state of the lobby: Steam.Sessions.Ready [party|session] [0|1]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SetReady));
 
 	Commands.Add(TEXT("Steam.Sessions.LobbyData"),
-		TEXT("Lists (no argument), reads (key) or, as the owner, writes (key value) lobby data."),
+		TEXT("Lists (no argument), reads (key) or, as the owner, writes (key value) lobby data: Steam.Sessions.LobbyData [party|session] [key [value]]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&LobbyData));
 
 	Commands.Add(TEXT("Steam.Sessions.MemberData"),
-		TEXT("Reads (key) the member data of every member or sets (key value) the local one."),
+		TEXT("Reads (key) the member data of every member or sets (key value) the local one: Steam.Sessions.MemberData [party|session] <key> [value]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&MemberData));
 
 	Commands.Add(TEXT("Steam.Sessions.Joinable"),
-		TEXT("Owner only: closes (0) or opens (1) the lobby for new members."),
+		TEXT("Owner only: closes (0) or opens (1) the lobby for new members: Steam.Sessions.Joinable [party|session] <0|1>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&SetJoinable));
 
 	Commands.Add(TEXT("Steam.Sessions.Kick"),
-		TEXT("Owner only: kicks a player by the lobby data convention: Steam.Sessions.Kick <SteamID64> [reason]."),
+		TEXT("Owner only: kicks a player by the lobby data convention: Steam.Sessions.Kick [party|session] <SteamID64> [reason]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&KickMember));
 
 	Commands.Add(TEXT("Steam.Sessions.Forgive"),
-		TEXT("Owner only: removes the kick marker of a player: Steam.Sessions.Forgive <SteamID64>."),
+		TEXT("Owner only: removes the kick marker of a player: Steam.Sessions.Forgive [party|session] <SteamID64>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&ForgiveMember));
+
+	Commands.Add(TEXT("Steam.Sessions.PartyMatchBegin"),
+		TEXT("Party owner only: begins a party match: Steam.Sessions.PartyMatchBegin [session | steam <SteamID64> | addr <ip:port>]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&PartyMatchBegin));
+
+	Commands.Add(TEXT("Steam.Sessions.PartyMatchEnd"),
+		TEXT("Party owner only: ends the party match and restores the party's lobby type and joinable flag."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&PartyMatchEnd));
+
+	Commands.Add(TEXT("Steam.Sessions.PartyFollow"),
+		TEXT("Joins the running party match (Session Lobby, Server Steam Id or Address)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&PartyFollow));
+
+	Commands.Add(TEXT("Steam.Sessions.PartyHost"),
+		TEXT("Party owner only: creates a session of a profile and begins the party match with it: Steam.Sessions.PartyHost <ProfileTag>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&PartyHost));
+
+	Commands.Add(TEXT("Steam.Sessions.ProbeLobby"),
+		TEXT("Prints the lobby data Steam has for any lobby and asks for fresh data: Steam.Sessions.ProbeLobby <lobby SteamID64>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&ProbeLobby));
 #endif
 }
 

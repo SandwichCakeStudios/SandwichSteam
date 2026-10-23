@@ -18,7 +18,9 @@ enum class ESteamJoinSource : uint8
 	/** The player clicked "Join Game" on a friend (rich presence connect string) while the game was running. */
 	Overlay,
 	/** Steam started the game to join (+connect_lobby / +connect on the command line). */
-	LaunchArg
+	LaunchArg,
+	/** The party owner started a party match and the plugin follows it (Follow Steam Party Match, or Auto Follow Party Match). */
+	Party
 };
 
 /** What to do with a join request while the player is already in a session. */
@@ -91,7 +93,7 @@ struct SANDWICHSTEAMSESSIONS_API FSteamSessionSettings
 	bool bUsesPresence = true;
 
 	/** Extra key / value pairs. A session profile can fix some keys and limit which extra ones the player may add. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "Extra key and value pairs stored with the session. A session profile can fix some keys (the player cannot override them) and limit which other keys the player may add. Keys are at most 255 bytes, values at most 8192 (UTF-8). The reserved keys OSTPROFILE, OSTNAME and kick_* are refused."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steam", meta = (ToolTip = "Extra key and value pairs stored with the session. A session profile can fix some keys (the player cannot override them) and limit which other keys the player may add. Keys are at most 255 bytes, values at most 8192 (UTF-8). The reserved keys OSTPROFILE, OSTNAME, OSTINGAME, OSTMATCH, OSTVISIBILITY, OSTPARTY and kick_* are refused."))
 	TMap<FName, FString> Settings;
 };
 
@@ -179,8 +181,11 @@ struct SANDWICHSTEAMSESSIONS_API FSteamJoinRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "Steam ID of the friend who invited the player. Invalid when Steam did not say."))
 	FSteamId InviterId;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "True when the player was in a session when the request arrived."))
+	UPROPERTY(BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "True when the player was in a session when the request arrived (for a party request: in another party lobby)."))
 	bool bInMatch = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "True when the lobby is a party lobby: accepting joins it as the party (Join Steam Lobby), not as a net session."))
+	bool bParty = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Steam", meta = (ToolTip = "What the plugin decided to do with the request."))
 	ESteamJoinAction Action = ESteamJoinAction::Ignore;

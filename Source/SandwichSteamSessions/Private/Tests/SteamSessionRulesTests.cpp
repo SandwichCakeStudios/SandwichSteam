@@ -417,4 +417,208 @@ bool FSteamSessionUpdateValidationTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---- Party lobby (Phase 17) ----
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamLobbyTargetTest, "SandwichSteam.Sessions.Rules.LobbyTarget",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamLobbyTargetTest::RunTest(const FString& Parameters)
+{
+	const FSteamId Party(static_cast<int64>(109775241000000001));
+	const FSteamId Session(static_cast<int64>(109775241000000002));
+	const FSteamId None;
+
+	struct FCase
+	{
+		ESteamLobbyTarget Target;
+		FSteamId PartyId;
+		FSteamId SessionId;
+		FSteamId Expected;
+		const TCHAR* Name;
+	};
+
+	const FCase Cases[] =
+	{
+		{ ESteamLobbyTarget::Active,  Party, Session, Party,   TEXT("active, both: the party") },
+		{ ESteamLobbyTarget::Active,  None,  Session, Session, TEXT("active, session only: the session (as before party lobbies)") },
+		{ ESteamLobbyTarget::Active,  Party, None,    Party,   TEXT("active, party only") },
+		{ ESteamLobbyTarget::Active,  None,  None,    None,    TEXT("active, none") },
+		{ ESteamLobbyTarget::Party,   Party, Session, Party,   TEXT("party, both") },
+		{ ESteamLobbyTarget::Party,   None,  Session, None,    TEXT("party, session only: none") },
+		{ ESteamLobbyTarget::Party,   None,  None,    None,    TEXT("party, none") },
+		{ ESteamLobbyTarget::Session, Party, Session, Session, TEXT("session, both") },
+		{ ESteamLobbyTarget::Session, Party, None,    None,    TEXT("session, party only: none") },
+		{ ESteamLobbyTarget::Session, None,  None,    None,    TEXT("session, none") },
+	};
+
+	for (const FCase& Case : Cases)
+	{
+		TestTrue(Case.Name, ResolveLobbyTarget(Case.Target, Case.PartyId, Case.SessionId) == Case.Expected);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPartyReservedKeysTest, "SandwichSteam.Sessions.Rules.PartyReservedKeys",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamPartyReservedKeysTest::RunTest(const FString& Parameters)
+{
+	// Every accessor key is reserved, in any case, and refused by the key validation.
+	for (const TCHAR* Key : { ProfileKey(), NameKey(), InGameKey(), MatchKey(), VisibilityKey(), PartyKey() })
+	{
+		const FString Upper(Key);
+		TestTrue(FString::Printf(TEXT("%s is reserved"), Key), IsReservedLobbyKey(Upper));
+		TestTrue(FString::Printf(TEXT("%s is reserved in lower case"), Key), IsReservedLobbyKey(Upper.ToLower()));
+
+		FText Error;
+		TestFalse(FString::Printf(TEXT("%s is refused by ValidateLobbyKey"), Key), ValidateLobbyKey(Upper, Error));
+	}
+
+	TestTrue(TEXT("kick marker is reserved"), IsReservedLobbyKey(TEXT("kick_76561197960287930")));
+	TestFalse(TEXT("near miss OSTINGAMEX is not reserved"), IsReservedLobbyKey(TEXT("OSTINGAMEX")));
+	TestFalse(TEXT("near miss XOSTPARTY is not reserved"), IsReservedLobbyKey(TEXT("XOSTPARTY")));
+	TestFalse(TEXT("plain in_game is not reserved (games may use it)"), IsReservedLobbyKey(TEXT("in_game")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPartyMatchCodeTest, "SandwichSteam.Sessions.Rules.PartyMatchCode",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamPartyMatchCodeTest::RunTest(const FString& Parameters)
+{
+	FSteamPartyMatch Match;
+	Match.SessionLobby = FSteamId(static_cast<int64>(109775241000000001));
+	Match.ServerSteamId = FSteamId(static_cast<int64>(76561197960287930));
+	Match.Address = TEXT("10.0.0.5:7777");
+
+	FSteamPartyMatch Decoded;
+	TestTrue(TEXT("full match decodes"), DecodePartyMatch(EncodePartyMatch(Match), Decoded));
+	TestTrue(TEXT("session lobby round trip"), Decoded.SessionLobby == Match.SessionLobby);
+	TestTrue(TEXT("server round trip"), Decoded.ServerSteamId == Match.ServerSteamId);
+	TestEqual(TEXT("address round trip"), Decoded.Address, Match.Address);
+
+	FSteamPartyMatch OnlyServer;
+	OnlyServer.ServerSteamId = Match.ServerSteamId;
+	TestTrue(TEXT("server only decodes"), DecodePartyMatch(EncodePartyMatch(OnlyServer), Decoded));
+	TestFalse(TEXT("server only has no session lobby"), Decoded.SessionLobby.IsValid());
+	TestTrue(TEXT("server only has no address"), Decoded.Address.IsEmpty());
+
+	TestTrue(TEXT("empty match encodes to nothing"), EncodePartyMatch(FSteamPartyMatch()).IsEmpty());
+	FSteamPartyMatch BadAddress;
+	BadAddress.Address = TEXT("1.2.3.4:1;lobby=5");
+	TestTrue(TEXT("an address with ';' is not encoded"), EncodePartyMatch(BadAddress).IsEmpty());
+
+	for (const TCHAR* Garbage : { TEXT(""), TEXT("hello"), TEXT("lobby="), TEXT("lobby=abc"), TEXT(";;;"), TEXT("server=0"), TEXT("color=red") })
+	{
+		TestFalse(FString::Printf(TEXT("garbage '%s' is invalid"), Garbage), DecodePartyMatch(Garbage, Decoded));
+		TestFalse(FString::Printf(TEXT("garbage '%s' leaves an empty match"), Garbage), Decoded.IsValid());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPartyVisibilityTest, "SandwichSteam.Sessions.Rules.PartyVisibility",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamPartyVisibilityTest::RunTest(const FString& Parameters)
+{
+	FPartyLobbyState Before;
+	Before.Type = EPartyLobbyType::FriendsOnly;
+	Before.bJoinable = true;
+
+	TestTrue(TEXT("KeepAsIs keeps the type"), MakeMatchLobbyState(Before, ESteamPartyMatchVisibility::KeepAsIs, false) == Before);
+
+	const FPartyLobbyState Private = MakeMatchLobbyState(Before, ESteamPartyMatchVisibility::Private, false);
+	TestTrue(TEXT("Private sets private"), Private.Type == EPartyLobbyType::Private);
+	TestTrue(TEXT("Private keeps joinable"), Private.bJoinable);
+
+	const FPartyLobbyState Closed = MakeMatchLobbyState(Before, ESteamPartyMatchVisibility::Invisible, true);
+	TestTrue(TEXT("Invisible sets invisible"), Closed.Type == EPartyLobbyType::Invisible);
+	TestFalse(TEXT("close during match closes"), Closed.bJoinable);
+
+	// Saved state round trip (what End Party Match restores).
+	for (const FPartyLobbyState& State : { Before, Private, Closed })
+	{
+		FPartyLobbyState Restored;
+		TestTrue(TEXT("saved state decodes"), DecodeSavedLobbyState(EncodeSavedLobbyState(State), Restored));
+		TestTrue(TEXT("saved state round trip"), Restored == State);
+	}
+
+	FPartyLobbyState Ignored;
+	for (const TCHAR* Garbage : { TEXT(""), TEXT("1"), TEXT("a,b"), TEXT("9,1"), TEXT("1,2"), TEXT("-1,0") })
+	{
+		TestFalse(FString::Printf(TEXT("saved state '%s' is invalid"), Garbage), DecodeSavedLobbyState(Garbage, Ignored));
+	}
+
+	TestTrue(TEXT("Public visibility maps to public"), ToPartyLobbyType(ESteamSessionVisibility::Public) == EPartyLobbyType::Public);
+	TestTrue(TEXT("Friends Only maps to friends only"), ToPartyLobbyType(ESteamSessionVisibility::FriendsOnly) == EPartyLobbyType::FriendsOnly);
+	TestTrue(TEXT("Private maps to private"), ToPartyLobbyType(ESteamSessionVisibility::Private) == EPartyLobbyType::Private);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamPartyRoutingTest, "SandwichSteam.Sessions.Rules.PartyRouting",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamPartyRoutingTest::RunTest(const FString& Parameters)
+{
+	// The party key marks a party lobby (same flag parsing as the ready state).
+	TestTrue(TEXT("OSTPARTY 1 is a party"), ParseFlag(TEXT("1")));
+	TestFalse(TEXT("missing OSTPARTY is not a party"), ParseFlag(TEXT("")));
+
+	// Party join requests use the session policy with "in a party" as the in-match flag.
+	TestTrue(TEXT("no party, auto join: join now"), DecideJoin(ESteamJoinInMatchPolicy::AskGame, /*bInParty*/ false, true, false) == ESteamJoinAction::JoinNow);
+	TestTrue(TEXT("in another party, auto leave: leave and join"), DecideJoin(ESteamJoinInMatchPolicy::AutoLeave, true, true, false) == ESteamJoinAction::LeaveAndJoin);
+	TestTrue(TEXT("in another party, ask game"), DecideJoin(ESteamJoinInMatchPolicy::AskGame, true, true, false) == ESteamJoinAction::AskGame);
+	TestTrue(TEXT("in another party, ignore"), DecideJoin(ESteamJoinInMatchPolicy::Ignore, true, true, false) == ESteamJoinAction::Ignore);
+	TestTrue(TEXT("already in this party: ignore"), DecideJoin(ESteamJoinInMatchPolicy::AutoLeave, true, true, true) == ESteamJoinAction::Ignore);
+
+	// Following a match.
+	const FSteamId Local(static_cast<int64>(76561197960287930));
+	const FSteamId Host(static_cast<int64>(76561197960287931));
+	const FSteamId Lobby(static_cast<int64>(109775241000000001));
+
+	FSteamPartyMatch Match;
+	TestTrue(TEXT("empty match: nothing"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::None);
+
+	Match.Address = TEXT("10.0.0.5:7777");
+	TestTrue(TEXT("address only: travel to it"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::Address);
+
+	Match.ServerSteamId = Host;
+	TestTrue(TEXT("server id beats the address"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::SteamId);
+
+	Match.ServerSteamId = Local;
+	TestTrue(TEXT("the local player is the server: nothing"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::None);
+
+	Match.ServerSteamId = Host;
+	Match.SessionLobby = Lobby;
+	TestTrue(TEXT("server id beats the session lobby"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::SteamId);
+	TestTrue(TEXT("already in the session lobby: nothing"), DecideFollow(Match, Local, Lobby) == EPartyFollow::None);
+
+	Match.ServerSteamId = Local;
+	TestTrue(TEXT("the local player hosts the session: nothing"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::None);
+
+	Match.ServerSteamId = FSteamId();
+	Match.Address.Reset();
+	TestTrue(TEXT("session lobby only: join it"), DecideFollow(Match, Local, FSteamId()) == EPartyFollow::Session);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIPv4AddressTest, "SandwichSteam.Sessions.Rules.IPv4Address",
+	SANDWICHSTEAM_TEST_CONTEXT_MASK | EAutomationTestFlags::ProductFilter)
+
+bool FSteamIPv4AddressTest::RunTest(const FString& Parameters)
+{
+	uint32 Ip = 0;
+	uint16 Port = 0;
+	TestTrue(TEXT("10.0.0.5:7777 parses"), ParseIPv4Address(TEXT("10.0.0.5:7777"), Ip, Port));
+	TestTrue(TEXT("ip"), Ip == 0x0A000005u);
+	TestEqual(TEXT("port"), static_cast<int32>(Port), 7777);
+	TestEqual(TEXT("format round trip"), FormatIPv4Address(Ip, Port), FString(TEXT("10.0.0.5:7777")));
+
+	for (const TCHAR* Bad : { TEXT(""), TEXT("10.0.0.5"), TEXT("10.0.0:7777"), TEXT("10.0.0.256:7777"), TEXT("10.0.0.5:0"), TEXT("10.0.0.5:70000"), TEXT("host.example:7777"), TEXT("1..2.3:1") })
+	{
+		TestFalse(FString::Printf(TEXT("'%s' does not parse"), Bad), ParseIPv4Address(Bad, Ip, Port));
+	}
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

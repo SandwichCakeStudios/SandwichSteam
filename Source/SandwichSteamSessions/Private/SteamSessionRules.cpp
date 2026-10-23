@@ -129,7 +129,13 @@ namespace SandwichSteam::Sessions
 
 	bool IsReservedLobbyKey(const FString& Key)
 	{
-		return Key.Equals(ProfileKey(), ESearchCase::IgnoreCase) || Key.Equals(NameKey(), ESearchCase::IgnoreCase) || Key.StartsWith(KickKeyPrefix(), ESearchCase::IgnoreCase);
+		return Key.Equals(ProfileKey(), ESearchCase::IgnoreCase)
+			|| Key.Equals(NameKey(), ESearchCase::IgnoreCase)
+			|| Key.Equals(InGameKey(), ESearchCase::IgnoreCase)
+			|| Key.Equals(MatchKey(), ESearchCase::IgnoreCase)
+			|| Key.Equals(VisibilityKey(), ESearchCase::IgnoreCase)
+			|| Key.Equals(PartyKey(), ESearchCase::IgnoreCase)
+			|| Key.StartsWith(KickKeyPrefix(), ESearchCase::IgnoreCase);
 	}
 
 	bool ParseFlag(const FString& Value)
@@ -153,7 +159,7 @@ namespace SandwichSteam::Sessions
 
 		if (IsReservedLobbyKey(Key))
 		{
-			OutError = FText::Format(NSLOCTEXT("SandwichSteam", "LobbyKeyReserved", "The key '{0}' is reserved by the plugin (profile tag, kick markers)."), FText::FromString(Key));
+			OutError = FText::Format(NSLOCTEXT("SandwichSteam", "LobbyKeyReserved", "The key '{0}' is reserved by the plugin (OSTPROFILE, OSTNAME, OSTINGAME, OSTMATCH, OSTVISIBILITY, OSTPARTY, kick_*)."), FText::FromString(Key));
 			return false;
 		}
 
@@ -361,5 +367,194 @@ namespace SandwichSteam::Sessions
 		}
 
 		return true;
+	}
+
+	// ---- Party lobby (Phase 17) ----
+
+	FSteamId ResolveLobbyTarget(ESteamLobbyTarget Target, const FSteamId& Party, const FSteamId& Session)
+	{
+		switch (Target)
+		{
+		case ESteamLobbyTarget::Party: return Party;
+		case ESteamLobbyTarget::Session: return Session;
+		default: return Party.IsValid() ? Party : Session;
+		}
+	}
+
+	FString EncodePartyMatch(const FSteamPartyMatch& Match)
+	{
+		TArray<FString> Parts;
+		if (Match.SessionLobby.IsValid())
+		{
+			Parts.Add(TEXT("lobby=") + Match.SessionLobby.ToString());
+		}
+		if (Match.ServerSteamId.IsValid())
+		{
+			Parts.Add(TEXT("server=") + Match.ServerSteamId.ToString());
+		}
+		const FString Address = Match.Address.TrimStartAndEnd();
+		if (!Address.IsEmpty() && !Address.Contains(TEXT(";")) && !Address.Contains(TEXT("=")))
+		{
+			Parts.Add(TEXT("addr=") + Address);
+		}
+		return FString::Join(Parts, TEXT(";"));
+	}
+
+	bool DecodePartyMatch(const FString& Text, FSteamPartyMatch& OutMatch)
+	{
+		OutMatch = FSteamPartyMatch();
+
+		TArray<FString> Parts;
+		Text.ParseIntoArray(Parts, TEXT(";"));
+		for (const FString& Part : Parts)
+		{
+			FString Key;
+			FString Value;
+			if (!Part.Split(TEXT("="), &Key, &Value) || Value.IsEmpty())
+			{
+				continue;
+			}
+
+			if (Key == TEXT("lobby"))
+			{
+				FSteamId::FromString(Value, OutMatch.SessionLobby);
+			}
+			else if (Key == TEXT("server"))
+			{
+				FSteamId::FromString(Value, OutMatch.ServerSteamId);
+			}
+			else if (Key == TEXT("addr"))
+			{
+				OutMatch.Address = Value;
+			}
+		}
+
+		if (!OutMatch.IsValid())
+		{
+			OutMatch = FSteamPartyMatch();
+			return false;
+		}
+		return true;
+	}
+
+	EPartyLobbyType ToPartyLobbyType(ESteamSessionVisibility Visibility)
+	{
+		switch (Visibility)
+		{
+		case ESteamSessionVisibility::FriendsOnly: return EPartyLobbyType::FriendsOnly;
+		case ESteamSessionVisibility::Private: return EPartyLobbyType::Private;
+		default: return EPartyLobbyType::Public;
+		}
+	}
+
+	FPartyLobbyState MakeMatchLobbyState(const FPartyLobbyState& Before, ESteamPartyMatchVisibility Visibility, bool bClose)
+	{
+		FPartyLobbyState State = Before;
+		switch (Visibility)
+		{
+		case ESteamPartyMatchVisibility::FriendsOnly: State.Type = EPartyLobbyType::FriendsOnly; break;
+		case ESteamPartyMatchVisibility::Private: State.Type = EPartyLobbyType::Private; break;
+		case ESteamPartyMatchVisibility::Invisible: State.Type = EPartyLobbyType::Invisible; break;
+		default: break;
+		}
+
+		if (bClose)
+		{
+			State.bJoinable = false;
+		}
+		return State;
+	}
+
+	FString EncodeSavedLobbyState(const FPartyLobbyState& State)
+	{
+		return FString::Printf(TEXT("%d,%d"), static_cast<int32>(State.Type), State.bJoinable ? 1 : 0);
+	}
+
+	bool DecodeSavedLobbyState(const FString& Text, FPartyLobbyState& OutState)
+	{
+		FString TypeText;
+		FString JoinableText;
+		if (!Text.Split(TEXT(","), &TypeText, &JoinableText) || !TypeText.IsNumeric() || !JoinableText.IsNumeric())
+		{
+			return false;
+		}
+
+		const int32 Type = FCString::Atoi(*TypeText);
+		const int32 Joinable = FCString::Atoi(*JoinableText);
+		if (Type < 0 || Type > static_cast<int32>(EPartyLobbyType::Invisible) || (Joinable != 0 && Joinable != 1))
+		{
+			return false;
+		}
+
+		OutState.Type = static_cast<EPartyLobbyType>(Type);
+		OutState.bJoinable = Joinable == 1;
+		return true;
+	}
+
+	EPartyFollow DecideFollow(const FSteamPartyMatch& Match, const FSteamId& LocalId, const FSteamId& CurrentSessionLobby)
+	{
+		if (Match.SessionLobby.IsValid() && Match.SessionLobby == CurrentSessionLobby)
+		{
+			return EPartyFollow::None;
+		}
+
+		// The server Steam ID beats the session lobby: joining a lobby by its ID needs FindSessionById, a stub that
+		// always fails in the Steam Online Subsystem. The session lobby is followed only when nothing else is known.
+		if (Match.ServerSteamId.IsValid())
+		{
+			return Match.ServerSteamId == LocalId ? EPartyFollow::None : EPartyFollow::SteamId;
+		}
+
+		if (Match.SessionLobby.IsValid())
+		{
+			return EPartyFollow::Session;
+		}
+
+		return Match.Address.IsEmpty() ? EPartyFollow::None : EPartyFollow::Address;
+	}
+
+	bool ParseIPv4Address(const FString& Address, uint32& OutIp, uint16& OutPort)
+	{
+		OutIp = 0;
+		OutPort = 0;
+
+		FString Host;
+		FString PortText;
+		if (!Address.TrimStartAndEnd().Split(TEXT(":"), &Host, &PortText) || !PortText.IsNumeric())
+		{
+			return false;
+		}
+
+		const int32 Port = FCString::Atoi(*PortText);
+		TArray<FString> Octets;
+		Host.ParseIntoArray(Octets, TEXT("."), /*bCullEmpty*/ false);
+		if (Port <= 0 || Port > 65535 || Octets.Num() != 4)
+		{
+			return false;
+		}
+
+		uint32 Ip = 0;
+		for (const FString& Octet : Octets)
+		{
+			if (Octet.IsEmpty() || Octet.Len() > 3 || !Octet.IsNumeric())
+			{
+				return false;
+			}
+			const int32 Value = FCString::Atoi(*Octet);
+			if (Value > 255)
+			{
+				return false;
+			}
+			Ip = (Ip << 8) | static_cast<uint32>(Value);
+		}
+
+		OutIp = Ip;
+		OutPort = static_cast<uint16>(Port);
+		return true;
+	}
+
+	FString FormatIPv4Address(uint32 Ip, uint16 Port)
+	{
+		return FString::Printf(TEXT("%u.%u.%u.%u:%u"), (Ip >> 24) & 0xFF, (Ip >> 16) & 0xFF, (Ip >> 8) & 0xFF, Ip & 0xFF, static_cast<uint32>(Port));
 	}
 }
