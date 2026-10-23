@@ -23,7 +23,7 @@ Party lobby (stays the whole evening)
  └─ match 2: ...
 ```
 
-The **party lobby** is the lobby you make with **Create Steam Lobby** (or join with **Join Steam Lobby**). A match is a normal **session**. A player can be in the party and in a session at the same time.
+The **party lobby** is the lobby you make with **Create Steam Lobby** (or join with **Join Steam Lobby**). A match is a normal [session](sessions.html). A player can be in the party and in a session at the same time.
 
 ## Blueprint flow
 
