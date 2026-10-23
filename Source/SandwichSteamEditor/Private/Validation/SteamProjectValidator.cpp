@@ -7,6 +7,7 @@
 #include "Core/SteamToolSettings.h"
 #include "Data/SteamAppDefinition.h"
 #include "FileHelpers.h"
+#include "GameplayTagsManager.h"
 #include "IAssetTools.h"
 #include "Interfaces/IPluginManager.h"
 #include "Logging/MessageLog.h"
@@ -21,6 +22,7 @@
 #include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamConfigureAction.h"
 #include "Settings/SteamIniWriter.h"
+#include "Settings/SteamVoiceEditorAccess.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamValidator"
 
@@ -120,12 +122,12 @@ namespace
 
 		if (Pending == 0)
 		{
-			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("IniOk", "Platform service, Steam subsystem, SteamDevAppId (and the SteamSockets net driver when Sessions is installed, voice when Voice is installed) are set.")));
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("IniOk", "Platform service, Steam subsystem, SteamDevAppId (and the SteamSockets net driver when Sessions is installed, the voice entries matching Use Steam Voice Pipeline when Voice is installed) are set.")));
 			return;
 		}
 
 		FSteamValidationCheck Check = FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Error, Label,
-			FText::Format(LOCTEXT("IniPending", "{0} setting(s) missing or different (DefaultPlatformService=Steam, bEnabled, SteamDevAppId, the SteamSockets net driver when Sessions is installed, bHasVoiceEnabled and bRequiresPushToTalk when Voice is installed). Steam will not start (or voice will not work) until they are set."), FText::AsNumber(Pending)));
+			FText::Format(LOCTEXT("IniPending", "{0} setting(s) missing or different (DefaultPlatformService=Steam, bEnabled, SteamDevAppId, the SteamSockets net driver when Sessions is installed, and when Voice is installed bHasVoiceEnabled and [Voice] bEnabled: present for the Online Subsystem voice, absent for the Steam voice pipeline; bRequiresPushToTalk for the Online Subsystem voice). Steam will not start (or voice uses the other path) until they are set."), FText::AsNumber(Pending)));
 		Check.FixLabel = LOCTEXT("IniFix", "Configure Steam...");
 		Check.Fix = []() { SandwichSteam::Editor::ConfigureSteam(); };
 		Out.Add(MoveTemp(Check));
@@ -248,6 +250,137 @@ namespace
 		}
 	}
 
+	void CheckVoiceChannels(TArray<FSteamValidationCheck>& Out)
+	{
+		namespace Voice = SandwichSteam::Editor::Voice;
+		if (!Voice::IsModuleInstalled())
+		{
+			return;
+		}
+
+		const FName Id(TEXT("VoiceChannels"));
+		const FText Label = LOCTEXT("VoiceChannelsLabel", "Voice channel tags (Voice)");
+		const TMap<FGameplayTag, int32> TagMap = Voice::GetChannelTagMap();
+		const UGameplayTagsManager& Tags = UGameplayTagsManager::Get();
+		const FGameplayTag Root = Tags.RequestGameplayTag(TEXT("Steam.Voice.Channel"), false);
+
+		// Leaf tags under the root are channels; their parents only group them (Steam.Voice.Channel.Team for .Team.Blue).
+		TArray<FString> Unmapped;
+		if (Root.IsValid())
+		{
+			for (const FGameplayTag& Tag : Tags.RequestGameplayTagChildren(Root))
+			{
+				const TSharedPtr<FGameplayTagNode> Node = Tags.FindTagNode(Tag);
+				if (!TagMap.Contains(Tag) && Node.IsValid() && Node->GetChildTagNodes().IsEmpty())
+				{
+					Unmapped.Add(Tag.ToString());
+				}
+			}
+		}
+
+		TArray<FString> Foreign;
+		TArray<FString> Negative;
+		TMap<int32, TArray<FString>> TagsById;
+		for (const TPair<FGameplayTag, int32>& Entry : TagMap)
+		{
+			const FString Name = Entry.Key.IsValid() ? Entry.Key.ToString() : TEXT("None");
+			if (!Root.IsValid() || !Entry.Key.MatchesTag(Root) || Entry.Key == Root)
+			{
+				Foreign.Add(Name);
+			}
+			if (Entry.Value < 0)
+			{
+				Negative.Add(Name);
+				continue;
+			}
+			TagsById.FindOrAdd(Entry.Value).Add(Name);
+		}
+
+		TArray<FString> Shared;
+		for (const TPair<int32, TArray<FString>>& Entry : TagsById)
+		{
+			if (Entry.Value.Num() > 1)
+			{
+				Shared.Add(FString::Printf(TEXT("%d (%s)"), Entry.Key, *FString::Join(Entry.Value, TEXT(", "))));
+			}
+		}
+
+		TArray<FString> Problems;
+		if (!Unmapped.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("not in Channel Tag Map, so refused for transmit and silent on speakers: %s"), *FString::Join(Unmapped, TEXT(", "))));
+		}
+		if (!Foreign.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("map entries that are not Steam.Voice.Channel.* tags: %s"), *FString::Join(Foreign, TEXT(", "))));
+		}
+		if (!Negative.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("negative ids, treated as unmapped: %s"), *FString::Join(Negative, TEXT(", "))));
+		}
+		if (!Shared.IsEmpty())
+		{
+			Problems.Add(FString::Printf(TEXT("ids shared by several tags, which then are one channel: %s"), *FString::Join(Shared, TEXT("; "))));
+		}
+
+		if (!Problems.IsEmpty())
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, FText::Format(LOCTEXT("VoiceChannelsProblems", "Project Settings > Plugins > Sandwich Steam - Voice > Channel Tag Map: {0}."), FText::FromString(FString::Join(Problems, TEXT("; "))))));
+		}
+		else if (TagMap.IsEmpty())
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoiceChannelsNone", "No channel tags. Id channels need no setup.")));
+		}
+		else
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, FText::Format(LOCTEXT("VoiceChannelsOk", "{0} channel tag(s), each with its own id."), FText::AsNumber(TagMap.Num()))));
+		}
+	}
+
+	void CheckVoicePrivacy(TArray<FSteamValidationCheck>& Out)
+	{
+		namespace Voice = SandwichSteam::Editor::Voice;
+		if (!Voice::IsModuleInstalled() || !Voice::UsesSteamPipeline())
+		{
+			return; // Server rules need the Steam voice pipeline.
+		}
+
+		// The Voice module is optional, so its settings are read from the config instead of through its class.
+		bool bServerAuthority = false;
+		bool bLobbyVoice = false;
+		FString Topology;
+		if (GConfig)
+		{
+			GConfig->GetBool(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("bServerAuthority"), bServerAuthority, GGameIni);
+			GConfig->GetBool(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("bAllowVoiceInLobby"), bLobbyVoice, GGameIni);
+			GConfig->GetString(TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings"), TEXT("Topology"), Topology, GGameIni);
+		}
+		if (bLobbyVoice)
+		{
+			Out.Add(FSteamValidationCheck::Make(TEXT("VoiceLobbyPrivacy"), ESteamCheckSeverity::Info, LOCTEXT("VoiceLobbyPrivacyLabel", "Lobby voice (Voice)"), LOCTEXT("VoiceLobbyPrivacy", "Allow Voice In Lobby is on: members of a Steam lobby without a networked game hear each other in 2D, peer to peer and through Steam's relays (no IP addresses). Server Relay, the server's player rules and the owner voice distance start with the game; Voice Allowed, mutes and blocked players still apply.")));
+		}
+		const bool bServerRelay = Topology == TEXT("ServerRelay");
+
+		const FName Id(TEXT("VoicePrivacy"));
+		const FText Label = LOCTEXT("VoicePrivacyLabel", "Voice privacy (Voice)");
+		if (bServerRelay && !bServerAuthority)
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Warning, Label, LOCTEXT("VoicePrivacyRelayNoAuthority", "Topology is Server Relay, but Server Authority is off: the relay needs the server's rules, so voice runs peer to peer and is not private. Turn on Server Authority (Project Settings > Plugins > Sandwich Steam - Voice), or set Topology back to Peer To Peer.")));
+		}
+		else if (bServerAuthority && bServerRelay)
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoicePrivacyRelay", "Server Relay: clients send their voice to the host only, and the host forwards only what the server's rules allow. Proximity and channels stay private even against cheaters working together. Rules are still visible to every client; the host uploads every forwarded stream.")));
+		}
+		else if (bServerAuthority)
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Ok, Label, LOCTEXT("VoicePrivacyAuthority", "Server Authority is on: honest clients only send what the server's rules allow (channels, owner voice distance) and everyone drops the rest. Cheaters working together can still get around it, and rules are visible to every client.")));
+		}
+		else
+		{
+			Out.Add(FSteamValidationCheck::Make(Id, ESteamCheckSeverity::Info, Label, LOCTEXT("VoicePrivacyNoAuthority", "Server Authority is off: every client receives every player's voice on every channel. Proximity and channels only decide what plays, so they are not private; a modified client hears everything. Turn on Server Authority (Project Settings > Plugins > Sandwich Steam - Voice) when team radio or proximity must stay private.")));
+		}
+	}
+
 	void CheckSteamAuth(TArray<FSteamValidationCheck>& Out)
 	{
 		namespace Auth = SandwichSteam::Editor::Auth;
@@ -359,6 +492,8 @@ TArray<FSteamValidationCheck> FSteamProjectValidator::Run()
 	CheckDefinition(Checks, Settings);
 	CheckSessions(Checks);
 	CheckVoice(Checks);
+	CheckVoiceChannels(Checks);
+	CheckVoicePrivacy(Checks);
 	CheckSteamAuth(Checks);
 	CheckInput(Checks, Settings);
 	return Checks;
