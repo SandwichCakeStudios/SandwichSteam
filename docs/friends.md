@@ -100,6 +100,6 @@ The debug panel (`Steam.Debug.Show`) has a **Friends** section, and the test pan
 ## Good to know
 
 - **Client only.** A dedicated server has no friends list.
-- The **Open** nodes need the Steam overlay. Without it they fail with `Steam.Error.NotSupported`; see [Troubleshooting](troubleshooting.html#the-steam-overlay-does-not-show).
+- The **Open** nodes need the Steam overlay. Without it they fail with `Steam.Error.Unavailable`; see [Troubleshooting](troubleshooting.html#the-steam-overlay-does-not-show).
 - **Friend groups** depend on the Steamworks version that ships with your engine. When it has none, **Get Steam Friend Groups** returns an empty list.
 - The friend's status text in the Steam list ("Playing on Arena") is rich presence, a separate feature.
