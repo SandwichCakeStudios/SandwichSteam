@@ -6,20 +6,23 @@
 
 const FName SandwichSteam::Editor::Voice::UseSteamPipelinePropertyName(TEXT("bUseSteamVoicePipeline"));
 
-namespace
+namespace SandwichSteam::Editor::Voice
 {
-	const TCHAR* VoiceModuleName = TEXT("SandwichSteamVoice");
-	const TCHAR* SettingsClassPath = TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings");
-	const FName ChannelTagMapPropertyName(TEXT("ChannelTagMap"));
-
-	const UObject* FindSettings()
+	namespace
 	{
-		if (!FModuleManager::Get().IsModuleLoaded(VoiceModuleName))
+		const TCHAR* VoiceModuleName = TEXT("SandwichSteamVoice");
+		const TCHAR* SettingsClassPath = TEXT("/Script/SandwichSteamVoice.SteamVoiceSettings");
+		const FName ChannelTagMapPropertyName(TEXT("ChannelTagMap"));
+
+		const UObject* FindSettings()
 		{
-			return nullptr;
+			if (!FModuleManager::Get().IsModuleLoaded(VoiceModuleName))
+			{
+				return nullptr;
+			}
+			const UClass* Class = FindObject<UClass>(nullptr, SettingsClassPath);
+			return Class ? Class->GetDefaultObject() : nullptr;
 		}
-		const UClass* Class = FindObject<UClass>(nullptr, SettingsClassPath);
-		return Class ? Class->GetDefaultObject() : nullptr;
 	}
 }
 
