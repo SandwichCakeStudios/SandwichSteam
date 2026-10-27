@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "1.0",
+	"Version": 2,
+	"VersionName": "1.2.0",
 	"FriendlyName": "Sandwich Steam",
 	"Description": "Steamworks SDK integration for Unreal Engine 5 on Windows, macOS and Linux. Features Blueprint and C++ APIs for multiplayer, lobbies, voice chat, Steam Input, achievements, stats, leaderboards, cloud saves, friends, DLC, overlay, and rich presence. Includes an editor Steam Publishing Tool to package and upload builds effortlessly.",
 	"Category": "Steam",
