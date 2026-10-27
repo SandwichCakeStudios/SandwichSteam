@@ -16,7 +16,9 @@
 #include "Publish/SteamPublishSettings.h"
 #include "Publish/SteamPublishSettingsCustomization.h"
 #include "Sdk/SteamDashboardSdkPage.h"
+#include "Settings/SteamConfigureAction.h"
 #include "Settings/SteamToolSettingsCustomization.h"
+#include "Settings/SteamVoiceEditorAccess.h"
 #include "Setup/SSteamSetupPage.h"
 #include "Style/SteamToolStyle.h"
 #include "ToolMenus.h"
@@ -113,6 +115,13 @@ void FSandwichSteamEditorModule::HandleObjectPropertyChanged(UObject* Object, FP
 	// Committed edits only (not every step of a slider drag). The settings strip refreshes itself; this keeps the Message Log page current.
 	if (Event.ChangeType != EPropertyChangeType::Interactive && Object == GetDefault<USteamToolSettings>())
 	{
+		FSteamProjectValidator::RunAndLog(/*bOpen*/ false);
+	}
+
+	// The voice path lives in the ini as well: offer Configure Steam right away (it shows the changes and asks first).
+	if (Event.GetPropertyName() == SandwichSteam::Editor::Voice::UseSteamPipelinePropertyName && SandwichSteam::Editor::Voice::IsSettingsObject(Object))
+	{
+		SandwichSteam::Editor::ConfigureSteam();
 		FSteamProjectValidator::RunAndLog(/*bOpen*/ false);
 	}
 }
