@@ -124,25 +124,44 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSteamIniWriterVoiceTest, "SandwichSteam.Editor
 bool FSteamIniWriterVoiceTest::RunTest(const FString& Parameters)
 {
 	const TArray<FSteamIniEntry> Plain = FSteamIniWriter::BuildRequiredEntries(480);
-	const TArray<FSteamIniEntry> WithVoice = FSteamIniWriter::BuildRequiredEntries(480, /*bWithSessions*/ false, /*bWithVoice*/ true);
-	TestEqual(TEXT("Voice adds exactly two engine entries"), WithVoice.Num(), Plain.Num() + 2);
-	TestTrue(TEXT("The engine voice module is switched on"), WithVoice.ContainsByPredicate([](const FSteamIniEntry& Entry)
+	TestFalse(TEXT("The required entries have no voice entry"), Plain.ContainsByPredicate([](const FSteamIniEntry& Entry)
 	{
-		return Entry.Section == TEXT("Voice") && Entry.Key == TEXT("bEnabled") && Entry.Value == TEXT("true");
-	}));
-	TestTrue(TEXT("The entry is bHasVoiceEnabled"), WithVoice.ContainsByPredicate([](const FSteamIniEntry& Entry)
-	{
-		return Entry.Section == TEXT("OnlineSubsystem") && Entry.Key == TEXT("bHasVoiceEnabled") && Entry.Value == TEXT("true");
+		return Entry.Key == TEXT("bHasVoiceEnabled");
 	}));
 
-	TestEqual(TEXT("No game ini entries without voice"), FSteamIniWriter::BuildGameEntries(false).Num(), 0);
-	const TArray<FSteamIniEntry> Game = FSteamIniWriter::BuildGameEntries(true);
-	TestTrue(TEXT("Voice asks the game session for push to talk"), Game.Num() == 1 && Game[0].Section == TEXT("/Script/Engine.GameSession") && Game[0].Key == TEXT("bRequiresPushToTalk") && Game[0].Value == TEXT("true"));
+	// Online Subsystem voice (Use Steam Voice Pipeline off): the entries are written.
+	const TArray<FSteamIniEntry> OssEngine = FSteamIniWriter::BuildVoiceEngineEntries(/*bOssVoice*/ true);
+	TestEqual(TEXT("Two engine entries"), OssEngine.Num(), 2);
+	TestTrue(TEXT("The engine voice module is switched on"), OssEngine.ContainsByPredicate([](const FSteamIniEntry& Entry)
+	{
+		return Entry.Section == TEXT("Voice") && Entry.Key == TEXT("bEnabled") && Entry.Value == TEXT("true") && !Entry.bRemove;
+	}));
+	TestTrue(TEXT("The entry is bHasVoiceEnabled"), OssEngine.ContainsByPredicate([](const FSteamIniEntry& Entry)
+	{
+		return Entry.Section == TEXT("OnlineSubsystem") && Entry.Key == TEXT("bHasVoiceEnabled") && Entry.Value == TEXT("true") && !Entry.bRemove;
+	}));
+
+	// The game session asks for push to talk (Online Subsystem voice only).
+	const TArray<FSteamIniEntry> OssGame = FSteamIniWriter::BuildVoiceGameEntries(/*bOssVoice*/ true);
+	TestTrue(TEXT("Voice asks the game session for push to talk"), OssGame.Num() == 1 && OssGame[0].Section == TEXT("/Script/Engine.GameSession")
+		&& OssGame[0].Key == TEXT("bRequiresPushToTalk") && OssGame[0].Value == TEXT("true") && !OssGame[0].bRemove);
 
 	// Idempotent, and a wrong existing value is replaced.
-	const FString Once = FSteamIniWriter::Apply(TEXT("[/Script/Engine.GameSession]\nbRequiresPushToTalk=False\n"), Game);
+	const FString Once = FSteamIniWriter::Apply(TEXT("[/Script/Engine.GameSession]\nbRequiresPushToTalk=False\n"), OssGame);
 	TestEqual(TEXT("Replaced"), Once, FString(TEXT("[/Script/Engine.GameSession]\nbRequiresPushToTalk=true\n")));
-	TestEqual(TEXT("Applying twice equals applying once"), FSteamIniWriter::Apply(Once, Game), Once);
+	TestEqual(TEXT("Applying twice equals applying once"), FSteamIniWriter::Apply(Once, OssGame), Once);
+
+	// Steam voice pipeline (default): the engine entries are removed, other keys stay; DefaultGame.ini is not touched.
+	TestEqual(TEXT("No game ini entry for the Steam voice pipeline"), FSteamIniWriter::BuildVoiceGameEntries(/*bOssVoice*/ false).Num(), 0);
+	const TArray<FSteamIniEntry> PipelineEngine = FSteamIniWriter::BuildVoiceEngineEntries(/*bOssVoice*/ false);
+	TestTrue(TEXT("Pipeline entries are all removals"), PipelineEngine.Num() == 2 && PipelineEngine[0].bRemove && PipelineEngine[1].bRemove);
+	const FString EngineIni = TEXT("[OnlineSubsystem]\nDefaultPlatformService=Steam\nbHasVoiceEnabled=true\n\n[Voice]\nbEnabled=true\n");
+	const FString Removed = FSteamIniWriter::Apply(EngineIni, PipelineEngine);
+	TestEqual(TEXT("Voice lines removed, the rest kept"), Removed, FString(TEXT("[OnlineSubsystem]\nDefaultPlatformService=Steam\n\n[Voice]\n")));
+	TestEqual(TEXT("Removing twice equals removing once"), FSteamIniWriter::Apply(Removed, PipelineEngine), Removed);
+
+	const TArray<FSteamIniChange> Changes = FSteamIniWriter::Diff(EngineIni, PipelineEngine);
+	TestTrue(TEXT("Diff reports both removals"), Changes.Num() == 2 && Changes[0].Change == ESteamIniChange::Removed && Changes[1].Change == ESteamIniChange::Removed);
 	return true;
 }
 
@@ -160,7 +179,7 @@ bool FSteamIniWriterRelaunchTest::RunTest(const FString& Parameters)
 	const FSteamIniEntry* Relaunch = Default.FindByPredicate(IsRelaunchEntry);
 	TestTrue(TEXT("Written by default, as false"), Relaunch && Relaunch->Value == TEXT("false"));
 
-	const TArray<FSteamIniEntry> Without = FSteamIniWriter::BuildRequiredEntries(480, /*bWithSessions*/ false, /*bWithVoice*/ false, /*bWithRelaunchOff*/ false);
+	const TArray<FSteamIniEntry> Without = FSteamIniWriter::BuildRequiredEntries(480, /*bWithSessions*/ false, /*bWithRelaunchOff*/ false);
 	TestFalse(TEXT("Optional: left out when turned off"), Without.ContainsByPredicate(IsRelaunchEntry));
 	TestEqual(TEXT("Only that entry is left out"), Without.Num(), Default.Num() - 1);
 

@@ -2,6 +2,7 @@
 
 #include "SteamVoiceLibrary.h"
 #include "Core/SteamGameplayTags.h"
+#include "SteamVoiceSettings.h"
 #include "SteamVoiceSubsystem.h"
 
 namespace
@@ -22,6 +23,36 @@ bool USteamVoiceLibrary::IsSteamVoiceEnabled(const UObject* WorldContextObject)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice && Voice->IsVoiceEnabled();
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamVoiceAllowed(const UObject* WorldContextObject, bool bAllowed)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetVoiceAllowed(bAllowed) : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceAllowed(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsVoiceAllowed();
+}
+
+bool USteamVoiceLibrary::IsSteamLobbyVoiceActive(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsLobbyVoiceActive();
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamPawnlessVoice(const UObject* WorldContextObject, ESteamVoicePawnlessMode Mode)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetPawnlessVoice(Mode) : NotAvailable();
+}
+
+ESteamVoicePawnlessMode USteamVoiceLibrary::GetSteamPawnlessVoice(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPawnlessVoice() : ESteamVoicePawnlessMode::Play2D;
 }
 
 FSteamResult USteamVoiceLibrary::SetSteamVoiceMode(const UObject* WorldContextObject, ESteamVoiceMode Mode)
@@ -72,16 +103,118 @@ bool USteamVoiceLibrary::IsSteamHeadsetPresent(const UObject* WorldContextObject
 	return Voice && Voice->IsHeadsetPresent();
 }
 
+FSteamResult USteamVoiceLibrary::SetSteamVoiceActivationThreshold(const UObject* WorldContextObject, float Threshold)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetVoiceActivationThreshold(Threshold) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamVoiceActivationThreshold(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetVoiceActivationThreshold() : 0.0f;
+}
+
+float USteamVoiceLibrary::GetSteamLocalMicLevel(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetLocalMicLevel() : 0.0f;
+}
+
+FSteamResult USteamVoiceLibrary::StartSteamVoiceMicTest(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->StartMicTest() : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::StopSteamVoiceMicTest(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->StopMicTest() : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceMicTesting(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsMicTesting();
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitChannels(const UObject* WorldContextObject, const TArray<FSteamVoiceChannel>& Channels)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetTransmitChannels(Channels) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::AddSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->AddTransmitChannel(Channel) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::RemoveSteamVoiceTransmitChannel(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->RemoveTransmitChannel(Channel) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ClearSteamVoiceTransmitChannels(const UObject* WorldContextObject)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ClearTransmitChannels() : NotAvailable();
+}
+
+TArray<FSteamVoiceChannel> USteamVoiceLibrary::GetSteamVoiceTransmitChannels(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetTransmitChannels() : TArray<FSteamVoiceChannel>();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceTransmittingOn(const UObject* WorldContextObject, FSteamVoiceChannel Channel)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsTransmittingOn(Channel);
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamVoiceTransmitToOwner(const UObject* WorldContextObject, bool bTransmit)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetTransmitToOwner(bTransmit) : NotAvailable();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceTransmittingToOwner(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsTransmittingToOwner();
+}
+
 bool USteamVoiceLibrary::IsSteamPlayerTalking(const UObject* WorldContextObject, FSteamId Player)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice && Voice->IsPlayerTalking(Player);
 }
 
+TArray<FSteamVoiceChannel> USteamVoiceLibrary::GetSteamPlayerTransmitChannels(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerTransmitChannels(Player) : TArray<FSteamVoiceChannel>();
+}
+
+bool USteamVoiceLibrary::IsSteamPlayerTransmittingOn(const UObject* WorldContextObject, FSteamId Player, FSteamVoiceChannel Channel)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsPlayerTransmittingOn(Player, Channel);
+}
+
 TArray<FSteamId> USteamVoiceLibrary::GetSteamTalkingPlayers(const UObject* WorldContextObject)
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetTalkingPlayers() : TArray<FSteamId>();
+}
+
+TArray<USteamVoiceComponent*> USteamVoiceLibrary::GetSteamPlayerVoiceComponents(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceComponents(Player) : TArray<USteamVoiceComponent*>();
 }
 
 FSteamResult USteamVoiceLibrary::MuteSteamPlayer(const UObject* WorldContextObject, FSteamId Player, bool bSystemWide)
@@ -118,4 +251,113 @@ float USteamVoiceLibrary::GetSteamVoiceMasterVolume(const UObject* WorldContextO
 {
 	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
 	return Voice ? Voice->GetMasterVolume() : 1.0f;
+}
+
+FSteamResult USteamVoiceLibrary::SetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player, float Volume)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->SetPlayerVolume(Player, Volume) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamPlayerVoiceVolume(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVolume(Player) : 1.0f;
+}
+
+FSteamVoiceChannel USteamVoiceLibrary::MakeSteamVoiceChannelFromTag(FGameplayTag Tag)
+{
+	FSteamVoiceChannel Channel;
+	Channel.Tag = Tag;
+	return Channel;
+}
+
+FSteamVoiceChannel USteamVoiceLibrary::MakeSteamVoiceChannelFromId(int32 Id)
+{
+	FSteamVoiceChannel Channel;
+	Channel.Id = FMath::Max(Id, static_cast<int32>(INDEX_NONE));
+	return Channel;
+}
+
+int32 USteamVoiceLibrary::ResolveSteamVoiceChannelId(FSteamVoiceChannel Channel)
+{
+	return USteamVoiceSettings::Get()->ResolveChannelId(Channel);
+}
+
+float USteamVoiceLibrary::GetSteamPlayerVoiceLevel(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceLevel(Player) : 0.0f;
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerCanTalk(const UObject* WorldContextObject, FSteamId Player, bool bCanTalk)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerCanTalk(Player, bCanTalk) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerCanUseOwnerVoice(const UObject* WorldContextObject, FSteamId Player, bool bCanUse)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerCanUseOwnerVoice(Player, bCanUse) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerChannels(const UObject* WorldContextObject, FSteamId Player, const FSteamVoiceChannelRule& Transmit, const FSteamVoiceChannelRule& Listen)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerChannels(Player, Transmit, Listen) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject, float Distance)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetOwnerVoiceMaxDistance(Distance) : NotAvailable();
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamPlayerOwnerVoiceMaxDistance(const UObject* WorldContextObject, FSteamId Player, float Distance)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetPlayerOwnerVoiceMaxDistance(Player, Distance) : NotAvailable();
+}
+
+float USteamVoiceLibrary::GetSteamOwnerVoiceMaxDistance(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetOwnerVoiceMaxDistance() : 0.0f;
+}
+
+FSteamResult USteamVoiceLibrary::ServerSetSteamVoiceTopology(const UObject* WorldContextObject, ESteamVoiceTopology Topology)
+{
+	USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->ServerSetVoiceTopology(Topology) : NotAvailable();
+}
+
+ESteamVoiceTopology USteamVoiceLibrary::GetSteamVoiceTopology(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetVoiceTopology() : ESteamVoiceTopology::PeerToPeer;
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceRelayHost(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsVoiceRelayHost();
+}
+
+FSteamVoicePlayerRules USteamVoiceLibrary::GetSteamPlayerVoiceRules(const UObject* WorldContextObject, FSteamId Player)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice ? Voice->GetPlayerVoiceRules(Player) : FSteamVoicePlayerRules();
+}
+
+bool USteamVoiceLibrary::HasSteamVoiceAuthority(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->HasVoiceAuthority();
+}
+
+bool USteamVoiceLibrary::IsSteamVoiceWaitingForRules(const UObject* WorldContextObject)
+{
+	const USteamVoiceSubsystem* Voice = USteamVoiceSubsystem::Get(WorldContextObject);
+	return Voice && Voice->IsWaitingForVoiceRules();
 }

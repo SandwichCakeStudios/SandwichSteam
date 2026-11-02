@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "SteamVoicePacket.h"
 
 /** Pure voice bookkeeping (no engine or Steam access), so it can be unit tested. */
 namespace SandwichSteam::Voice
@@ -26,6 +28,9 @@ namespace SandwichSteam::Voice
 		 * Talking players that are not present are treated as not talking. Changes are appended to OutChanges (stops first, then starts).
 		 */
 		void Update(const TSet<int64>& NowTalking, const TSet<int64>& Present, TArray<FTalkingChange>& OutChanges);
+
+		/** One player started or stopped talking (event-driven source). Returns true when that changed the state. */
+		bool Set(int64 Player, bool bTalking);
 
 		bool IsTalking(int64 Player) const { return Talking.Contains(Player); }
 		const TSet<int64>& GetTalking() const { return Talking; }
@@ -78,4 +83,81 @@ namespace SandwichSteam::Voice
 		TSet<int64> SystemWide;
 		TSet<int64> Applied;
 	};
+
+	/** Which channel ids a server rule allows (Transmit or Listen), resolved for the voice thread. */
+	struct FChannelRule
+	{
+		/** Off: every channel. On: only Allowed; on with an empty list: none. */
+		bool bRestricted = false;
+		/** Sorted, unique. */
+		TArray<int32> Allowed;
+
+		bool Allows(int32 Id) const;
+
+		bool operator==(const FChannelRule& Other) const { return bRestricted == Other.bRestricted && Allowed == Other.Allowed; }
+	};
+
+	/** One player's server rules, resolved for the voice thread (FSteamVoicePlayerRules with channel ids). */
+	struct FPlayerRules
+	{
+		bool bCanTalk = true;
+		bool bOwnerVoice = true;
+		/** Two players with this Steam ID: nothing is sent to or accepted from it. */
+		bool bRefused = false;
+		FChannelRule Transmit;
+		FChannelRule Listen;
+
+		bool operator==(const FPlayerRules& Other) const
+		{
+			return bCanTalk == Other.bCanTalk && bOwnerVoice == Other.bOwnerVoice && bRefused == Other.bRefused && Transmit == Other.Transmit && Listen == Other.Listen;
+		}
+	};
+
+	/** Where one voice packet goes: the talker's pawn (mouth) and channel ids (sorted, unique). */
+	struct FVoiceRoute
+	{
+		bool bMouth = false;
+		TArray<int32, TInlineAllocator<MaxPacketChannels>> Channels;
+
+		bool IsEmpty() const { return !bMouth && Channels.IsEmpty(); }
+
+		bool operator==(const FVoiceRoute& Other) const { return bMouth == Other.bMouth && Channels == Other.Channels; }
+		bool operator!=(const FVoiceRoute& Other) const { return !(*this == Other); }
+	};
+
+	/**
+	 * What a talker may send at all (shared by sender, receiver and relay): nothing when server muted or refused, no mouth without
+	 * owner voice, only the channels Transmit allows. Out is overwritten.
+	 */
+	void FilterForTalker(const FPlayerRules& Talker, bool bMouth, TConstArrayView<int32> Channels, FVoiceRoute& Out);
+
+	/** What one listener may get of Route: nothing when refused, the mouth only when bMouthInRange, only the channels Listen allows. Out is overwritten. */
+	void FilterForListener(const FPlayerRules& Listener, bool bMouthInRange, const FVoiceRoute& Route, FVoiceRoute& Out);
+
+	/** Keeps only what Allowed has (a relay filter may remove, never add): the mouth when both have it, channels in both, sorted and unique. */
+	void IntersectRoute(const FVoiceRoute& Allowed, FVoiceRoute& InOut);
+
+	/** Sender hysteresis: a listener out of range comes back in at the distance, and an in-range one goes out beyond it plus this share. */
+	constexpr float OwnerVoiceHysteresis = 0.1f;
+
+	/** Receiver margin: a mouth is dropped only beyond the distance plus this share, so packets an honest sender sent at its edge still play. */
+	constexpr float OwnerVoiceReceiveSlack = 0.2f;
+
+	/** How far a talker's mouth carries: the talker's override when above 0, no limit when below 0, else Global. 0 = no limit. */
+	float ResolveOwnerVoiceDistance(float Global, float TalkerOverride);
+
+	/**
+	 * Sender: whether a listener is in range of our mouth now. bKnown: both pawn locations are known (else out of range).
+	 * MaxDistance 0 = no limit (always in range).
+	 */
+	bool UpdateMouthInRange(bool bWasInRange, bool bKnown, double DistanceSquared, float MaxDistance);
+
+	/** Receiver: whether a talker's mouth may play here. Unknown locations never do while a limit is set. MaxDistance 0 = no limit. */
+	bool IsMouthAcceptable(bool bKnown, double DistanceSquared, float MaxDistance);
+
+	/** Order independent hash of a channel tag map (tag names and ids), compared between server and clients. 0 for an empty map. */
+	uint32 HashChannelMap(const TMap<FGameplayTag, int32>& TagMap);
+
+	/** The ids that appear more than once in Ids (two players with one Steam ID). Out is overwritten. */
+	void FindDuplicateIds(TConstArrayView<int64> Ids, TSet<int64>& Out);
 }

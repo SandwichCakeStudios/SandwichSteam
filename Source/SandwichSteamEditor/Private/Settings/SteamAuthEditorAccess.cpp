@@ -8,33 +8,36 @@
 #include "UObject/EnumProperty.h"
 #include "UObject/UnrealType.h"
 
-namespace
+namespace SandwichSteam::Editor::Auth
 {
-	const TCHAR* AuthModuleName = TEXT("SandwichSteamAuth");
-	const TCHAR* SettingsClassPath = TEXT("/Script/SandwichSteamAuth.SteamAuthSettings");
-	const FName EnabledPropertyName(TEXT("bEnableSteamAuthentication"));
-	const FName PolicyPropertyName(TEXT("FailurePolicy"));
-	const TCHAR* CustomPolicyName = TEXT("ESteamAuthFailurePolicy::Custom");
-	const TCHAR* KickPolicyName = TEXT("ESteamAuthFailurePolicy::Kick");
-
-	UObject* FindSettings()
+	namespace
 	{
-		if (!FModuleManager::Get().IsModuleLoaded(AuthModuleName))
+		const TCHAR* AuthModuleName = TEXT("SandwichSteamAuth");
+		const TCHAR* SettingsClassPath = TEXT("/Script/SandwichSteamAuth.SteamAuthSettings");
+		const FName EnabledPropertyName(TEXT("bEnableSteamAuthentication"));
+		const FName PolicyPropertyName(TEXT("FailurePolicy"));
+		const TCHAR* CustomPolicyName = TEXT("ESteamAuthFailurePolicy::Custom");
+		const TCHAR* KickPolicyName = TEXT("ESteamAuthFailurePolicy::Kick");
+
+		UObject* FindSettings()
 		{
-			return nullptr;
+			if (!FModuleManager::Get().IsModuleLoaded(AuthModuleName))
+			{
+				return nullptr;
+			}
+			const UClass* Class = FindObject<UClass>(nullptr, SettingsClassPath);
+			return Class ? Class->GetDefaultObject() : nullptr;
 		}
-		const UClass* Class = FindObject<UClass>(nullptr, SettingsClassPath);
-		return Class ? Class->GetDefaultObject() : nullptr;
-	}
 
-	/** Sets one property the way the details panel would (listeners see the edit), then saves the DefaultConfig object. */
-	void EditAndSave(UObject* Settings, FProperty* Property, TFunctionRef<void()> Assign)
-	{
-		Settings->PreEditChange(Property);
-		Assign();
-		FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
-		Settings->PostEditChangeProperty(Event);
-		Settings->TryUpdateDefaultConfigFile();
+		/** Sets one property the way the details panel would (listeners see the edit), then saves the DefaultConfig object. */
+		void EditAndSave(UObject* Settings, FProperty* Property, TFunctionRef<void()> Assign)
+		{
+			Settings->PreEditChange(Property);
+			Assign();
+			FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+			Settings->PostEditChangeProperty(Event);
+			Settings->TryUpdateDefaultConfigFile();
+		}
 	}
 }
 

@@ -12,6 +12,7 @@
 #include "SandwichSteamEditor.h"
 #include "Settings/SteamAuthEditorAccess.h"
 #include "Settings/SteamIniWriter.h"
+#include "Settings/SteamVoiceEditorAccess.h"
 #include "SourceControlHelpers.h"
 #include "Style/SteamEditorWidgets.h"
 #include "Widgets/Notifications/SNotificationList.h"
@@ -134,7 +135,12 @@ bool SandwichSteam::Editor::WantsSessionsIni()
 
 bool SandwichSteam::Editor::WantsVoiceIni()
 {
-	return FModuleManager::Get().IsModuleLoaded(TEXT("SandwichSteamVoice"));
+	return Voice::IsModuleInstalled();
+}
+
+bool SandwichSteam::Editor::WantsOssVoiceIni()
+{
+	return Voice::IsModuleInstalled() && !Voice::UsesSteamPipeline();
 }
 
 bool SandwichSteam::Editor::WantsSteamAuthIni()
@@ -154,7 +160,12 @@ FSteamNetworkTuning SandwichSteam::Editor::MakeNetworkTuning(const USteamToolSet
 
 TArray<FSteamIniEntry> SandwichSteam::Editor::BuildEngineIniEntries(const USteamToolSettings& Settings, bool bWithSteamAuth)
 {
-	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildRequiredEntries(Settings.SteamAppId, WantsSessionsIni(), WantsVoiceIni(), Settings.bWriteRelaunchInSteamOff);
+	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildRequiredEntries(Settings.SteamAppId, WantsSessionsIni(), Settings.bWriteRelaunchInSteamOff);
+	if (WantsVoiceIni())
+	{
+		// Use Steam Voice Pipeline is the one switch: off adds the Online Subsystem voice entries, on removes them. Without the Voice module they are left alone.
+		Entries.Append(FSteamIniWriter::BuildVoiceEngineEntries(WantsOssVoiceIni()));
+	}
 	if (bWithSteamAuth && Auth::IsModuleInstalled())
 	{
 		// Setting off removes the line, so the setting is the one switch. Without the Auth module the line is left alone.
@@ -169,7 +180,7 @@ TArray<FSteamIniEntry> SandwichSteam::Editor::BuildEngineIniEntries(const USteam
 
 TArray<FSteamIniEntry> SandwichSteam::Editor::BuildGameIniEntries(const USteamToolSettings& Settings)
 {
-	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildGameEntries(WantsVoiceIni());
+	TArray<FSteamIniEntry> Entries = FSteamIniWriter::BuildVoiceGameEntries(WantsOssVoiceIni());
 	if (Settings.bWriteNetworkTuning)
 	{
 		Entries.Append(FSteamIniWriter::BuildNetworkGameEntries(MakeNetworkTuning(Settings)));

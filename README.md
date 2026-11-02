@@ -55,7 +55,7 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 | **DLC** | Ownership, install, progress, open the store page |
 | **Screenshots** | Steam screenshots, viewport capture, location and tagged users |
 | **Sessions & Lobbies** | Create, find, join and invite, join from a Steam invite even on a cold start |
-| **Voice Chat** | Push to talk or open mic, mute, Steam block list, "who is talking" events |
+| **Voice Chat** | Push to talk or open mic, proximity voice, radio channels, per player volume and mute, optional server rules and server relay ([guide](https://sandwichcakestudios.github.io/SandwichSteam/voice.html)) |
 | **Steam Input** | Controllers as Enhanced Input keys, action sets, glyphs, haptics |
 | **Publish Tool** | Download SteamCMD, package your game and upload a build from the editor ([guide](https://sandwichcakestudios.github.io/SandwichSteam/publishing.html)) |
 
@@ -107,7 +107,7 @@ Sandwich Steam is young. This table is honest about what has been tested.
 | User, Utility, Overlay, Stats, Achievements, Leaderboards | Tested in a Standalone game |
 | Friends, Rich Presence, Cloud, Screenshots | Tested with one account (presence data checked on a second one) |
 | Sessions & Lobbies | Create, host travel, join and SteamSockets travel tested on two machines. Invites, kick, owner migration and lobby chat **not yet tested** |
-| Voice Chat | Starts and lists players. Audio, mute and blocked players **not yet tested** |
+| Voice Chat | Tested with two accounts: push to talk, open mic, mute, blocked players, proximity, channels, server rules, Server Relay, lobby voice. Server Relay with three or more players **not yet tested** |
 | Steam Input | Builds and unit tests pass. **Not yet tested with a real controller** |
 | DLC | Works with the test app. **Not yet tested with a real DLC App ID** |
 | Editor Dashboard, App Definition, SteamCMD download | Tested on Windows |

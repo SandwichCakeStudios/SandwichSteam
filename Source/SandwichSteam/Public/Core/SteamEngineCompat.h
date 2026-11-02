@@ -31,4 +31,15 @@ namespace SandwichSteam::Compat
 		return FCoreDelegates::GetOnPostEngineInit();
 #endif
 	}
+
+	/** Actor net update frequency (5.5 deprecated the public member for a setter). A template so this header needs no actor include. */
+	template <typename ActorType>
+	FORCEINLINE void SetNetUpdateFrequency(ActorType& Actor, float Frequency)
+	{
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
+		Actor.NetUpdateFrequency = Frequency;
+#else
+		Actor.SetNetUpdateFrequency(Frequency);
+#endif
+	}
 }
