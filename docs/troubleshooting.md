@@ -89,6 +89,14 @@ The client joined the session but travel fails or times out.
 - Run **Configure Steam...** on the dashboard once more and restart the editor. It writes the SteamSockets net driver lines into `DefaultEngine.ini`.
 - The host must travel to the match map with **Listen** before the client joins.
 
+## Voice: nobody hears me
+
+- Test in **Standalone Game** or a packaged build with two machines, not in Play In Editor. On one machine use a fake talker (`Steam.Voice.Talk 1`, then `Steam.Voice.FakeTalker 1`).
+- Run **Configure Steam...** once more and restart the editor. The log should say `using the Steam voice pipeline`. **Validate Project** reports voice settings that do not match `DefaultEngine.ini`.
+- Push to talk: **Push To Talk Action** and **Push To Talk Context** must be set, and the **Enhanced Input** plugin enabled. `Steam.Voice.Talk 1` opens the microphone without a key, to rule the key out.
+- Run `Steam.Voice.Dump` on both machines. *not allowed* means your game called **Set Steam Voice Allowed** false; *WAITING FOR RULES* means Server Authority is on and the host's rules have not arrived (Server Authority must match in every build).
+- Heard in the menu but not in the match, or the other way round? See [Game rules](voice-rules.html) and [Lobby voice](voice-rules.html#lobby-voice).
+
 ## Steam.Error.* codes
 
 Failed calls return a result with one of these tags:
