@@ -9,7 +9,7 @@ nav_order: 1
 
 Host a match, let other players find it, join it and travel there together. A session is one match. Under the hood it is a Steam lobby plus a listen server on the host's machine, with game traffic through Steam (SteamSockets).
 
-> **Status:** create, host travel, find, join and travel are tested on two machines. Invites, *Join Game* from the friends list, kick, owner migration and lobby chat are **not yet tested** with two accounts.
+> **Status:** tested on two machines with two accounts: create, host travel, find, join, travel, invites, *Join Game* from the friends list, kick, owner migration and lobby chat.
 
 1. TOC
 {:toc}

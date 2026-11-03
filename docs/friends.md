@@ -9,7 +9,7 @@ nav_order: 1
 
 Read the player's Steam friends list, see who is online or playing your game, react when that changes, and open Steam's chat, profile and add-friend pages from your UI.
 
-> **Status:** tested with one account.
+> **Status:** tested with two accounts.
 
 1. TOC
 {:toc}

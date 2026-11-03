@@ -9,7 +9,7 @@ nav_order: 3
 
 Put screenshots into the player's Steam screenshot library, with the place they were taken and the friends in the picture.
 
-> **Status:** tested with one account.
+> **Status:** tested with one account: screenshots upload to the Steam library.
 
 1. TOC
 {:toc}
