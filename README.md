@@ -105,8 +105,10 @@ Sandwich Steam is young. This table is honest about what has been tested.
 | Unreal Engine 5.4, 5.5 | Compiles. Full feature testing is done on 5.8 |
 | macOS, Linux | **Experimental**: written for them, never run |
 | User, Utility, Overlay, Stats, Achievements, Leaderboards | Tested in a Standalone game |
-| Friends, Rich Presence, Cloud, Screenshots | Tested with one account (presence data checked on a second one) |
-| Sessions & Lobbies | Create, host travel, join and SteamSockets travel tested on two machines. Invites, kick, owner migration and lobby chat **not yet tested** |
+| Friends | Tested with two accounts |
+| Rich Presence | Tested with one account (data checked on a second one) |
+| Cloud, Screenshots | Tested with one account (screenshots upload to the Steam library) |
+| Sessions & Lobbies | Tested on two machines with two accounts: create, host travel, find, join, SteamSockets travel, invites, Join Game from the friends list, kick, owner migration, lobby chat |
 | Voice Chat | Tested with two accounts: push to talk, open mic, mute, blocked players, proximity, channels, server rules, Server Relay, lobby voice. Server Relay with three or more players **not yet tested** |
 | Steam Input | Builds and unit tests pass. **Not yet tested with a real controller** |
 | DLC | Works with the test app. **Not yet tested with a real DLC App ID** |

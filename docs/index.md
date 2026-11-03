@@ -32,4 +32,4 @@ Steam for Unreal Engine 5, made friendly. Achievements, stats, leaderboards, lob
 
 ## Project status
 
-Windows is tested. macOS and Linux are experimental. Some multiplayer and controller features are still waiting for real-world testing. The [README](https://github.com/SandwichCakeStudios/SandwichSteam#project-status) has the full table.
+Windows is tested. macOS and Linux are experimental. Steam Input with a real controller, DLC with a real DLC App ID and Server Relay voice with three or more players are still waiting for real-world testing. The [README](https://github.com/SandwichCakeStudios/SandwichSteam#project-status) has the full table.
