@@ -280,6 +280,11 @@ void USteamSessionsSubsystem::StartPartyMatchLocal(const FSteamPartyMatch& Match
 			UE_LOG(LogSandwichSteam, Warning, TEXT("Steam sessions: could not follow the party match: %s"), *Followed.Message.ToString());
 		}
 	}
+	else if (PartyLobbyId.IsValid() && bPartyMatchActive)
+	{
+		// Without this line a member with auto follow off looks like a follow that silently never happened.
+		UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: party match started, not following (Auto Follow Party Match is off). Call Follow Party Match to join it."));
+	}
 }
 
 void USteamSessionsSubsystem::EndPartyMatchLocal()
@@ -424,13 +429,25 @@ void USteamSessionsSubsystem::BeginLobbyLookup(FSteamJoinRequest Request, bool b
 
 	PartyLookup = Request;
 	bPartyLookupSessionFallback = bSessionFallback;
+	bInviteFailedDuringLookup = false;
 	if (PartyLookupTimeoutHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(PartyLookupTimeoutHandle);
 		PartyLookupTimeoutHandle.Reset();
 	}
 
-	if (!LobbyBackend->RequestLobbyData(Request.LobbyId))
+	if (!bSessionFallback)
+	{
+		// A raw lobby invite: the Online Subsystem's invite task requests the same lobby data. A second RequestLobbyData from
+		// here made that task time out (no session after 15 s), so wait for the update its request produces instead.
+		FString PartyValue;
+		if (LobbyBackend->GetLobbyData(Request.LobbyId, SandwichSteam::Sessions::PartyKey(), PartyValue) && SandwichSteam::Sessions::ParseFlag(PartyValue))
+		{
+			ResolvePartyLookup(/*bAnswered*/ false); // Already known as a party lobby.
+			return;
+		}
+	}
+	else if (!LobbyBackend->RequestLobbyData(Request.LobbyId))
 	{
 		// Steam answers at once for a lobby it already knows (or refuses): read what is cached.
 		ResolvePartyLookup(/*bAnswered*/ false);
@@ -462,6 +479,8 @@ void USteamSessionsSubsystem::ResolvePartyLookup(bool bAnswered)
 	FSteamJoinRequest Request = *PartyLookup;
 	PartyLookup.Reset();
 	const bool bSessionFallback = bPartyLookupSessionFallback;
+	const bool bInviteFailed = bInviteFailedDuringLookup;
+	bInviteFailedDuringLookup = false;
 
 	FString PartyValue;
 	const bool bParty = LobbyBackend.IsValid()
@@ -479,6 +498,11 @@ void USteamSessionsSubsystem::ResolvePartyLookup(bool bAnswered)
 	else if (bSessionFallback)
 	{
 		BeginSessionLookup(Request);
+	}
+	else if (bInviteFailed)
+	{
+		// The Online Subsystem gave up on this invite while the lookup ran, and it is not a party: nothing else will join it.
+		ReportInviteUnresolved();
 	}
 }
 

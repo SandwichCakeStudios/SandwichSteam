@@ -341,6 +341,8 @@ private:
 	void HandleFindComplete(bool bSuccess, const TArray<FSteamSessionResult>& Found);
 	void HandleJoinComplete(const FSteamResult& Result, const FString& ConnectString);
 	void HandleInviteAccepted(bool bSuccess, const FSteamSessionResult& Result);
+	/** Logs and broadcasts On Session Join Finished for an accepted invite the Online Subsystem could not resolve. */
+	void ReportInviteUnresolved();
 	void HandleFindByIdComplete(bool bSuccess, const FSteamSessionResult& Result);
 	void HandleConnectRequest(const FSteamJoinIntent& Intent, FSteamId Friend);
 
@@ -357,8 +359,10 @@ private:
 	void ProcessRequest(FSteamJoinRequest Request);
 	void ExecuteRequest(const FSteamJoinRequest& Request);
 	/**
-	 * Finds out whether a requested lobby is a party lobby (raw RequestLobbyData, OSTPARTY) and routes it: a party joins the party;
+	 * Finds out whether a requested lobby is a party lobby (OSTPARTY in its lobby data) and routes it: a party joins the party;
 	 * anything else is looked up as a session, unless bSessionFallback is false (a raw lobby invite: the Online Subsystem handles those).
+	 * With bSessionFallback false no RequestLobbyData is made: the Online Subsystem's invite task already requests the data, and a
+	 * second request makes that task time out. The lookup waits for that update (or the timeout) instead.
 	 */
 	void BeginLobbyLookup(FSteamJoinRequest Request, bool bSessionFallback = true);
 	/** The session part of the lookup: FindSessionById, then ProcessRequest. */
@@ -474,6 +478,8 @@ private:
 	/** The request whose lobby data is awaited to tell a party from a session lobby. */
 	TOptional<FSteamJoinRequest> PartyLookup;
 	bool bPartyLookupSessionFallback = true;
+	/** The Online Subsystem failed an invite while PartyLookup still ran: reported once the lobby turns out not to be a party. */
+	bool bInviteFailedDuringLookup = false;
 	FTSTicker::FDelegateHandle PartyLookupTimeoutHandle;
 	/** Time of the last request routed to a party, to drop the Online Subsystem's failed lookup of the same invite. */
 	double LastPartyRequestTime = -1000.0;

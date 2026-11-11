@@ -173,6 +173,7 @@ void USteamSessionsSubsystem::ShutdownFeature()
 	PendingRequest.Reset();
 	LookupRequest.Reset();
 	PartyLookup.Reset();
+	bInviteFailedDuringLookup = false;
 	Busy = EBusyOp::None;
 	bFinding = false;
 	bFindingLobbies = false;
@@ -845,6 +846,11 @@ void USteamSessionsSubsystem::HandleJoinComplete(const FSteamResult& Result, con
 				UE_LOG(LogSandwichSteam, Warning, TEXT("Steam sessions: joined, but travel failed: %s"), *Travel.Message.ToString());
 			}
 		}
+		else if (!bKicked)
+		{
+			// Without this line a join with auto travel off looks like a travel that silently never happened.
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: joined, not travelling (Auto Travel After Join is off). Call Travel To Session to connect to %s."), *ConnectString);
+		}
 	}
 
 	const FSteamSessionJoinDelegate Done = PendingJoin;
@@ -857,18 +863,24 @@ void USteamSessionsSubsystem::HandleInviteAccepted(bool bSuccess, const FSteamSe
 {
 	if (!bSuccess)
 	{
-		// The Online Subsystem cannot read a party lobby as a session: the raw lobby invite path handles that one.
+		// The raw lobby invite path is still finding out what the lobby is: it reports the failure if it is not a party.
+		if (PartyLookup.IsSet() && !bPartyLookupSessionFallback)
+		{
+			bInviteFailedDuringLookup = true;
+			UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: the Online Subsystem could not resolve an invite while lobby %s is still being looked up (reported if it is not a party lobby)."), *PartyLookup->LobbyId.ToString());
+			return;
+		}
+
+		// The Online Subsystem cannot read a party lobby as a session: the raw lobby invite path already joined that one.
 		const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
 		const double Window = FMath::Max(Settings ? static_cast<double>(Settings->DuplicateRequestSeconds) : 0.0, 5.0);
-		if (PartyLookup.IsSet() || FPlatformTime::Seconds() - LastPartyRequestTime <= Window)
+		if (FPlatformTime::Seconds() - LastPartyRequestTime <= Window)
 		{
 			UE_LOG(LogSandwichSteam, Log, TEXT("Steam sessions: the Online Subsystem could not resolve an invite to a party lobby (expected, the party join handles it)."));
 			return;
 		}
 
-		UE_LOG(LogSandwichSteam, Warning, TEXT("Steam sessions: an invite was accepted but Steam could not resolve the session."));
-		OnSessionJoinFinished.Broadcast(FSteamResult::Failure(SteamGameplayTags::Error_Lobby_NotFound,
-			NSLOCTEXT("SandwichSteam", "SessionsInviteUnresolved", "The invite could not be resolved. The session may have closed.")), FString());
+		ReportInviteUnresolved();
 		return;
 	}
 
@@ -877,6 +889,13 @@ void USteamSessionsSubsystem::HandleInviteAccepted(bool bSuccess, const FSteamSe
 	Request.LobbyId = Result.LobbyId;
 	Request.ResultHandle = Result.Handle;
 	ProcessRequest(Request);
+}
+
+void USteamSessionsSubsystem::ReportInviteUnresolved()
+{
+	UE_LOG(LogSandwichSteam, Warning, TEXT("Steam sessions: an invite was accepted but Steam could not resolve the session."));
+	OnSessionJoinFinished.Broadcast(FSteamResult::Failure(SteamGameplayTags::Error_Lobby_NotFound,
+		NSLOCTEXT("SandwichSteam", "SessionsInviteUnresolved", "The invite could not be resolved. The session may have closed.")), FString());
 }
 
 void USteamSessionsSubsystem::HandleConnectRequest(const FSteamJoinIntent& Intent, FSteamId Friend)
