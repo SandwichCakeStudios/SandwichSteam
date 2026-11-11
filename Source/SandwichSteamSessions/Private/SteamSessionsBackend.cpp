@@ -188,7 +188,11 @@ bool FSteamSessionsBackend::CreateSession(const FGameplayTag& ProfileTag, const 
 	{
 		Settings.Set(FName(SandwichSteam::Sessions::ProfileKey()), ProfileTag.ToString(), EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 	}
-	Settings.Set(FName(SandwichSteam::Sessions::NameKey()), InSettings.DisplayName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	if (!InSettings.DisplayName.IsEmpty())
+	{
+		// An empty value only makes the Online Subsystem warn "Empty session setting"; no key reads the same as no name.
+		Settings.Set(FName(SandwichSteam::Sessions::NameKey()), InSettings.DisplayName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	}
 	for (const TPair<FName, FString>& Pair : InSettings.Settings)
 	{
 		if (!Pair.Key.IsNone())
@@ -237,7 +241,14 @@ bool FSteamSessionsBackend::UpdateSession(const FSteamSessionSettings& InSetting
 	Settings.bAllowJoinViaPresence = Shape.bAllowJoinViaPresence;
 	Settings.bAllowJoinViaPresenceFriendsOnly = Shape.bAllowJoinViaPresenceFriendsOnly;
 
-	Settings.Set(FName(SandwichSteam::Sessions::NameKey()), InSettings.DisplayName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	if (InSettings.DisplayName.IsEmpty())
+	{
+		Settings.Remove(FName(SandwichSteam::Sessions::NameKey()));
+	}
+	else
+	{
+		Settings.Set(FName(SandwichSteam::Sessions::NameKey()), InSettings.DisplayName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	}
 	for (const TPair<FName, FString>& Pair : InSettings.Settings)
 	{
 		if (!Pair.Key.IsNone())
@@ -464,8 +475,13 @@ FString FSteamSessionsBackend::DescribeSession() const
 		return TEXT("No session.");
 	}
 
+	// The host has no connect string to itself, and asking logs "Invalid session info" each time (the report is polled every frame).
 	FString Connect;
-	GetConnectString(Connect);
+	const bool bHost = IsHost();
+	if (!bHost)
+	{
+		GetConnectString(Connect);
+	}
 
 	FString Text = FString::Printf(TEXT("State: %s, %s\n"), EOnlineSessionState::ToString(Session->SessionState), Session->bHosting ? TEXT("hosting") : TEXT("joined"));
 	Text += FString::Printf(TEXT("Session id: %s, owner: %s\n"), *Session->GetSessionIdStr(), *Session->OwningUserName);
@@ -478,7 +494,7 @@ FString FSteamSessionsBackend::DescribeSession() const
 		Session->SessionSettings.bUseLobbiesIfAvailable ? TEXT("yes") : TEXT("no"),
 		Session->SessionSettings.bAllowInvites ? TEXT("yes") : TEXT("no"),
 		Session->SessionSettings.bAllowJoinInProgress ? TEXT("yes") : TEXT("no"));
-	Text += FString::Printf(TEXT("Connect string: %s"), Connect.IsEmpty() ? TEXT("(none)") : *Connect);
+	Text += FString::Printf(TEXT("Connect string: %s"), bHost ? TEXT("(hosting)") : (Connect.IsEmpty() ? TEXT("(none)") : *Connect));
 	return Text;
 }
 
