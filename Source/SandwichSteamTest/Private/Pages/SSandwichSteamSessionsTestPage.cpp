@@ -3,15 +3,50 @@
 #include "Pages/SSandwichSteamSessionsTestPage.h"
 #include "Data/SteamAppDefinition.h"
 #include "Engine/World.h"
+#include "Misc/DateTime.h"
 #include "Pages/SandwichSteamTestSlate.h"
+#include "SteamSessionsSettings.h"
 #include "SteamSessionsSubsystem.h"
+#include "UObject/Package.h"
 
 #define LOCTEXT_NAMESPACE "SandwichSteamTestSessions"
+
+namespace
+{
+	/** Auto Travel After Join as it is set now (the join result text depends on it). */
+	bool IsAutoTravelOn()
+	{
+		const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
+		return Settings && Settings->bAutoTravelAfterJoin;
+	}
+
+	/** Auto Follow Party Match as it is set now (members only follow a party match by themselves when it is on). */
+	bool IsAutoFollowOn()
+	{
+		const USteamSessionsSettings* Settings = USteamSessionsSettings::Get();
+		return Settings && Settings->bAutoFollowPartyMatch;
+	}
+}
+
+SSandwichSteamSessionsTestPage::~SSandwichSteamSessionsTestPage()
+{
+	Unbind();
+	if (Listener.IsValid())
+	{
+		Listener->OnJoinRequested = nullptr;
+		Listener->OnJoinFinished = nullptr;
+	}
+}
 
 void SSandwichSteamSessionsTestPage::Construct(const FArguments& InArgs)
 {
 	WorldContext = InArgs._WorldContext;
 	Status = LOCTEXT("Ready", "Ready. Needs the OnlineSubsystemSteam setup (Configure Steam), a session profile in the App Definition and, to join, a second machine with a second Steam account.");
+
+	Listener.Reset(NewObject<USandwichSteamSessionsTestListener>(GetTransientPackage()));
+	Listener->OnJoinRequested = [this](const FSteamJoinRequest& Request) { HandleJoinRequested(Request); };
+	Listener->OnJoinFinished = [this](const FSteamResult& Result, const FString& ConnectString) { HandleJoinFinished(Result, ConnectString); };
+	UpdateBinding();
 
 	ChildSlot
 	[
@@ -54,6 +89,20 @@ void SSandwichSteamSessionsTestPage::Construct(const FArguments& InArgs)
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Accept", "Accept request"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnAccept)) ]
 			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("Decline", "Decline request"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnDecline)) ]
 		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 6.f)[ SandwichSteamTest::MakeSectionTitle(LOCTEXT("JoinEvents", "Join events (newest first; invites accepted on this machine show here)")) ]
+		+ SVerticalBox::Slot().AutoHeight()[ SandwichSteamTest::MakeRow(LOCTEXT("AutoTravel", "Auto travel after join"), TAttribute<FText>::CreateLambda([]
+		{
+			return IsAutoTravelOn() ? LOCTEXT("AutoTravelOn", "yes") : LOCTEXT("AutoTravelOff", "no (a join does not connect: call Travel To Session)");
+		})) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
+		[
+			SNew(STextBlock).AutoWrapText(true).Text_Lambda([this] { return BuildJoinEventsText(); })
+		]
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			SNew(SWrapBox).UseAllottedSize(true)
+			+ SWrapBox::Slot().Padding(0.f, 0.f, 8.f, 6.f)[ SandwichSteamTest::MakeButton(LOCTEXT("ClearJoinEvents", "Clear join events"), FOnClicked::CreateSP(this, &SSandwichSteamSessionsTestPage::OnClearJoinEvents)) ]
+		]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 6.f)[ SandwichSteamTest::MakeSectionTitle(LOCTEXT("Lobby", "Lobby (party lobby and session lobby; the Target button of the Party box picks one)")) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)
 		[
@@ -77,6 +126,10 @@ void SSandwichSteamSessionsTestPage::Construct(const FArguments& InArgs)
 		[
 			SNew(STextBlock).AutoWrapText(true).Text_Lambda([this] { return BuildPartyText(); })
 		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 6.f)[ SandwichSteamTest::MakeRow(LOCTEXT("AutoFollow", "Auto follow party match"), TAttribute<FText>::CreateLambda([]
+		{
+			return IsAutoFollowOn() ? LOCTEXT("AutoFollowOn", "yes") : LOCTEXT("AutoFollowOff", "no (members do not follow a match by themselves: press Follow match)");
+		})) ]
 		+ SVerticalBox::Slot().AutoHeight()
 		[
 			SNew(SWrapBox).UseAllottedSize(true)
@@ -109,6 +162,87 @@ void SSandwichSteamSessionsTestPage::Construct(const FArguments& InArgs)
 USteamSessionsSubsystem* SSandwichSteamSessionsTestPage::GetSessions() const
 {
 	return USteamSessionsSubsystem::Get(WorldContext.Get());
+}
+
+void SSandwichSteamSessionsTestPage::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
+{
+	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+	UpdateBinding();
+}
+
+void SSandwichSteamSessionsTestPage::UpdateBinding()
+{
+	USteamSessionsSubsystem* Sessions = GetSessions();
+	if (Sessions == BoundSessions.Get() || !Listener.IsValid())
+	{
+		return;
+	}
+
+	Unbind();
+	if (Sessions)
+	{
+		Sessions->OnJoinRequested.AddUniqueDynamic(Listener.Get(), &USandwichSteamSessionsTestListener::HandleJoinRequested);
+		Sessions->OnSessionJoinFinished.AddUniqueDynamic(Listener.Get(), &USandwichSteamSessionsTestListener::HandleJoinFinished);
+		BoundSessions = Sessions;
+	}
+}
+
+void SSandwichSteamSessionsTestPage::Unbind()
+{
+	USteamSessionsSubsystem* Sessions = BoundSessions.Get();
+	if (Sessions && Listener.IsValid())
+	{
+		Sessions->OnJoinRequested.RemoveDynamic(Listener.Get(), &USandwichSteamSessionsTestListener::HandleJoinRequested);
+		Sessions->OnSessionJoinFinished.RemoveDynamic(Listener.Get(), &USandwichSteamSessionsTestListener::HandleJoinFinished);
+	}
+	BoundSessions.Reset();
+}
+
+void SSandwichSteamSessionsTestPage::HandleJoinRequested(const FSteamJoinRequest& Request)
+{
+	const UEnum* SourceEnum = StaticEnum<ESteamJoinSource>();
+	const UEnum* ActionEnum = StaticEnum<ESteamJoinAction>();
+	AddJoinEvent(FString::Printf(TEXT("Request (%s) for %s%s, in match: %s, action: %s%s"),
+		SourceEnum ? *SourceEnum->GetDisplayNameTextByValue(static_cast<int64>(Request.Source)).ToString() : TEXT("?"),
+		Request.LobbyId.IsValid() ? *Request.LobbyId.ToString() : *Request.ServerAddress,
+		Request.bParty ? TEXT(" (party)") : TEXT(""),
+		Request.bInMatch ? TEXT("yes") : TEXT("no"),
+		ActionEnum ? *ActionEnum->GetDisplayNameTextByValue(static_cast<int64>(Request.Action)).ToString() : TEXT("?"),
+		Request.Action == ESteamJoinAction::AskGame ? TEXT(" (press Accept request or Decline request)") : TEXT("")));
+}
+
+void SSandwichSteamSessionsTestPage::HandleJoinFinished(const FSteamResult& Result, const FString& ConnectString)
+{
+	if (!Result.IsSuccess())
+	{
+		AddJoinEvent(FString::Printf(TEXT("Join failed (%s): %s"), *Result.ErrorTag.ToString(), *Result.Message.ToString()));
+		return;
+	}
+
+	AddJoinEvent(FString::Printf(TEXT("Joined, connect string %s: %s"), ConnectString.IsEmpty() ? TEXT("-") : *ConnectString,
+		IsAutoTravelOn() ? TEXT("travelling") : TEXT("not travelling (Auto Travel After Join is off)")));
+}
+
+void SSandwichSteamSessionsTestPage::AddJoinEvent(const FString& Line)
+{
+	JoinEvents.Insert(FString::Printf(TEXT("%s  %s"), *FDateTime::Now().ToString(TEXT("%H:%M:%S")), *Line), 0);
+	if (JoinEvents.Num() > MaxJoinEvents)
+	{
+		JoinEvents.SetNum(MaxJoinEvents);
+	}
+}
+
+FText SSandwichSteamSessionsTestPage::BuildJoinEventsText() const
+{
+	return JoinEvents.IsEmpty()
+		? LOCTEXT("NoJoinEvents", "No join events yet.")
+		: FText::FromString(FString::Join(JoinEvents, TEXT("\n")));
+}
+
+FReply SSandwichSteamSessionsTestPage::OnClearJoinEvents()
+{
+	JoinEvents.Reset();
+	return FReply::Handled();
 }
 
 FText SSandwichSteamSessionsTestPage::BuildStateText() const
@@ -323,9 +457,16 @@ FReply SSandwichSteamSessionsTestPage::OnJoinFirst()
 	const TSharedRef<FText> Async = AsyncStatus;
 	const FSteamResult Result = Sessions->JoinSession((*Found)[0], FSteamSessionJoinDelegate::CreateLambda([Async](const FSteamResult& Done, const FString& Connect)
 	{
-		*Async = Done.IsSuccess()
-			? FText::Format(LOCTEXT("Joined", "Joined. Connect string: {0}"), FText::FromString(Connect))
-			: FText::Format(LOCTEXT("JoinFailed", "Join failed ({0}): {1}"), FText::FromName(Done.ErrorTag.GetTagName()), Done.Message);
+		if (!Done.IsSuccess())
+		{
+			*Async = FText::Format(LOCTEXT("JoinFailed", "Join failed ({0}): {1}"), FText::FromName(Done.ErrorTag.GetTagName()), Done.Message);
+		}
+		else
+		{
+			*Async = IsAutoTravelOn()
+				? FText::Format(LOCTEXT("JoinedTravelling", "Joined. Travelling to {0}."), FText::FromString(Connect))
+				: FText::Format(LOCTEXT("JoinedNotTravelling", "Joined, but not travelling: Auto Travel After Join is off. Connect string: {0}"), FText::FromString(Connect));
+		}
 	}));
 
 	*AsyncStatus = FText::GetEmpty();
