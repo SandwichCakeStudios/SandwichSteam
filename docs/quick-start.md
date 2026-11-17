@@ -8,6 +8,8 @@ nav_order: 3
 
 By the end of this page you will have unlocked a real Steam achievement from a Blueprint, using Valve's free test app *Spacewar*, without buying anything.
 
+Prefer video? Watch the **[Sandwich Steam tutorial on YouTube](https://www.youtube.com/watch?v=3_jwDnk6ito)** by [mayudm](https://www.youtube.com/@mayudm).
+
 1. TOC
 {:toc}
 

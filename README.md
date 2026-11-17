@@ -73,6 +73,8 @@ Use it from **Blueprints** or **C++**. Set it up from an editor dashboard instea
 
 Full walkthrough: **[Quick Start: your first achievement in 10 minutes](https://sandwichcakestudios.github.io/SandwichSteam/quick-start.html)**
 
+Video tutorial: **[Sandwich Steam tutorial on YouTube](https://www.youtube.com/watch?v=3_jwDnk6ito)** by [mayudm](https://www.youtube.com/@mayudm)
+
 ## Requirements
 
 - Unreal Engine **5.4, 5.5, 5.6, 5.7 or 5.8** (see [Supported engine versions](#supported-engine-versions))
